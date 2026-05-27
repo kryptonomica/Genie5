@@ -1,0 +1,56 @@
+# EditorConfig — cross-platform code-style baseline.
+# https://editorconfig.org
+#
+# Every editor that respects EditorConfig (VS, Rider, VS Code, Sublime,
+# Neovim, etc.) will honour these defaults so contributors don't fight
+# about tabs-vs-spaces or trailing whitespace.
+
+root = true
+
+# ─── All text files ────────────────────────────────────────────────────────
+[*]
+charset                  = utf-8
+end_of_line              = lf
+indent_style             = space
+indent_size              = 4
+insert_final_newline     = true
+trim_trailing_whitespace = true
+
+# ─── C# source ─────────────────────────────────────────────────────────────
+[*.{cs,vb}]
+indent_size              = 4
+
+# Common .NET preferences (a few high-value rules; not exhaustive)
+csharp_new_line_before_open_brace                                     = all
+csharp_new_line_before_else                                           = true
+csharp_new_line_before_catch                                          = true
+csharp_new_line_before_finally                                        = true
+csharp_prefer_braces                                                  = true:warning
+csharp_style_namespace_declarations                                   = file_scoped:warning
+csharp_style_var_for_built_in_types                                   = true:suggestion
+csharp_style_var_when_type_is_apparent                                = true:suggestion
+dotnet_sort_system_directives_first                                   = true
+dotnet_separate_import_directive_groups                               = false
+
+# ─── XAML / Avalonia ──────────────────────────────────────────────────────
+[*.{xaml,axaml}]
+indent_size              = 2
+
+# ─── Project / build files ────────────────────────────────────────────────
+[*.{csproj,vbproj,sln,props,targets}]
+indent_size              = 2
+
+# ─── JSON / YAML / Markdown ───────────────────────────────────────────────
+[*.{json,yml,yaml}]
+indent_size              = 2
+
+[*.md]
+indent_size              = 2
+trim_trailing_whitespace = false   # markdown uses trailing whitespace for line breaks
+
+# ─── Genie 4 scripting files ──────────────────────────────────────────────
+# .cmd scripts use whatever whitespace the script author chose;
+# don't impose our convention on community-authored scripts.
+[*.cmd]
+trim_trailing_whitespace = false
+insert_final_newline     = false

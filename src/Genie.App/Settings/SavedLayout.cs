@@ -1,0 +1,84 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Genie.App.Settings;
+
+/// <summary>
+/// A user-named snapshot of the App's layout-related state: which dock
+/// tools are visible, where the hands strip sits, RT badge position,
+/// per-tag visibility filters, main-window size, etc.
+///
+/// <para>
+/// This is the "Workspace presets" feature — Genie 4 parity. Users
+/// rearrange their windows for hunting vs crafting vs roleplay and
+/// switch between named layouts via the Layout menu. Each saved
+/// layout lives at <c>{AppData}/Genie5/Layouts/{Name}.json</c>.
+/// </para>
+///
+/// <para>
+/// We intentionally don't serialise the full Dock.Avalonia tree.
+/// Tool identity comes from the factory (string IDs); we capture
+/// visibility + a handful of cross-cutting display flags and let
+/// the factory rebuild the tree on apply. The trade-off is that
+/// fine-grained adjustments (splitter positions within a tab group)
+/// don't round-trip — those need real dock serialisation, which
+/// can land in a later iteration.
+/// </para>
+/// </summary>
+public sealed class SavedLayout
+{
+    /// <summary>User-given name. Doubles as filename (sanitised on save).</summary>
+    public string Name { get; set; } = "Untitled";
+
+    /// <summary>Optional one-liner from the Save As dialog.</summary>
+    public string Description { get; set; } = "";
+
+    /// <summary>ISO timestamp of when this layout was saved.</summary>
+    public string SavedAt { get; set; } = DateTimeOffset.Now.ToString("O");
+
+    // ── Window geometry ────────────────────────────────────────────────
+
+    public double WindowWidth  { get; set; } = 1280;
+    public double WindowHeight { get; set; } = 800;
+
+    // ── Dock-tool visibility ───────────────────────────────────────────
+
+    /// <summary>String IDs of every tool that should be visible in the
+    /// dock. Matches <see cref="Docking.GenieDockFactory"/> tool IDs:
+    /// "vitals", "room", "backpack", "mapper", "logons", "talk",
+    /// "whispers", "thoughts", "combat", etc.</summary>
+    public List<string> VisibleTools { get; set; } = new();
+
+    // ── Cross-cutting display flags ────────────────────────────────────
+
+    public bool   HandsStripVisible    { get; set; } = true;
+    public bool   HandsStripAtBottom   { get; set; } = true;
+    public bool   ShowStatusBar        { get; set; } = true;
+    public bool   RoundTimeOnHandsStrip{ get; set; } = false;
+
+    /// <summary>Per-tag visibility filters (Window → Game Window).</summary>
+    public bool   ShowGameText         { get; set; } = true;
+    public bool   ShowEchoText         { get; set; } = true;
+    public bool   ShowScriptText       { get; set; } = true;
+
+    /// <summary>Map canvas background hex — kept here so themed layouts
+    /// (light mode in town, dark for hunting) round-trip the mapper
+    /// background too.</summary>
+    public string MapBackgroundHex     { get; set; } = "#1A1A1A";
+
+    // ── (De)serialisation helpers ──────────────────────────────────────
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+    };
+
+    public string ToJson() => JsonSerializer.Serialize(this, JsonOpts);
+
+    public static SavedLayout? FromJson(string json)
+    {
+        try { return JsonSerializer.Deserialize<SavedLayout>(json, JsonOpts); }
+        catch { return null; }
+    }
+}

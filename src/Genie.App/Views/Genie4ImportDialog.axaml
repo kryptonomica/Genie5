@@ -1,0 +1,179 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Genie.App.ViewModels"
+        x:Class="Genie.App.Views.Genie4ImportDialog"
+        x:DataType="vm:Genie4ImportViewModel"
+        Title="Import from Genie 4"
+        Width="640" Height="640"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" Margin="16">
+
+    <!-- ── Intro ──────────────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
+      <TextBlock Text="Import settings from a Genie 4 install"
+                 FontSize="14" FontWeight="SemiBold" Foreground="#cdd"/>
+      <TextBlock Foreground="#888" FontSize="11" TextWrapping="Wrap"
+                 Text="Bring your highlights, triggers, substitutes, gags, aliases, macros, variables, and classes across from Genie 4. The cfg files are read once; your Genie 4 install is left untouched."/>
+    </StackPanel>
+
+    <!-- ── Source folder ──────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,12">
+      <TextBlock Text="GENIE 4 CONFIG FOLDER" Foreground="#7a92a8"
+                 FontSize="10" FontWeight="SemiBold"/>
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBox Grid.Column="0" Text="{Binding SourcePath}"
+                 FontFamily="Consolas,Courier New,monospace" FontSize="11"
+                 Watermark="C:\Users\You\AppData\Roaming\Genie Client 4\Config"/>
+        <Button Grid.Column="1" Content="Browse…" Margin="4,0,0,0"
+                Command="{Binding BrowseCommand}"/>
+      </Grid>
+      <TextBlock Text="{Binding SourceStatus}" Foreground="#aab"
+                 FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+    </StackPanel>
+
+    <!-- ── Types + Target + Mode (scrollable in case content overflows) ── -->
+    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12">
+
+        <!-- ── Per-type checkboxes with probed counts ────────────────── -->
+        <StackPanel Spacing="3">
+          <TextBlock Text="WHAT TO IMPORT" Foreground="#7a92a8"
+                     FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+          <Grid ColumnDefinitions="*,*">
+            <StackPanel Grid.Column="0" Spacing="2">
+              <CheckBox IsChecked="{Binding ImportHighlights}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Highlights" FontSize="12"/>
+                  <TextBlock Text="{Binding CountHighlights, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountHighlights, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportTriggers}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Triggers" FontSize="12"/>
+                  <TextBlock Text="{Binding CountTriggers, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountTriggers, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportSubstitutes}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Substitutes" FontSize="12"/>
+                  <TextBlock Text="{Binding CountSubstitutes, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountSubstitutes, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportGags}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Gags" FontSize="12"/>
+                  <TextBlock Text="{Binding CountGags, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountGags, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+              <CheckBox IsChecked="{Binding ImportAliases}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Aliases" FontSize="12"/>
+                  <TextBlock Text="{Binding CountAliases, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountAliases, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportMacros}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Macros" FontSize="12"/>
+                  <TextBlock Text="{Binding CountMacros, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountMacros, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportVariables}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Variables" FontSize="12"/>
+                  <TextBlock Text="{Binding CountVariables, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountVariables, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+              <CheckBox IsChecked="{Binding ImportClasses}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="Classes" FontSize="12"/>
+                  <TextBlock Text="{Binding CountClasses, StringFormat='— {0} rules'}"
+                             Foreground="#88a0b8" FontSize="11"
+                             IsVisible="{Binding CountClasses, Converter={x:Static vm:Genie4ImportViewModel.PositiveConverter}}"/>
+                </StackPanel>
+              </CheckBox>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+
+        <!-- ── Target: Global vs Per-character ────────────────────────── -->
+        <StackPanel Spacing="3">
+          <TextBlock Text="APPLY TO" Foreground="#7a92a8"
+                     FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <RadioButton GroupName="Target"
+                       IsChecked="{Binding TargetIsGlobal}"
+                       Content="Everyone (saved to the global Config folder — all profiles inherit)"
+                       FontSize="12"/>
+          <RadioButton GroupName="Target"
+                       IsChecked="{Binding TargetIsProfile}"
+                       IsEnabled="{Binding ProfileTargetEnabled}"
+                       Content="{Binding ProfileTargetLabel}"
+                       FontSize="12"/>
+        </StackPanel>
+
+        <!-- ── Mode: Merge / Replace / Skip ────────────────────────────── -->
+        <StackPanel Spacing="3">
+          <TextBlock Text="MERGE BEHAVIOR" Foreground="#7a92a8"
+                     FontSize="10" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <RadioButton GroupName="Mode" IsChecked="{Binding ModeIsMerge}"
+                       Content="Merge — overwrite matches, add new"
+                       ToolTip.Tip="Existing rules with the same name get the Genie 4 value. New names are appended. Safest if you've already created some rules in Genie 5."
+                       FontSize="12"/>
+          <RadioButton GroupName="Mode" IsChecked="{Binding ModeIsAddOnly}"
+                       Content="Add only — keep existing, append new"
+                       ToolTip.Tip="Existing rules win. Genie 4 entries are only added when no rule with that name already exists."
+                       FontSize="12"/>
+          <RadioButton GroupName="Mode" IsChecked="{Binding ModeIsReplace}"
+                       Content="Replace — clear existing rules first"
+                       ToolTip.Tip="Wipes the existing rules in each selected engine, then imports from Genie 4. Use for a clean migration."
+                       FontSize="12"/>
+        </StackPanel>
+
+        <!-- ── Result summary ──────────────────────────────────────────── -->
+        <Border Background="#1a1a1a" BorderBrush="#333" BorderThickness="1"
+                CornerRadius="3" Padding="8"
+                IsVisible="{Binding ResultMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+          <SelectableTextBlock Text="{Binding ResultMessage}"
+                               Foreground="#cdd" FontSize="11"
+                               FontFamily="Consolas,Courier New,monospace"/>
+        </Border>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ── Spacer + busy hint ─────────────────────────────────────────── -->
+    <TextBlock Grid.Row="3" Text="Importing…"
+               Foreground="#88c0e8" FontSize="11" FontWeight="SemiBold"
+               Margin="0,8,0,0" HorizontalAlignment="Right"
+               IsVisible="{Binding IsBusy}"/>
+
+    <!-- ── Action buttons ─────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="4" Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <Button Content="Close"  Command="{Binding CancelCommand}" Width="80"/>
+      <Button Content="Import" Command="{Binding ImportCommand}" Width="80"
+              IsDefault="True"/>
+    </StackPanel>
+
+  </Grid>
+</Window>

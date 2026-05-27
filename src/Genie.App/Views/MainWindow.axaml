@@ -1,0 +1,783 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Genie.App.ViewModels"
+        xmlns:dockc="using:Dock.Avalonia.Controls"
+        x:Class="Genie.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding WindowTitle}"
+        Width="1280" Height="800"
+        MinWidth="800" MinHeight="500">
+
+  <DockPanel>
+
+    <!-- ── Menu bar ──────────────────────────────────────────────────────── -->
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="_File">
+        <MenuItem Header="_Connect..."    Command="{Binding ConnectCommand}"/>
+        <MenuItem Header="_Disconnect"    Command="{Binding DisconnectCommand}"/>
+        <Separator/>
+        <MenuItem Header="_Record Session (raw XML)"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding IsRecording, Mode=OneWay}"
+                  Command="{Binding ToggleRecordingCommand}"
+                  ToolTip.Tip="Capture the raw game XML stream to a file under AppData/Genie5/Logs/ for later review. One file per Start. Stops automatically on disconnect. While active, the title bar shows ● REC. Use AFTER you connect — toggling before a live session is open captures nothing."/>
+        <MenuItem Header="Open Recordings _Folder"
+                  Command="{Binding OpenRecordingsFolderCommand}"
+                  ToolTip.Tip="Open the {AppData}/Genie5/Logs/ folder where Record Session saves its `.xml` captures. There's no in-App replay viewer yet — use the Console (dotnet run --project src/Genie.Core -- REPLAY &lt;file&gt;) to play recordings back."/>
+        <Separator/>
+        <MenuItem Header="_Update Maps from Official Repo..."
+                  Command="{Binding Mapper.UpdateMapsCommand}"
+                  ToolTip.Tip="Download the latest zone XML files from github.com/GenieClient/Maps and merge with your local maps directory."/>
+        <MenuItem Header="_Open Maps Folder"
+                  Command="{Binding OpenMapsFolderCommand}"
+                  ToolTip.Tip="Open the current Maps directory in your file browser so you can see / hand-edit the .xml zone files."/>
+        <MenuItem Header="C_hange Maps Directory..."
+                  Command="{Binding SetMapsDirectoryCommand}"
+                  ToolTip.Tip="Pick a DIFFERENT folder to use as your Maps directory. Useful for pointing at a local git clone of github.com/GenieClient/Maps for git workflow (pull / push / pull-request)."/>
+        <MenuItem Header="Cross-_Zone Connections..."
+                  Command="{Binding ZoneConnectionsCommand}"
+                  ToolTip.Tip="Open the meta-graph editor: transit links between zones (boats, climb-walls, ferry crossings) that the multi-zone pathfinder consults. Saves to {MapsDirectory}/ZoneConnections.xml."/>
+        <Separator/>
+        <MenuItem Header="_Import from Genie 4..."
+                  Command="{Binding Genie4ImportCommand}"
+                  ToolTip.Tip="One-time migration of your Genie 4 settings: highlights, triggers, substitutes, gags, aliases, macros, variables, classes. Choose Global (all characters) or per-character. Your Genie 4 install is left untouched."/>
+        <Separator/>
+        <MenuItem Header="E_xit"          Command="{Binding ExitCommand}"/>
+      </MenuItem>
+      <MenuItem Header="_Edit">
+        <MenuItem Header="_Configuration..."    Command="{Binding ConfigurationCommand}"/>
+        <Separator/>
+        <MenuItem Header="_Display Settings..." Command="{Binding DisplaySettingsCommand}"/>
+      </MenuItem>
+      <MenuItem Header="_Layout" Command="{Binding RefreshLayoutListCommand}">
+        <MenuItem Header="_Save Layout As..."
+                  Command="{Binding SaveLayoutAsCommand}"
+                  ToolTip.Tip="Save the current arrangement of panels + hands strip + RT badge etc as a named preset. Each preset lives at {AppData}/Genie5/Layouts/{Name}.json so you can copy / share between machines."/>
+        <MenuItem Header="_Load Layout"
+                  ItemsSource="{Binding SavedLayoutNames}"
+                  ToolTip.Tip="Switch to a saved layout preset.">
+          <MenuItem.DataTemplates>
+            <DataTemplate DataType="x:String">
+              <MenuItem Header="{Binding}"
+                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).LoadLayoutCommand}"
+                        CommandParameter="{Binding}"/>
+            </DataTemplate>
+          </MenuItem.DataTemplates>
+        </MenuItem>
+        <Separator/>
+        <MenuItem Header="_Reset to Default Layout"
+                  Command="{Binding ResetLayoutCommand}"
+                  ToolTip.Tip="Restore the factory-default 3-column arrangement (Room+Streams / Game+Mapper / Backpack)."/>
+      </MenuItem>
+      <MenuItem Header="_Window" SubmenuOpened="OnWindowMenuOpened">
+
+        <!-- ── Top / bottom chrome strips (not dockable tools) ──────────── -->
+        <MenuItem Header="Hands _Strip"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding Display.ShowHandsBar}"
+                  Command="{Binding ToggleHandsBarCommand}"
+                  ToolTip.Tip="Show/hide the hands &amp; prepared-spell strip"/>
+        <MenuItem Header="Hands Strip P_osition"
+                  ToolTip.Tip="Where the hands strip docks. Top = just below the menu. Bottom = between the command bar and the vitals strip (Genie 4 muscle memory).">
+          <MenuItem Header="_Top"
+                    ToggleType="Radio" GroupName="HandsPos"
+                    IsChecked="{Binding Display.HandsAtTop, Mode=OneWay}"
+                    Command="{Binding HandsBarToTopCommand}"
+                    ToolTip.Tip="Dock the hands strip at the top of the window, just below the menu."/>
+          <MenuItem Header="_Bottom (Genie 4)"
+                    ToggleType="Radio" GroupName="HandsPos"
+                    IsChecked="{Binding Display.HandsAtBottom, Mode=OneWay}"
+                    Command="{Binding HandsBarToBottomCommand}"
+                    ToolTip.Tip="Dock the hands strip at the bottom of the window, just above the vitals strip — Genie 4 layout."/>
+        </MenuItem>
+        <MenuItem Header="_Roundtime Position"
+                  ToolTip.Tip="Where the &quot;⏱ N.Ns&quot; roundtime badge appears while you're locked in RT.">
+          <MenuItem Header="_Command Bar"
+                    ToggleType="Radio" GroupName="RtPos"
+                    IsChecked="{Binding Display.RoundTimeOnCommandBar, Mode=OneWay}"
+                    Command="{Binding RoundTimeToCommandBarCommand}"
+                    ToolTip.Tip="Show the RT badge inline with the command input row at the bottom — Genie 4 layout."/>
+          <MenuItem Header="_Hands Strip"
+                    ToggleType="Radio" GroupName="RtPos"
+                    IsChecked="{Binding Display.RoundTimeOnHandsStrip, Mode=OneWay}"
+                    Command="{Binding RoundTimeToHandsStripCommand}"
+                    ToolTip.Tip="Show the RT badge as an inline R-badge on the L/R/S hands strip, so the &quot;what's locked&quot; indicators all live together."/>
+        </MenuItem>
+        <MenuItem Header="Stat_us Bar"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding Display.ShowStatusBar}"
+                  Command="{Binding ToggleStatusBarCommand}"
+                  ToolTip.Tip="Show/hide the Wrayth-style vitals strip at the bottom of the window"/>
+
+        <Separator/>
+
+        <!-- ── Main document ─────────────────────────────────────────── -->
+        <MenuItem Header="_Game"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding GameVisible, Mode=OneWay}"
+                  Command="{Binding ToggleGameCommand}"
+                  ToolTip.Tip="Show/hide the main game text document"/>
+
+        <!-- ── Per-tag visibility within the Game window ─────────────── -->
+        <!-- Lets the user mute classes of line without losing game text:
+             unchecking "Script Lines" hides [script]…[recorder]… etc.,
+             unchecking "Echo Lines" hides typed-command echoes ("> look"),
+             unchecking "Game Text" hides server-emitted text (rare to want
+             this, but useful in scripted hunting where the user only wants
+             to see their own input + script chatter). -->
+        <MenuItem Header="Game _Window">
+          <MenuItem Header="_Game Text"
+                    ToggleType="CheckBox"
+                    IsChecked="{Binding Display.ShowGameText}"
+                    ToolTip.Tip="Server-emitted text (room descriptions, combat, NPC speech, …). Uncheck to hide all game text from the main window."/>
+          <MenuItem Header="_Echo Lines"
+                    ToggleType="CheckBox"
+                    IsChecked="{Binding Display.ShowEchoText}"
+                    ToolTip.Tip="Typed-command echoes (the &quot;&gt; look&quot;-style local echo when you submit input). Uncheck to hide them."/>
+          <MenuItem Header="_Script Lines"
+                    ToggleType="CheckBox"
+                    IsChecked="{Binding Display.ShowScriptText}"
+                    ToolTip.Tip="Script-engine and system diagnostics (&quot;[script] foo done&quot;, &quot;[recorder] subscribed&quot;, etc.). Uncheck to hide them during scripted play."/>
+        </MenuItem>
+
+        <Separator/>
+
+        <!-- ── Side-dock tools (OneWay IsChecked: only the Command changes
+             the bool — no spurious target→source pushes during binding init) -->
+        <MenuItem Header="_Vitals"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding VitalsVisible, Mode=OneWay}"
+                  Command="{Binding ToggleVitalsCommand}"/>
+        <MenuItem Header="_Room"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding RoomVisible, Mode=OneWay}"
+                  Command="{Binding ToggleRoomCommand}"/>
+        <MenuItem Header="_Backpack"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding BackpackVisible, Mode=OneWay}"
+                  Command="{Binding ToggleBackpackCommand}"/>
+        <MenuItem Header="_Mapper"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding MapperVisible, Mode=OneWay}"
+                  Command="{Binding ToggleMapperCommand}"/>
+        <MenuItem Header="Float Mapper _Window"
+                  Command="{Binding Mapper.FloatCommand}"
+                  ToolTip.Tip="Pop the Mapper out into its own OS window. Drag its title bar back over Genie to re-dock."/>
+
+        <Separator/>
+
+        <!-- ── Stream tools ──────────────────────────────────────────── -->
+        <MenuItem Header="_Logons"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding LogonsVisible, Mode=OneWay}"
+                  Command="{Binding ToggleLogonsCommand}"/>
+        <MenuItem Header="_Talk"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding TalkVisible, Mode=OneWay}"
+                  Command="{Binding ToggleTalkCommand}"/>
+        <MenuItem Header="_Whispers"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding WhispersVisible, Mode=OneWay}"
+                  Command="{Binding ToggleWhispersCommand}"/>
+        <MenuItem Header="T_houghts"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding ThoughtsVisible, Mode=OneWay}"
+                  Command="{Binding ToggleThoughtsCommand}"/>
+        <MenuItem Header="_Combat"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding CombatVisible, Mode=OneWay}"
+                  Command="{Binding ToggleCombatCommand}"/>
+
+        <Separator/>
+
+        <MenuItem Header="Reset _Layout"
+                  Command="{Binding ResetLayoutCommand}"
+                  ToolTip.Tip="Restore all windows to visible (does not move them back to default positions)"/>
+
+      </MenuItem>
+    </Menu>
+
+    <!-- ── Hands / prepared-spell strip (Wrayth-style) ──────────────────── -->
+    <!-- Two declarations, one at top, one at bottom — IsVisible picks which     -->
+    <!-- one is realized based on Display.HandsAtBottom. Both bind to the same   -->
+    <!-- VitalsViewModel data, so flipping the toggle is instant and lossless.   -->
+    <!-- (DataTemplate-via-Resource would dedupe the markup, but a direct        -->
+    <!-- duplicate keeps the file self-contained and easy to read.)              -->
+    <Border DockPanel.Dock="Top"
+            IsVisible="{Binding Display.ShowHandsTop}"
+            Background="#1c1c1c"
+            BorderBrush="#3a3a3a" BorderThickness="0,0,0,1"
+            Padding="10,5">
+      <StackPanel Orientation="Horizontal" Spacing="24">
+
+        <!-- ── Roundtime (optional position) ─────────────────────────
+             Inline RT badge — visible only when the user chose "Hands Strip"
+             for the roundtime position. ShowRtOnHandsStrip is computed on
+             MainWindowViewModel as (Vitals.InRoundTime AND
+             Display.RoundTimeOnHandsStrip). Red palette matches the command-
+             bar version so the indicator means the same thing wherever it
+             sits. -->
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding ShowRtOnHandsStrip}">
+          <Border Background="#5a1a1a" BorderBrush="#8a2a2a" BorderThickness="1"
+                  CornerRadius="2" Padding="6,1">
+            <TextBlock Text="R" Foreground="#ffd0d0" FontWeight="SemiBold" FontSize="11"
+                       ToolTip.Tip="Roundtime — your character can't act until this expires"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.RoundTimeSeconds, StringFormat='{}{0:F1}s'}"
+                     Foreground="#ffd0d0" FontSize="12" MinWidth="40"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="L" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.LeftHand, FallbackValue=Empty}"
+                     Foreground="#ddd" FontSize="12" MinWidth="140"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="R" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.RightHand, FallbackValue=Empty}"
+                     Foreground="#ddd" FontSize="12" MinWidth="140"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- ── Stance ────────────────────────────────────────────────
+             Six mutually-exclusive badges (one per DR stance) wired to
+             mutually-exclusive bools on VitalsViewModel. Color follows the
+             red→green gradient that matches the stance gauge in Genie 4:
+             red for all-out attack, green for full defense. Whole sub-group
+             collapses to zero width pre-connect (no badge true) but as soon
+             as the server pushes the first <component id="pc stance"> the
+             matching one lights up. -->
+        <Border IsVisible="{Binding Vitals.IsStanceOffensive}"
+                Background="#3a1818" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Offensive — maximum damage out, minimum defense.">
+          <TextBlock Text="OFF" Foreground="#ff5050" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceAdvance}"
+                Background="#3a2418" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Advance — favors attack over defense.">
+          <TextBlock Text="ADV" Foreground="#ff8040" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceForward}"
+                Background="#3a3018" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Forward — slight tilt toward attack.">
+          <TextBlock Text="FWD" Foreground="#ffb040" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceNeutral}"
+                Background="#2a2a2a" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Neutral — balanced offense and defense.">
+          <TextBlock Text="NEU" Foreground="#d8c060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceGuarded}"
+                Background="#1c3018" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Guarded — slight tilt toward defense.">
+          <TextBlock Text="GRD" Foreground="#80c060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceDefensive}"
+                Background="#143a14" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Defensive — maximum defense, minimum damage out.">
+          <TextBlock Text="DEF" Foreground="#40d060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="S" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"
+                       ToolTip.Tip="Prepared spell. (N) is seconds since prep started."/>
+          </Border>
+          <!-- The label is "(N) Spell Name" while a spell is held, or empty
+               when nothing is prepared. VitalsViewModel rebuilds it each tick
+               so (N) counts up automatically — no XAML side computation.
+               MinWidth=170 accommodates the longest DR spell names ("Refractive
+               Field", "Whole Displacement") so the bar (in the next sub-group)
+               doesn't crowd against the trailing letter. -->
+          <TextBlock Text="{Binding Vitals.PreparedSpellLabel}"
+                     Foreground="#c8a8e0" FontSize="12" MinWidth="170"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Magenta prep-countdown bar — separate StackPanel sibling so the
+             parent's Spacing=24 puts visible breathing room between the spell
+             name and the bar. IsVisible collapses the whole strip when no
+             prep is active, so the layout doesn't reserve dead space. -->
+        <!-- Margin gives extra breathing room on both sides so the bar reads
+             as its own widget — the track's dark plum (#2a1024) sits in the
+             same value range as the status-badge backgrounds (#2a2a2a) and
+             the strip background (#1c1c1c), so without explicit padding the
+             bar visually blurs into KNEEL/HIDE/etc. on the right and into
+             the spell name on the left. A faint BorderBrush draws the edge
+             so even when the bar is mostly empty (low remaining seconds) the
+             outline is clearly demarcated. -->
+        <Border IsVisible="{Binding Vitals.IsPrepping}"
+                MinWidth="90" Width="100"
+                Margin="6,0,6,0"
+                VerticalAlignment="Center"
+                BorderBrush="#7a3580" BorderThickness="1" CornerRadius="3"
+                ToolTip.Tip="Seconds remaining until the prepared spell is fully harnessed.">
+          <Grid>
+            <ProgressBar Value="{Binding Vitals.CastBarSecondsRemaining}"
+                         Maximum="{Binding Vitals.CastBarSecondsTotal}"
+                         Foreground="#D040C0" Background="#2a1024"
+                         Height="14" CornerRadius="2"/>
+            <TextBlock Text="{Binding Vitals.CastBarSecondsRemaining}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="10" Foreground="#fff" FontWeight="SemiBold"/>
+          </Grid>
+        </Border>
+
+        <!-- ── Status indicators ──────────────────────────────────────
+             Each badge is IsVisible-bound to the matching Vitals bool, so
+             only active statuses render and the whole sub-group naturally
+             collapses to zero width when standing-upright with no afflictions.
+             Ordering goes posture → stealth → combat-condition → affliction
+             → critical, so the most situational badges sit nearer the front
+             and DEAD lands far right where the eye notices it last (but
+             unmistakably). Colors hint at severity: dim grays for benign
+             postures, warm yellows for "watch out", orange/red for combat
+             conditions, red for blood, green for poison/disease, bright red
+             for dead. -->
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <!-- Posture (mutually exclusive with each other and with Standing) -->
+          <Border IsVisible="{Binding Vitals.IsKneeling}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are kneeling.">
+            <TextBlock Text="KNEEL" Foreground="#d8c060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsProne}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are prone.">
+            <TextBlock Text="PRONE" Foreground="#d8a040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsSitting}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are sitting.">
+            <TextBlock Text="SIT" Foreground="#a0a0a0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Stealth -->
+          <Border IsVisible="{Binding Vitals.IsHidden}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are hidden.">
+            <TextBlock Text="HIDE" Foreground="#8090a8" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsInvisible}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are invisible.">
+            <TextBlock Text="INVIS" Foreground="#6080a0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Combat conditions -->
+          <Border IsVisible="{Binding Vitals.IsStunned}"
+                  Background="#3a2a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are stunned — input ignored.">
+            <TextBlock Text="STUN" Foreground="#ffa040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsWebbed}"
+                  Background="#3a3020" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are webbed.">
+            <TextBlock Text="WEB" Foreground="#d0c060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsJoined}"
+                  Background="#202a3a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are joined to someone.">
+            <TextBlock Text="JOIN" Foreground="#80a0d0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Health afflictions -->
+          <Border IsVisible="{Binding Vitals.IsBleeding}"
+                  Background="#3a1a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are bleeding.">
+            <TextBlock Text="BLEED" Foreground="#e04060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsPoisoned}"
+                  Background="#1f3a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are poisoned.">
+            <TextBlock Text="POIS" Foreground="#60d060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsDiseased}"
+                  Background="#3a3a1a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are diseased.">
+            <TextBlock Text="DIS" Foreground="#a0a040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Critical — bright + bold so it can't be missed at a glance -->
+          <Border IsVisible="{Binding Vitals.IsDead}"
+                  Background="#5a1010" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are dead.">
+            <TextBlock Text="DEAD" Foreground="#ff6060" FontSize="10" FontWeight="Bold"/>
+          </Border>
+        </StackPanel>
+
+      </StackPanel>
+    </Border>
+
+    <!-- ── Status bar (Wrayth-style, docks below the command bar) ───────── -->
+    <!-- Declared BEFORE the command bar so DockPanel puts it at the very     -->
+    <!-- bottom edge. Toggle via View → Toggle Status Bar.                    -->
+    <Grid DockPanel.Dock="Bottom"
+          IsVisible="{Binding Display.ShowStatusBar}"
+          ColumnDefinitions="*,*,*,*,*"
+          Margin="4,2,4,4">
+
+      <Grid Grid.Column="0" Margin="0,0,2,0">
+        <ProgressBar Value="{Binding Vitals.Health}" Maximum="100"
+                     Foreground="#C04040" Background="#3a1010" Height="18"
+                     CornerRadius="3"/>
+        <TextBlock Text="{Binding Vitals.Health, StringFormat='health {0}%'}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="11" Foreground="#fff" FontWeight="SemiBold"/>
+      </Grid>
+
+      <Grid Grid.Column="1" Margin="2,0">
+        <ProgressBar Value="{Binding Vitals.Mana}" Maximum="100"
+                     Foreground="#4060C0" Background="#172040" Height="18"
+                     CornerRadius="3"/>
+        <TextBlock Text="{Binding Vitals.Mana, StringFormat='mana {0}%'}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="11" Foreground="#fff" FontWeight="SemiBold"/>
+      </Grid>
+
+      <Grid Grid.Column="2" Margin="2,0">
+        <ProgressBar Value="{Binding Vitals.Stamina}" Maximum="100"
+                     Foreground="#C09040" Background="#4a3818" Height="18"
+                     CornerRadius="3"/>
+        <TextBlock Text="{Binding Vitals.Stamina, StringFormat='fatigue {0}%'}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="11" Foreground="#fff" FontWeight="SemiBold"/>
+      </Grid>
+
+      <Grid Grid.Column="3" Margin="2,0">
+        <ProgressBar Value="{Binding Vitals.Spirit}" Maximum="100"
+                     Foreground="#40A040" Background="#143a14" Height="18"
+                     CornerRadius="3"/>
+        <TextBlock Text="{Binding Vitals.Spirit, StringFormat='spirit {0}%'}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="11" Foreground="#fff" FontWeight="SemiBold"/>
+      </Grid>
+
+      <Grid Grid.Column="4" Margin="2,0,0,0">
+        <ProgressBar Value="{Binding Vitals.Concentration}" Maximum="100"
+                     Foreground="#8040C0" Background="#2a1444" Height="18"
+                     CornerRadius="3"/>
+        <TextBlock Text="{Binding Vitals.Concentration, StringFormat='concentration {0}%'}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="11" Foreground="#fff" FontWeight="SemiBold"/>
+      </Grid>
+    </Grid>
+
+    <!-- ── Hands strip (bottom position — Genie 4 style) ────────────────── -->
+    <!-- Declared AFTER the StatusBar and BEFORE the CommandBar so the         -->
+    <!-- DockPanel stacks (bottom → top): StatusBar, HandsBottom, CommandBar.  -->
+    <!-- IsVisible flips only this copy on; the top copy at the head of the    -->
+    <!-- DockPanel handles the inverse position.                               -->
+    <Border DockPanel.Dock="Bottom"
+            IsVisible="{Binding Display.ShowHandsBottom}"
+            Background="#1c1c1c"
+            BorderBrush="#3a3a3a" BorderThickness="0,1,0,0"
+            Padding="10,5">
+      <StackPanel Orientation="Horizontal" Spacing="24">
+
+        <!-- ── Roundtime (optional position) ─────────────────────────
+             Inline RT badge — visible only when the user chose "Hands Strip"
+             for the roundtime position. ShowRtOnHandsStrip is computed on
+             MainWindowViewModel as (Vitals.InRoundTime AND
+             Display.RoundTimeOnHandsStrip). Red palette matches the command-
+             bar version so the indicator means the same thing wherever it
+             sits. -->
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding ShowRtOnHandsStrip}">
+          <Border Background="#5a1a1a" BorderBrush="#8a2a2a" BorderThickness="1"
+                  CornerRadius="2" Padding="6,1">
+            <TextBlock Text="R" Foreground="#ffd0d0" FontWeight="SemiBold" FontSize="11"
+                       ToolTip.Tip="Roundtime — your character can't act until this expires"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.RoundTimeSeconds, StringFormat='{}{0:F1}s'}"
+                     Foreground="#ffd0d0" FontSize="12" MinWidth="40"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="L" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.LeftHand, FallbackValue=Empty}"
+                     Foreground="#ddd" FontSize="12" MinWidth="140"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="R" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"/>
+          </Border>
+          <TextBlock Text="{Binding Vitals.RightHand, FallbackValue=Empty}"
+                     Foreground="#ddd" FontSize="12" MinWidth="140"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- ── Stance ────────────────────────────────────────────────
+             Six mutually-exclusive badges (one per DR stance) wired to
+             mutually-exclusive bools on VitalsViewModel. Color follows the
+             red→green gradient that matches the stance gauge in Genie 4:
+             red for all-out attack, green for full defense. Whole sub-group
+             collapses to zero width pre-connect (no badge true) but as soon
+             as the server pushes the first <component id="pc stance"> the
+             matching one lights up. -->
+        <Border IsVisible="{Binding Vitals.IsStanceOffensive}"
+                Background="#3a1818" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Offensive — maximum damage out, minimum defense.">
+          <TextBlock Text="OFF" Foreground="#ff5050" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceAdvance}"
+                Background="#3a2418" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Advance — favors attack over defense.">
+          <TextBlock Text="ADV" Foreground="#ff8040" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceForward}"
+                Background="#3a3018" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Forward — slight tilt toward attack.">
+          <TextBlock Text="FWD" Foreground="#ffb040" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceNeutral}"
+                Background="#2a2a2a" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Neutral — balanced offense and defense.">
+          <TextBlock Text="NEU" Foreground="#d8c060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceGuarded}"
+                Background="#1c3018" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Guarded — slight tilt toward defense.">
+          <TextBlock Text="GRD" Foreground="#80c060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+        <Border IsVisible="{Binding Vitals.IsStanceDefensive}"
+                Background="#143a14" CornerRadius="2" Padding="5,1" VerticalAlignment="Center"
+                ToolTip.Tip="Stance: Defensive — maximum defense, minimum damage out.">
+          <TextBlock Text="DEF" Foreground="#40d060" FontSize="10" FontWeight="SemiBold"/>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
+            <TextBlock Text="S" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"
+                       ToolTip.Tip="Prepared spell. (N) is seconds since prep started."/>
+          </Border>
+          <!-- The label is "(N) Spell Name" while a spell is held, or empty
+               when nothing is prepared. VitalsViewModel rebuilds it each tick
+               so (N) counts up automatically — no XAML side computation.
+               MinWidth=170 accommodates the longest DR spell names ("Refractive
+               Field", "Whole Displacement") so the bar (in the next sub-group)
+               doesn't crowd against the trailing letter. -->
+          <TextBlock Text="{Binding Vitals.PreparedSpellLabel}"
+                     Foreground="#c8a8e0" FontSize="12" MinWidth="170"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Magenta prep-countdown bar — separate StackPanel sibling so the
+             parent's Spacing=24 puts visible breathing room between the spell
+             name and the bar. IsVisible collapses the whole strip when no
+             prep is active, so the layout doesn't reserve dead space. -->
+        <!-- Margin gives extra breathing room on both sides so the bar reads
+             as its own widget — the track's dark plum (#2a1024) sits in the
+             same value range as the status-badge backgrounds (#2a2a2a) and
+             the strip background (#1c1c1c), so without explicit padding the
+             bar visually blurs into KNEEL/HIDE/etc. on the right and into
+             the spell name on the left. A faint BorderBrush draws the edge
+             so even when the bar is mostly empty (low remaining seconds) the
+             outline is clearly demarcated. -->
+        <Border IsVisible="{Binding Vitals.IsPrepping}"
+                MinWidth="90" Width="100"
+                Margin="6,0,6,0"
+                VerticalAlignment="Center"
+                BorderBrush="#7a3580" BorderThickness="1" CornerRadius="3"
+                ToolTip.Tip="Seconds remaining until the prepared spell is fully harnessed.">
+          <Grid>
+            <ProgressBar Value="{Binding Vitals.CastBarSecondsRemaining}"
+                         Maximum="{Binding Vitals.CastBarSecondsTotal}"
+                         Foreground="#D040C0" Background="#2a1024"
+                         Height="14" CornerRadius="2"/>
+            <TextBlock Text="{Binding Vitals.CastBarSecondsRemaining}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontSize="10" Foreground="#fff" FontWeight="SemiBold"/>
+          </Grid>
+        </Border>
+
+        <!-- ── Status indicators ──────────────────────────────────────
+             Each badge is IsVisible-bound to the matching Vitals bool, so
+             only active statuses render and the whole sub-group naturally
+             collapses to zero width when standing-upright with no afflictions.
+             Ordering goes posture → stealth → combat-condition → affliction
+             → critical, so the most situational badges sit nearer the front
+             and DEAD lands far right where the eye notices it last (but
+             unmistakably). Colors hint at severity: dim grays for benign
+             postures, warm yellows for "watch out", orange/red for combat
+             conditions, red for blood, green for poison/disease, bright red
+             for dead. -->
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <!-- Posture (mutually exclusive with each other and with Standing) -->
+          <Border IsVisible="{Binding Vitals.IsKneeling}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are kneeling.">
+            <TextBlock Text="KNEEL" Foreground="#d8c060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsProne}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are prone.">
+            <TextBlock Text="PRONE" Foreground="#d8a040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsSitting}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are sitting.">
+            <TextBlock Text="SIT" Foreground="#a0a0a0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Stealth -->
+          <Border IsVisible="{Binding Vitals.IsHidden}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are hidden.">
+            <TextBlock Text="HIDE" Foreground="#8090a8" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsInvisible}"
+                  Background="#2a2a2a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are invisible.">
+            <TextBlock Text="INVIS" Foreground="#6080a0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Combat conditions -->
+          <Border IsVisible="{Binding Vitals.IsStunned}"
+                  Background="#3a2a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are stunned — input ignored.">
+            <TextBlock Text="STUN" Foreground="#ffa040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsWebbed}"
+                  Background="#3a3020" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are webbed.">
+            <TextBlock Text="WEB" Foreground="#d0c060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsJoined}"
+                  Background="#202a3a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are joined to someone.">
+            <TextBlock Text="JOIN" Foreground="#80a0d0" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Health afflictions -->
+          <Border IsVisible="{Binding Vitals.IsBleeding}"
+                  Background="#3a1a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are bleeding.">
+            <TextBlock Text="BLEED" Foreground="#e04060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsPoisoned}"
+                  Background="#1f3a20" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are poisoned.">
+            <TextBlock Text="POIS" Foreground="#60d060" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+          <Border IsVisible="{Binding Vitals.IsDiseased}"
+                  Background="#3a3a1a" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are diseased.">
+            <TextBlock Text="DIS" Foreground="#a0a040" FontSize="10" FontWeight="SemiBold"/>
+          </Border>
+
+          <!-- Critical — bright + bold so it can't be missed at a glance -->
+          <Border IsVisible="{Binding Vitals.IsDead}"
+                  Background="#5a1010" CornerRadius="2" Padding="5,1"
+                  ToolTip.Tip="You are dead.">
+            <TextBlock Text="DEAD" Foreground="#ff6060" FontSize="10" FontWeight="Bold"/>
+          </Border>
+        </StackPanel>
+
+      </StackPanel>
+    </Border>
+
+    <!-- ── Script Bar (auto-hides when no scripts running) ───────────────── -->
+    <!-- Genie 4 muscle memory — shows what scripts are running with a tiny
+         × per item so the user can stop them in-place. Hidden when empty
+         so the strip costs zero vertical space during ordinary play.
+         Declared AFTER the command bar so it sits ABOVE the command bar
+         in DockPanel terms (DockPanel allocates bottom-docked items in
+         reverse declaration order, working from the bottom up). -->
+    <Border DockPanel.Dock="Bottom"
+            IsVisible="{Binding ScriptBar.HasScripts}"
+            Background="#1f2429" BorderBrush="#3a4148" BorderThickness="0,1,0,0"
+            Padding="6,3">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <TextBlock Text="Scripts:" Foreground="#8aa3b5" FontSize="11"
+                   FontWeight="SemiBold" VerticalAlignment="Center"
+                   Margin="0,0,2,0"/>
+        <ItemsControl ItemsSource="{Binding ScriptBar.RunningScripts}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="4"/>
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <Border Background="#283139" BorderBrush="#3e4a55"
+                      BorderThickness="1" CornerRadius="3" Padding="6,1">
+                <StackPanel Orientation="Horizontal" Spacing="4"
+                            VerticalAlignment="Center">
+                  <TextBlock Text="{Binding}" FontSize="11"
+                             Foreground="#cfe0ee" VerticalAlignment="Center"/>
+                  <Button Content="✏"
+                          FontSize="10" Padding="3,0" MinWidth="0" MinHeight="0"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="#80a8c0"
+                          ToolTip.Tip="Edit this script in the configured editor"
+                          Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ScriptBar.EditScriptCommand}"
+                          CommandParameter="{Binding}"/>
+                  <Button Content="✕"
+                          FontSize="10" Padding="3,0" MinWidth="0" MinHeight="0"
+                          Background="Transparent" BorderThickness="0"
+                          Foreground="#d08080"
+                          ToolTip.Tip="Stop this script (#stop)"
+                          Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ScriptBar.StopScriptCommand}"
+                          CommandParameter="{Binding}"/>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+
+    <!-- ── Command bar (above status bar) ────────────────────────────────── -->
+    <!-- Three columns: RT badge | input box | Send. The RT badge is only
+         visible while a roundtime is active; it ticks down live courtesy of
+         the VitalsViewModel timer. -->
+    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="Auto,*,Auto" Margin="4,2">
+
+      <Border Grid.Column="0"
+              IsVisible="{Binding ShowRtInCommandBar}"
+              Background="#5a1a1a" BorderBrush="#8a2a2a" BorderThickness="1"
+              CornerRadius="3" Padding="6,2" Margin="0,0,4,0"
+              VerticalAlignment="Stretch"
+              ToolTip.Tip="Roundtime — your character can't act until this expires. Right-click Window → Roundtime Position to relocate."
+              MinWidth="64">
+        <TextBlock Foreground="#ffd0d0" FontWeight="SemiBold"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontSize="12">
+          <Run Text="⏱ "/><Run Text="{Binding Vitals.RoundTimeSeconds, StringFormat={}{0:F1}s}"/>
+        </TextBlock>
+      </Border>
+
+      <TextBox Grid.Column="1"
+               Text="{Binding Command.CommandText}"
+               Watermark="Enter command..."
+               FontFamily="Consolas,Courier New,monospace"
+               KeyDown="CommandInput_KeyDown">
+        <TextBox.KeyBindings>
+          <KeyBinding Gesture="Return" Command="{Binding Command.SubmitCommand}"/>
+        </TextBox.KeyBindings>
+      </TextBox>
+      <Button Grid.Column="2" Content="Send" Margin="4,0,0,0"
+              Command="{Binding Command.SubmitCommand}"/>
+    </Grid>
+
+    <!-- ── Dock control (fills remaining space) ──────────────────────────── -->
+    <dockc:DockControl Layout="{Binding DockLayout}"
+                       Factory="{Binding DockFactory}"
+                       InitializeLayout="True"/>
+
+  </DockPanel>
+</Window>

@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Genie.App.Views.MacrosPanel">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="4,4,4,0">
+      <Button Content="Add New" Click="OnAdd"/>
+      <Button Content="Delete"  Click="OnDelete"/>
+      <Button Content="Import…" Click="OnImport"/>
+    </StackPanel>
+
+    <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="4">
+      <DataGrid Name="ItemsList"
+                Grid.Row="0"
+                Margin="0,0,0,4"
+                IsReadOnly="True"
+                SelectionMode="Single"
+                CanUserSortColumns="True"
+                GridLinesVisibility="Horizontal"
+                HeadersVisibility="Column"
+                x:CompileBindings="False"
+                SelectionChanged="OnSelectionChanged">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Key"    Binding="{Binding Key}"    Width="Auto"/>
+          <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="*"/>
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <Grid Grid.Row="1"
+            ColumnDefinitions="Auto,*"
+            RowDefinitions="Auto,Auto,Auto,Auto"
+            Margin="0,4,0,0">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Key:" VerticalAlignment="Top" Margin="0,4,8,4"
+                   ToolTip.Tip="Click the field and press the key combo to capture (e.g. F1, Ctrl+H, Alt+Shift+F5)."/>
+        <TextBox   Grid.Row="0" Grid.Column="1" Name="KeyBox" Margin="0,0,0,4"
+                   FontFamily="Consolas,Courier New,monospace"
+                   Watermark="Press a key combo…"
+                   IsReadOnly="True"
+                   KeyDown="OnKeyBoxKeyDown"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Action:" VerticalAlignment="Top" Margin="0,4,8,4"/>
+        <TextBox   Grid.Row="1" Grid.Column="1" Name="ActionBox" Margin="0,0,0,4"
+                   AcceptsReturn="True" TextWrapping="Wrap" Height="60"/>
+
+        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,2,0,4">
+          <Button Content="Save"  Click="OnSave"/>
+          <Button Content="Clear" Click="OnClear"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" Grid.Column="1" Name="StatusText" Margin="0,6,0,0"
+                   Foreground="Gray" FontStyle="Italic"/>
+      </Grid>
+    </Grid>
+
+  </Grid>
+</UserControl>

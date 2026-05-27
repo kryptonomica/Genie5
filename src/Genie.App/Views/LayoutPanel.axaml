@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Genie.App.Views.LayoutPanel">
+
+  <Grid RowDefinitions="180,*" Margin="4">
+
+    <!-- Top: window list (compact, ~10 entries fit comfortably in 180px) -->
+    <ListBox Name="WindowList"
+             Grid.Row="0"
+             Margin="0,0,0,6"
+             SelectionChanged="OnWindowSelected"/>
+
+    <!-- Bottom: settings form, multi-column for compactness -->
+    <Grid Grid.Row="1"
+          ColumnDefinitions="Auto,*,Auto,*"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+          Margin="0,4,0,0">
+
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Title:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3"
+                 Name="TitleBox" Margin="0,0,0,4"/>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Font family:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="1" Grid.Column="1" Name="FontFamilyBox" Margin="0,0,8,4"
+                 Watermark="e.g. Cascadia Mono,Consolas"/>
+      <TextBlock Grid.Row="1" Grid.Column="2" Text="Font size:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="1" Grid.Column="3" Name="FontSizeBox" Margin="0,0,0,4"
+                 HorizontalAlignment="Left" Width="80"/>
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Foreground:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,8,4">
+        <ColorPicker Name="FgColorPicker" IsAlphaEnabled="False"/>
+        <CheckBox    Name="FgDefaultCheck" Content="Use default" VerticalAlignment="Center"/>
+      </StackPanel>
+      <TextBlock Grid.Row="2" Grid.Column="2" Text="Background:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="2" Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+        <ColorPicker Name="BgColorPicker" IsAlphaEnabled="False"/>
+        <CheckBox    Name="BgNoneCheck" Content="None" VerticalAlignment="Center"/>
+      </StackPanel>
+
+      <TextBlock Grid.Row="3" Grid.Column="0" Text="Redirect if closed:" VerticalAlignment="Center" Margin="0,0,8,4"
+                 ToolTip.Tip="When this window's panel is closed, output is redirected here. (default) falls through to the main game window; (disabled) discards output entirely."/>
+      <ComboBox  Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3"
+                 Name="IfClosedBox" Margin="0,0,0,4" HorizontalAlignment="Stretch"/>
+
+      <CheckBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3"
+                Name="TimestampCheck" Content="Prepend timestamp to each line" Margin="0,2,0,4"/>
+
+      <StackPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3"
+                  Orientation="Horizontal" Spacing="4" Margin="0,2,0,4">
+        <Button Content="Apply" Click="OnApply"/>
+        <Button Content="Reset" Click="OnReset"/>
+      </StackPanel>
+
+      <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3"
+                 Name="StatusText" Margin="0,6,0,0"
+                 Foreground="Gray" FontStyle="Italic"/>
+
+    </Grid>
+  </Grid>
+</UserControl>

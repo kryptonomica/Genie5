@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Genie.App/Genie.App.csproj" />
+    <Project Path="src/Genie.Core/Genie.Core.csproj" />
+  </Folder>
+</Solution>

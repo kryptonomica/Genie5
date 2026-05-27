@@ -1,0 +1,97 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Genie.App.Views.HighlightStringsPanel">
+
+  <Grid RowDefinitions="Auto,*">
+
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="4,4,4,0">
+      <Button Content="Add New" Click="OnAdd" />
+      <Button Content="Delete"  Click="OnDelete" />
+      <Button Content="Toggle"  Click="OnToggle" />
+      <Button Content="Import…" Click="OnImport" />
+    </StackPanel>
+
+    <!-- Top: rule list (takes remaining height).  Bottom: editor pane (fixed). -->
+    <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="4">
+      <DataGrid Name="ItemsList"
+                Grid.Row="0"
+                Margin="0,0,0,4"
+                IsReadOnly="True"
+                SelectionMode="Single"
+                CanUserSortColumns="True"
+                GridLinesVisibility="Horizontal"
+                HeadersVisibility="Column"
+                x:CompileBindings="False"
+                SelectionChanged="OnSelectionChanged">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="On"    Binding="{Binding EnabledGlyph}"    Width="40" />
+          <DataGridTextColumn Header="Match" Binding="{Binding MatchType}"       Width="Auto" />
+          <DataGridTextColumn Header="Fg"    Binding="{Binding ForegroundColor}" Width="Auto" />
+          <DataGridTextColumn Header="Bg"    Binding="{Binding BackgroundColor}" Width="Auto" />
+          <!-- Pattern cell is rendered IN the rule's own fg/bg so the row
+               itself previews what the highlight will look like. -->
+          <DataGridTemplateColumn Header="Pattern" Width="*">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate>
+                <Border Background="{Binding PatternBackground}" Padding="6,1">
+                  <TextBlock Text="{Binding Pattern}"
+                             Foreground="{Binding PatternForeground}"
+                             VerticalAlignment="Center"/>
+                </Border>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+          <DataGridTextColumn Header="Class" Binding="{Binding ClassName}" Width="Auto" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <!-- Editor: laid out as a wider grid so the form fits in the lower
+           band without needing as much vertical space as the side-by-side
+           layout did. Pattern + Match span two columns; the two ColorPickers
+           sit side-by-side. -->
+      <Grid Grid.Row="1"
+            ColumnDefinitions="Auto,*,Auto,*"
+            RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+            Margin="0,4,0,0">
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Pattern:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+        <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3"
+                   Name="PatternBox" Margin="0,0,0,4"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Foreground:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,8,4">
+          <ColorPicker Name="FgColorPicker" IsAlphaEnabled="False"/>
+          <CheckBox    Name="FgDefaultCheck" Content="Use default" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock Grid.Row="1" Grid.Column="2" Text="Background:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+        <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+          <ColorPicker Name="BgColorPicker" IsAlphaEnabled="False"/>
+          <CheckBox    Name="BgNoneCheck" Content="None" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Match:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+        <ComboBox  Grid.Row="2" Grid.Column="1"
+                   Name="MatchTypeBox" Margin="0,0,8,4" HorizontalAlignment="Stretch"/>
+        <TextBlock Grid.Row="2" Grid.Column="2" Text="Class:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+        <TextBox   Grid.Row="2" Grid.Column="3" Name="ClassBox" Margin="0,0,0,4"/>
+
+        <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3"
+                    Orientation="Horizontal" Spacing="16" Margin="0,2,0,4">
+          <CheckBox Name="CaseSensitiveCheck" Content="Case sensitive"/>
+          <CheckBox Name="EnabledCheck"       Content="Enabled" IsChecked="True"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3"
+                    Orientation="Horizontal" Spacing="4" Margin="0,2,0,0">
+          <Button Content="Save"  Click="OnSave"/>
+          <Button Content="Clear" Click="OnClear"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3"
+                   Name="StatusText" Margin="0,6,0,0"
+                   Foreground="Gray" FontStyle="Italic"/>
+      </Grid>
+    </Grid>
+
+  </Grid>
+</UserControl>

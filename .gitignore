@@ -1,0 +1,103 @@
+# ─── Per-machine dev-tool scratch files ──────────────────────────────────
+# Editor + AI-assistant scratch state. Per-developer; never tracked.
+CLAUDE.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+
+
+# ─── .NET / Visual Studio / Rider build artefacts ──────────────────────────
+bin/
+obj/
+# `dotnet publish` output and release zips — large, regenerable.
+# (Inline comments after a pattern aren't valid in .gitignore — Git treats
+#  the whole line as the pattern. Keep the comment on its own line.)
+publish/
+*.user
+*.suo
+*.userprefs
+*.pidb
+*.swp
+*.DotSettings.user
+.vs/
+.vscode/
+.idea/
+*.csproj.cache
+*.csproj.FileListAbsolute.txt
+*.cache
+
+# ─── NuGet package state (path leakage on TSR-Jason machine) ──────────────
+*.nupkg
+*.snupkg
+*.nuget.cache
+*.nuget.dgspec.json
+*.nuget.g.props
+*.nuget.g.targets
+project.assets.json
+project.nuget.cache
+[Pp]ackages/
+
+# ─── OS junk ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Genie 5 runtime data (per-machine, not for the repo) ─────────────────
+# Recordings: raw XML captures from live sessions — contains other players'
+# speech, character data, login state. Must NEVER be in the public repo.
+test_results/
+Logs/
+*.log
+
+# Per-character profiles: encrypted passwords, character names, layout
+# state. Lives in {AppData}/Genie5/Profiles/ at runtime but in case anyone
+# copies one into the repo for testing, gitignore here too.
+Profiles/
+profiles.json
+display.json
+paths.json
+
+# Maps: user-edited local map data. The official source-of-truth is
+# github.com/GenieClient/Maps. We ship a migration that pulls from there;
+# we don't ship maps in this repo.
+Maps/
+*.xml.backup
+
+# ─── Reference repos (third-party source for design study) ────────────────
+# We clone Genie 4 + Lich 5 + Mudlet etc. into _refs/ for cross-reference
+# while building Genie 5. They have their own licenses; don't ship them
+# embedded in this repo.
+_refs/
+
+# ─── Agent / IDE context ──────────────────────────────────────────────────
+# Per-developer agent project memory and IDE state — contains personal
+# notes, in-progress checkpoints, character references, etc. Each
+# contributor keeps their own.
+.claude/
+.cursor/
+.aider*
+CLAUDE.local.md
+
+# ─── Old sandbox + replay-test artefacts ──────────────────────────────────
+# Older sandbox outputs from before TestHarness + the new src/ layout were
+# in place. Kept locally for reference but not for the public repo.
+files/
+replay_*.txt
+*_raw.cs
+ScriptEngine_raw.cs
+ScriptExpression_raw.cs
+ScriptParser_raw.cs
+
+# ─── Secrets & credentials ────────────────────────────────────────────────
+# Belt-and-braces — nothing in source today, but defense-in-depth for
+# any future credential/config files.
+*.env
+.env*
+secrets.json
+credentials.json
+appsettings.Development.json
+appsettings.*.local.json
+*.pfx
+*.key
+*.pem

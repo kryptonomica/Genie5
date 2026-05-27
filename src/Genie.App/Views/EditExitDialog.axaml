@@ -1,0 +1,164 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Genie.App.ViewModels"
+        x:Class="Genie.App.Views.EditExitDialog"
+        x:DataType="vm:EditExitViewModel"
+        Title="Edit Exit"
+        Width="560" Height="620"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+
+    <!-- ── Context row (read-only header) ─────────────────────────────── -->
+    <Border Grid.Row="0" Background="#1a1a1a" BorderBrush="#333"
+            BorderThickness="1" CornerRadius="3" Padding="12,8" Margin="0,0,0,12">
+      <StackPanel Spacing="3">
+        <Grid ColumnDefinitions="60,*">
+          <TextBlock Grid.Column="0" Text="From:" Foreground="#888" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding FromRoomTitle}"
+                     Foreground="#cdd" FontSize="11" FontWeight="SemiBold"/>
+        </Grid>
+        <Grid ColumnDefinitions="60,*">
+          <TextBlock Grid.Column="0" Text="Verb:" Foreground="#888" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding ExitVerb}"
+                     Foreground="#88c0e8" FontSize="11"
+                     FontFamily="Consolas,Courier New,monospace"/>
+        </Grid>
+        <Grid ColumnDefinitions="60,*">
+          <TextBlock Grid.Column="0" Text="To:" Foreground="#888" FontSize="11"/>
+          <TextBlock Grid.Column="1" Text="{Binding ToRoomTitle}"
+                     Foreground="#cdd" FontSize="11" FontWeight="SemiBold"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- ── Editable fields ───────────────────────────────────────────── -->
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="14">
+
+        <!-- ── REQUIREMENTS section ───────────────────────────────────── -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="REQUIREMENTS" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+          <!-- Skill rows -->
+          <ItemsControl ItemsSource="{Binding SkillRequirements}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Vertical" Spacing="3"/>
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SkillRequirementRow">
+                <Grid ColumnDefinitions="*,Auto,80,Auto">
+                  <TextBox Grid.Column="0" Text="{Binding Skill}"
+                           Watermark="Skill name (e.g. Climbing)"
+                           FontSize="12"/>
+                  <TextBlock Grid.Column="1" Text="≥" VerticalAlignment="Center"
+                             Margin="6,0,4,0" Foreground="#888"/>
+                  <NumericUpDown Grid.Column="2" Value="{Binding MinRank}"
+                                 Minimum="0" Maximum="2000" Increment="5"
+                                 FormatString="0" FontSize="12"/>
+                  <Button Grid.Column="3" Content="✕" Margin="4,0,0,0"
+                          FontSize="11" Padding="6,2"
+                          Background="#3a2828" Foreground="#d09090"
+                          Command="{Binding $parent[ItemsControl].((vm:EditExitViewModel)DataContext).RemoveSkillCommand}"
+                          CommandParameter="{Binding}"
+                          ToolTip.Tip="Remove this skill requirement"/>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <Button Content="+ Add skill requirement"
+                  Command="{Binding AddSkillCommand}"
+                  HorizontalAlignment="Left" Margin="0,4,0,0"
+                  FontSize="11" Padding="8,3"
+                  ToolTip.Tip="Add another (skill, min-rank) requirement. ANDed against the previous rows."/>
+
+          <Separator Margin="0,8,0,4"/>
+
+          <Grid ColumnDefinitions="100,*">
+            <TextBlock Grid.Column="0" Text="Required class:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <TextBox Grid.Column="1" Text="{Binding RequiredClass}"
+                     Watermark="(any) — or e.g. Thief, Empath, Moon Mage"
+                     FontSize="12"/>
+          </Grid>
+
+          <Grid ColumnDefinitions="100,*">
+            <TextBlock Grid.Column="0" Text="Min level:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <NumericUpDown Grid.Column="1" Value="{Binding MinLevel}"
+                           Minimum="0" Maximum="200" Increment="1"
+                           FormatString="0" FontSize="12"
+                           HorizontalAlignment="Stretch"/>
+          </Grid>
+        </StackPanel>
+
+        <!-- ── TIMING section ─────────────────────────────────────────── -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="TIMING" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <Grid ColumnDefinitions="100,*,40">
+            <TextBlock Grid.Column="0" Text="RT cost:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <NumericUpDown Grid.Column="1" Value="{Binding RtCost}"
+                           Minimum="0" Maximum="60" Increment="1"
+                           FormatString="0" FontSize="12"
+                           HorizontalAlignment="Stretch"/>
+            <TextBlock Grid.Column="2" Text="sec" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="11" Margin="4,0,0,0"/>
+          </Grid>
+          <Grid ColumnDefinitions="100,*,40">
+            <TextBlock Grid.Column="0" Text="Wait min:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <NumericUpDown Grid.Column="1" Value="{Binding WaitMin}"
+                           Minimum="0" Maximum="3600" Increment="30"
+                           FormatString="0" FontSize="12"
+                           HorizontalAlignment="Stretch"/>
+            <TextBlock Grid.Column="2" Text="sec" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="11" Margin="4,0,0,0"/>
+          </Grid>
+          <Grid ColumnDefinitions="100,*,40">
+            <TextBlock Grid.Column="0" Text="Wait max:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <NumericUpDown Grid.Column="1" Value="{Binding WaitMax}"
+                           Minimum="0" Maximum="3600" Increment="30"
+                           FormatString="0" FontSize="12"
+                           HorizontalAlignment="Stretch"/>
+            <TextBlock Grid.Column="2" Text="sec" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="11" Margin="4,0,0,0"/>
+          </Grid>
+          <TextBlock Text="Use Wait min/max for boats and scheduled departures. The pathfinder averages the two."
+                     Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- ── NOTES section ──────────────────────────────────────────── -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="NOTES" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBox Text="{Binding Notes}"
+                   Watermark="Free-form notes for the community Maps repo"
+                   FontSize="11" MinHeight="60" MaxHeight="100"
+                   AcceptsReturn="True" TextWrapping="Wrap"/>
+          <TextBlock Text="e.g. &quot;rope needed for ascent&quot; · &quot;only available at night&quot; · &quot;requires beggar disguise&quot;"
+                     Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0"/>
+        </StackPanel>
+
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ── Action buttons ────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="2" Orientation="Horizontal"
+                HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <Button Content="Cancel" Command="{Binding CancelCommand}" Width="80"/>
+      <Button Content="Save"   Command="{Binding OkCommand}" Width="80"
+              IsDefault="True"/>
+    </StackPanel>
+
+  </Grid>
+</Window>

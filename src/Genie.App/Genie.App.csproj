@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Genie.App</RootNamespace>
+    <AssemblyName>Genie</AssemblyName>
+
+    <!-- ── Versioning (shown in File Properties → Details + About box) ── -->
+    <Version>5.0.0-alpha.1</Version>
+    <AssemblyVersion>5.0.0.0</AssemblyVersion>
+    <FileVersion>5.0.0.0</FileVersion>
+    <InformationalVersion>5.0.0-alpha.1</InformationalVersion>
+    <Product>Genie 5</Product>
+    <Company>Genie 5 Project</Company>
+    <Copyright>Copyright © 2026 — GPL-3.0</Copyright>
+
+    <!-- ── Publish settings (override per-RID on the dotnet publish CLI) ── -->
+    <!-- These defaults make `dotnet publish -c Release -r win-x64 -o publish/win-x64`
+         produce a single self-contained .exe with the .NET runtime + native
+         libs (SkiaSharp / HarfBuzz / Avalonia.Win32) bundled inside.
+         Testers can copy a single file and double-click — no .NET install,
+         no dependencies. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- DebugType=embedded keeps PDB symbols inside the exe so stack traces
+         from the field stay readable when testers report crashes. -->
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Controls.ColorPicker" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.6" />
+    <PackageReference Include="Avalonia.ReactiveUI" Version="11.3.6" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.6" />
+    <PackageReference Include="Dock.Avalonia" Version="11.3.6.4" />
+    <PackageReference Include="Dock.Avalonia.Themes.Fluent" Version="11.3.6.4" />
+    <PackageReference Include="Dock.Model.ReactiveUI" Version="11.3.6.4" />
+    <PackageReference Include="ReactiveUI" Version="20.4.1" />
+    <PackageReference Include="ReactiveUI.Fody" Version="19.5.41" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="FodyWeavers.xml" />
+    <None Include="FodyWeavers.xsd" Condition="Exists('FodyWeavers.xsd')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Genie.Core\Genie.Core.csproj" />
+  </ItemGroup>
+
+</Project>

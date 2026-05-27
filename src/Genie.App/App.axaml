@@ -1,0 +1,531 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:docking="using:Genie.App.Docking"
+             xmlns:vm="using:Genie.App.ViewModels"
+             xmlns:controls="using:Genie.App.Controls"
+             xmlns:core="using:Dock.Model.Core"
+             x:Class="Genie.App.App"
+             RequestedThemeVariant="Dark">
+
+  <Application.Styles>
+    <FluentTheme />
+    <DockFluentTheme />
+    <!-- ColorPicker ships its own theme in Avalonia.Controls.ColorPicker;
+         without this include the picker renders as blank space. -->
+    <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml"/>
+    <!-- DataGrid likewise — used by the Configuration dialog's rule tables. -->
+    <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>
+
+    <!-- Tool header: just the title -->
+    <Style Selector="ToolControl">
+      <Setter Property="HeaderTemplate">
+        <DataTemplate DataType="core:IDockable">
+          <TextBlock Text="{Binding Title}" Padding="2"/>
+        </DataTemplate>
+      </Setter>
+    </Style>
+
+    <!-- Document header: title -->
+    <Style Selector="DocumentControl">
+      <Setter Property="HeaderTemplate">
+        <DataTemplate DataType="core:IDockable">
+          <TextBlock Text="{Binding Title}" Padding="2"/>
+        </DataTemplate>
+      </Setter>
+    </Style>
+
+    <!-- Local-echo lines: italic + echo colour, driven by DisplaySettings.
+         Use :is(TextBlock) so SelectableTextBlock (which subclasses TextBlock)
+         also picks up the .echo class style. -->
+    <Style Selector=":is(TextBlock).echo">
+      <Setter Property="Foreground" Value="{DynamicResource EchoBrush}"/>
+      <Setter Property="FontStyle"  Value="{DynamicResource EchoFontStyle}"/>
+    </Style>
+  </Application.Styles>
+
+  <Application.DataTemplates>
+
+    <!-- ── Game text ──────────────────────────────────────────────────────── -->
+    <DataTemplate DataType="docking:GameTextDocument">
+      <Grid Background="{Binding ToolBackground}">
+        <ScrollViewer x:Name="gameScroll"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}">
+          <ItemsControl ItemsSource="{Binding ViewModel.Lines}"
+                        FontFamily="{Binding ToolFontFamily}"
+                        FontSize="{Binding ToolFontSize}"
+                        Foreground="{Binding ToolForeground}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TextLine">
+                <!-- Foreground inherited from the ItemsControl above (which is
+                     bound to the tool's per-window setting). Highlight Inlines
+                     with their own foreground still override; the .echo class
+                     style still wins for typed-input echoes. -->
+                <SelectableTextBlock TextWrapping="Wrap"
+                                     Classes.echo="{Binding IsEcho}"
+                                     controls:InlinesBehavior.Source="{Binding Inlines}"/>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+        <Button HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,20,8"
+                IsVisible="{Binding #gameScroll.Tag.IsScrolledUp}"
+                Command="{Binding #gameScroll.Tag.JumpToBottomCommand}"
+                Content="↓ Bottom" FontSize="11" Padding="8,4" Opacity="0.85"/>
+      </Grid>
+    </DataTemplate>
+
+    <!-- ── Vitals ─────────────────────────────────────────────────────────── -->
+    <DataTemplate DataType="docking:VitalsTool">
+      <ScrollViewer>
+        <StackPanel Spacing="6" Margin="8">
+          <Grid ColumnDefinitions="55,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Health"  Foreground="#aaa" FontSize="11" VerticalAlignment="Center"/>
+            <ProgressBar Grid.Row="0" Grid.Column="1" Value="{Binding ViewModel.Health}"        Maximum="100" Foreground="#e05050" Height="10"/>
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Mana"    Foreground="#aaa" FontSize="11" VerticalAlignment="Center"/>
+            <ProgressBar Grid.Row="1" Grid.Column="1" Value="{Binding ViewModel.Mana}"          Maximum="100" Foreground="#5090e0" Height="10"/>
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Spirit"  Foreground="#aaa" FontSize="11" VerticalAlignment="Center"/>
+            <ProgressBar Grid.Row="2" Grid.Column="1" Value="{Binding ViewModel.Spirit}"        Maximum="100" Foreground="#50e0a0" Height="10"/>
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Stamina" Foreground="#aaa" FontSize="11" VerticalAlignment="Center"/>
+            <ProgressBar Grid.Row="3" Grid.Column="1" Value="{Binding ViewModel.Stamina}"       Maximum="100" Foreground="#e0c050" Height="10"/>
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Conc"    Foreground="#aaa" FontSize="11" VerticalAlignment="Center"/>
+            <ProgressBar Grid.Row="4" Grid.Column="1" Value="{Binding ViewModel.Concentration}" Maximum="100" Foreground="#c050e0" Height="10"/>
+          </Grid>
+          <Separator/>
+          <TextBlock Foreground="#aaa" FontSize="11">
+            <Run Text="RT: "/><Run Text="{Binding ViewModel.RoundTimeSeconds, StringFormat={}{0:F1}s}"/>
+          </TextBlock>
+          <TextBlock Foreground="#aaa" FontSize="11">
+            <Run Text="Spell: "/><Run Text="{Binding ViewModel.PreparedSpell}"/>
+          </TextBlock>
+          <TextBlock Foreground="#aaa" FontSize="11">
+            <Run Text="L: "/><Run Text="{Binding ViewModel.LeftHand}"/>
+            <Run Text="   R: "/><Run Text="{Binding ViewModel.RightHand}"/>
+          </TextBlock>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+
+    <!-- ── Room ───────────────────────────────────────────────────────────── -->
+    <DataTemplate DataType="docking:RoomTool">
+      <ScrollViewer>
+        <StackPanel Spacing="4" Margin="8">
+          <SelectableTextBlock Text="{Binding ViewModel.Title}"       FontWeight="Bold" Foreground="#ccc" TextWrapping="Wrap"/>
+          <SelectableTextBlock Text="{Binding ViewModel.Description}" Foreground="#aaa" FontSize="11"     TextWrapping="Wrap" Margin="0,4,0,0"/>
+          <SelectableTextBlock Foreground="#6af" FontSize="11" Margin="0,4,0,0">
+            <Run Text="Exits: "/><Run Text="{Binding ViewModel.Exits}"/>
+          </SelectableTextBlock>
+          <SelectableTextBlock Foreground="#8d8" FontSize="11">
+            <Run Text="Also here: "/><Run Text="{Binding ViewModel.Players}"/>
+          </SelectableTextBlock>
+          <SelectableTextBlock Foreground="#aaa" FontSize="11">
+            <Run Text="Objects: "/><Run Text="{Binding ViewModel.Objects}"/>
+          </SelectableTextBlock>
+        </StackPanel>
+      </ScrollViewer>
+    </DataTemplate>
+
+    <!-- ── Mapper ────────────────────────────────────────────────────────── -->
+    <!-- Map-dominant layout:                                                 -->
+    <!--   row 0: thin toolbar (zone + level + zoom + pop-out)                -->
+    <!--   row 1: 2-column split — map on left, Details panel on right        -->
+    <!--          (separated by a draggable splitter so users can resize or   -->
+    <!--          drag the Details column all the way closed)                 -->
+    <!--   row 2: status strip (current room title + exits) — compact, spans  -->
+    <!--          both columns                                                -->
+    <DataTemplate DataType="docking:MapperTool">
+      <Grid RowDefinitions="Auto,*,Auto" Margin="0">
+
+        <!-- ── ROW 0: toolbar ────────────────────────────────────────── -->
+        <!-- Pop-out button sits LEFT of the zone dropdown so it's clearly  -->
+        <!-- a window-level action (move the panel) rather than a map-data -->
+        <!-- action (zone / level / zoom). Keeping it in the right-side    -->
+        <!-- cluster put it next to "zoom in" which made it easy to click  -->
+        <!-- by accident while intending a zoom action.                    -->
+        <Border Grid.Row="0" Background="#252525" BorderBrush="#333" BorderThickness="0,0,0,1" Padding="4,3">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="4">
+            <!-- Pop out (window-level action, separated from data-level cluster) -->
+            <Button Grid.Column="0" Content="⬈" Padding="6,1" FontSize="11"
+                    Command="{Binding ViewModel.FloatCommand}"
+                    ToolTip.Tip="Pop out to a separate window"/>
+            <!-- Zone selector — takes available width -->
+            <ComboBox Grid.Column="1"
+                      HorizontalAlignment="Stretch"
+                      ItemsSource="{Binding ViewModel.AvailableZones}"
+                      SelectedItem="{Binding ViewModel.SelectedZoneFile}"
+                      PlaceholderText="(pick a zone)"
+                      MinHeight="24"
+                      ToolTip.Tip="Pick a zone XML from the Maps directory. Auto-detect normally handles this for you when you connect and walk."/>
+            <!-- Level -->
+            <TextBlock Grid.Column="2" Text="{Binding ViewModel.Level, StringFormat='L{0}'}"
+                       Foreground="#cdd" VerticalAlignment="Center" FontSize="11"/>
+            <Button Grid.Column="3" Content="▲" Padding="6,1" FontSize="10"
+                    Command="{Binding ViewModel.LevelUpCommand}"
+                    ToolTip.Tip="Z-level up"/>
+            <Button Grid.Column="4" Content="▼" Padding="6,1" FontSize="10"
+                    Command="{Binding ViewModel.LevelDownCommand}"
+                    ToolTip.Tip="Z-level down"/>
+            <!-- Zoom -->
+            <Button Grid.Column="5" Content="−" Padding="8,1" FontSize="11"
+                    Command="{Binding ViewModel.ZoomOutCommand}"
+                    ToolTip.Tip="Zoom out (or mouse-wheel down over the map)"/>
+            <Button Grid.Column="6" Content="+" Padding="8,1" FontSize="11"
+                    Command="{Binding ViewModel.ZoomInCommand}"
+                    ToolTip.Tip="Zoom in (or mouse-wheel up over the map)"/>
+          </Grid>
+        </Border>
+
+        <!-- ── ROW 1: map (left) + Details panel (right) ─────────────── -->
+        <!-- 3-column split: map gets `*` (all remaining width), splitter   -->
+        <!-- is a 4-px drag handle, Details column is 260 px by default but -->
+        <!-- the user can drag the splitter to resize either side or close  -->
+        <!-- the Details column entirely.                                    -->
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,260">
+
+          <!-- Map (left column) — background lives on the MapCanvas itself
+               (user-customisable); leave the Border transparent so the
+               chosen colour bleeds to the scroll viewport edges.
+               The auto-walk indicator overlays the top of the column when a
+               walk is active; visibility is gated on AutoWalk.Current. -->
+          <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+            <!-- Skills prompt — visible when a zone is loaded but we have
+                 no skill data yet AND the user hasn't dismissed-forever.
+                 Sits at the very top so it's visible before the user
+                 clicks anything; auto-hides on Fetch / Skip / first
+                 skill rank arriving from the parser. -->
+            <Border Grid.Row="0"
+                    IsVisible="{Binding ViewModel.ShowSkillsPrompt}"
+                    Background="#2a3a1a" BorderBrush="#5a7a3a" BorderThickness="0,0,0,1"
+                    Padding="8,5">
+              <StackPanel Orientation="Vertical" Spacing="4">
+                <TextBlock Text="ℹ Pathfinding uses your skill ranks"
+                           Foreground="#cdd" FontSize="11" FontWeight="SemiBold"/>
+                <TextBlock TextWrapping="Wrap"
+                           Foreground="#aab" FontSize="11"
+                           Text="The mapper filters out climbs/swims/etc you can't take. Genie 5 needs to see a `skills` reply once to know your ranks — otherwise every gated exit is assumed reachable."/>
+                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,3,0,0">
+                  <Button Content="Fetch skills now" FontSize="11" Padding="8,2"
+                          Background="#1e3a1e" Foreground="#cdd"
+                          Command="{Binding ViewModel.FetchSkillsCommand}"
+                          ToolTip.Tip="Sends `skills` to the game now. The reply primes the pathfinder's skill table."/>
+                  <Button Content="Skip" FontSize="11" Padding="8,2"
+                          Command="{Binding ViewModel.DismissSkillsPromptCommand}"
+                          ToolTip.Tip="Dismiss for this session — will prompt again next launch."/>
+                  <Button Content="Don't ask again" FontSize="11" Padding="8,2"
+                          Foreground="#aab"
+                          Command="{Binding ViewModel.DontAskAboutSkillsCommand}"
+                          ToolTip.Tip="Hide this prompt permanently. Pathfinder will still work but exits gated by skills you actually lack may not error until you try to walk them."/>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- AutoWalk indicator — appears at the top of the map when a
+                 walk is in flight. Shows current progress, lets the user
+                 see what's happening, and gives an explicit Cancel button.
+                 Auto-hides when no session is active. Includes the boat-
+                 wait countdown bar inline when a cross-zone hop is mid-
+                 transit (matches the spell-cast bar visual pattern from
+                 the Hands Strip — magenta draining bar). -->
+            <Border Grid.Row="1"
+                    IsVisible="{Binding ViewModel.AutoWalk.Current, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Background="#1a3344" BorderBrush="#3a6688" BorderThickness="0,0,0,1"
+                    Padding="8,4">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6"
+                              VerticalAlignment="Center">
+                    <TextBlock Text="⚡" Foreground="#8ad8e8" FontSize="13"
+                               VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ViewModel.AutoWalk.Current.StatusMessage}"
+                               Foreground="#cdd" FontSize="11" FontWeight="SemiBold"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <!-- Resume only visible while paused -->
+                    <Button Content="Resume" FontSize="11" Padding="6,2"
+                            IsVisible="{Binding ViewModel.AutoWalk.IsCurrentPaused}"
+                            Command="{Binding ViewModel.AutoWalk.ResumeCommand}"/>
+                    <Button Content="Cancel" FontSize="11" Padding="6,2"
+                            Background="#5a2828" Foreground="#ffcccc"
+                            Command="{Binding ViewModel.AutoWalk.CancelCommand}"
+                            ToolTip.Tip="Stop the current walk (Esc also cancels)"/>
+                  </StackPanel>
+                </Grid>
+
+                <!-- Boat-wait countdown — visible only during a cross-zone
+                     transit with a known wait window. Magenta to match the
+                     spell-cast bar pattern from the Hands Strip. Bar drains
+                     from full → empty over the expected wait; when 0 it
+                     pegs and the walker keeps listening for the room
+                     change (the actual ETA is fingerprint-driven). -->
+                <Grid ColumnDefinitions="*,Auto"
+                      IsVisible="{Binding ViewModel.AutoWalk.IsWaitingForCrossZone}">
+                  <ProgressBar Grid.Column="0"
+                               Value="{Binding ViewModel.AutoWalk.CurrentWaitSecondsLeft}"
+                               Maximum="{Binding ViewModel.AutoWalk.CurrentWaitTotalSeconds}"
+                               Minimum="0"
+                               Foreground="#d066c8"
+                               Background="#3a1a3a"
+                               Height="14"
+                               VerticalAlignment="Center"/>
+                  <TextBlock Grid.Column="1" Margin="8,0,0,0"
+                             VerticalAlignment="Center"
+                             Foreground="#e0c0e8" FontSize="11"
+                             FontFamily="Consolas,Courier New,monospace">
+                    <Run Text="{Binding ViewModel.AutoWalk.CurrentWaitLabel}"/><Run Text=" · "/><Run Text="{Binding ViewModel.AutoWalk.CurrentWaitDisplay}"/>
+                  </TextBlock>
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Grid.Row="2" Background="{Binding ViewModel.MapBackgroundBrush}">
+              <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                            VerticalScrollBarVisibility="Auto">
+                <controls:MapCanvas Zone="{Binding ViewModel.ActiveZone}"
+                                    CurrentNode="{Binding ViewModel.ActiveNode}"
+                                    Level="{Binding ViewModel.Level}"
+                                    RenderTick="{Binding ViewModel.RenderTick}"
+                                    Zoom="{Binding ViewModel.ZoomLevel}"
+                                    MapBackgroundBrush="{Binding ViewModel.MapBackgroundBrush}"
+                                    NodeClickedCommand="{Binding ViewModel.GotoNodeCommand}"
+                                    EditExitCommand="{Binding ViewModel.EditExitCommand}"/>
+              </ScrollViewer>
+            </Border>
+          </Grid>
+
+          <!-- Drag handle between map and details -->
+          <GridSplitter Grid.Column="1" Width="4"
+                        Background="#333" ResizeDirection="Columns"
+                        VerticalAlignment="Stretch" HorizontalAlignment="Center"
+                        ShowsPreview="False"/>
+
+          <!-- Details panel (right column) — moved from the old bottom    -->
+          <!-- Expander so it doesn't eat vertical space the map needs.    -->
+          <!-- Wrapped in a ScrollViewer so the content scrolls if the     -->
+          <!-- panel is sized narrow / the user adds long Notes text.      -->
+          <Border Grid.Column="2" Background="#1a1a1a"
+                  BorderBrush="#333" BorderThickness="1,0,0,0">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto"
+                          Padding="6,4">
+              <StackPanel Spacing="10">
+
+                <TextBlock Text="DETAILS" Foreground="#cdd" FontSize="11"
+                           FontWeight="SemiBold" Margin="0,0,0,2"/>
+
+                <!-- ── Current Room ─────────────────────────────────── -->
+                <StackPanel Spacing="3">
+                  <TextBlock Text="CURRENT ROOM" Foreground="#7a92a8" FontSize="9"
+                             FontWeight="SemiBold" Margin="0,0,0,2"/>
+                  <Grid ColumnDefinitions="60,*"
+                        IsVisible="{Binding ViewModel.CurrentServerId, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Grid.Column="0" Text="Server id" Foreground="#888" FontSize="11"/>
+                    <SelectableTextBlock Grid.Column="1" Text="{Binding ViewModel.CurrentServerId}"
+                                         Foreground="#cdd" FontSize="11" FontFamily="Consolas,monospace"
+                                         TextWrapping="Wrap"/>
+                  </Grid>
+                  <TextBlock Text="Notes" Foreground="#888" FontSize="11"/>
+                  <TextBox  Text="{Binding ViewModel.CurrentNotes}"
+                            FontSize="11" MinHeight="60" MaxHeight="120"
+                            AcceptsReturn="True" TextWrapping="Wrap"
+                            Watermark="e.g. Pawnshop, Empath's Guild, Bank teller"
+                            ToolTip.Tip="Short label for this room — shown as text next to the dot on the map canvas. Pick the gameplay-meaningful name (vendor / NPC role / dungeon entry / etc.)."/>
+                  <Button Content="Save Notes" Padding="8,2" FontSize="11"
+                          HorizontalAlignment="Right"
+                          Command="{Binding ViewModel.SaveNotesCommand}"
+                          ToolTip.Tip="Save the edited Notes back to the zone XML file. Updates immediately on disk and on the map."/>
+                </StackPanel>
+
+                <!-- ── Zone ─────────────────────────────────────────── -->
+                <StackPanel Spacing="3">
+                  <TextBlock Text="ZONE" Foreground="#7a92a8" FontSize="9"
+                             FontWeight="SemiBold" Margin="0,0,0,2"/>
+                  <Grid ColumnDefinitions="60,*">
+                    <TextBlock Grid.Column="0" Text="Rooms"      Foreground="#888" FontSize="11"/>
+                    <TextBlock Grid.Column="1" Text="{Binding ViewModel.RoomCount}" Foreground="#cdd" FontSize="11"/>
+                  </Grid>
+                  <Grid ColumnDefinitions="60,*"
+                        IsVisible="{Binding ViewModel.ZoneAgeDisplay, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Grid.Column="0" Text="Updated" Foreground="#888" FontSize="11"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="{Binding ViewModel.ZoneAgeDisplay}"
+                                 Foreground="#cdd" FontSize="11" VerticalAlignment="Center"/>
+                      <Border Background="#3a2818" CornerRadius="2" Padding="4,1"
+                              VerticalAlignment="Center"
+                              IsVisible="{Binding ViewModel.IsZoneStale}"
+                              ToolTip.Tip="This zone hasn't been updated in over a month. The community Maps repo may have newer data — try File → Update Maps from Official Repo.">
+                        <TextBlock Text="may be stale" Foreground="#e0a060" FontSize="9" FontWeight="SemiBold"/>
+                      </Border>
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock Text="{Binding ViewModel.MapsDirectory, StringFormat='Maps: {0}'}"
+                             Foreground="#668" FontSize="10" TextWrapping="Wrap"/>
+                  <Border Background="#1e3a1e" CornerRadius="2" Padding="4,1"
+                          HorizontalAlignment="Left"
+                          IsVisible="{Binding ViewModel.IsGitManaged}"
+                          ToolTip.Tip="This directory is a git working copy. Use your preferred git client to pull / commit / push / open pull requests — Genie does not run git itself.">
+                    <TextBlock Text="git-managed" Foreground="#a0e0a0" FontSize="9" FontWeight="SemiBold"/>
+                  </Border>
+                </StackPanel>
+
+                <!-- ── Behavior + Appearance ────────────────────────── -->
+                <StackPanel Spacing="3">
+                  <TextBlock Text="BEHAVIOR" Foreground="#7a92a8" FontSize="9"
+                             FontWeight="SemiBold" Margin="0,0,0,2"/>
+                  <CheckBox Content="Auto-create new rooms"
+                            IsChecked="{Binding ViewModel.AutoCreateEnabled}"
+                            FontSize="11"
+                            ToolTip.Tip="When ON, walking into an unmapped room adds a new node to the active zone. When OFF, the mapper only matches against existing zone data."/>
+                  <TextBlock Text="Map background:" Foreground="#888" FontSize="11"/>
+                  <ColorPicker Color="{Binding ViewModel.MapBackground, Mode=TwoWay}"
+                               IsAlphaEnabled="False"
+                               HorizontalAlignment="Left"
+                               ToolTip.Tip="Pick any colour for the map canvas. Cream/tan (e.g. #F5EFD8) matches the Genie 4 AutoMapper look."/>
+                </StackPanel>
+
+                <TextBlock Text="Tip: hover a room for details, right-click for a context menu, mouse-wheel to zoom."
+                           Foreground="#668" FontSize="10" TextWrapping="Wrap"/>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+        </Grid>
+
+        <!-- ── ROW 2: compact status strip — current room + exits + diag ─ -->
+        <Border Grid.Row="2" Background="#1e1e1e" BorderBrush="#333" BorderThickness="0,1,0,0" Padding="6,3">
+          <StackPanel Spacing="2">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6">
+                <TextBlock Foreground="#888" FontSize="11" VerticalAlignment="Center" Text="◉"/>
+                <SelectableTextBlock Text="{Binding ViewModel.CurrentTitle}"
+                                     Foreground="#cdd" FontSize="11" FontWeight="SemiBold"
+                                     VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis"/>
+                <TextBlock Foreground="#666" FontSize="11" VerticalAlignment="Center"
+                           Text="·" Margin="4,0,0,0"/>
+                <!-- Obvious exits — clickable compass-direction buttons. Same
+                     pattern and command wiring as the Less Obvious Paths strip
+                     below; styled in blue so the two surfaces are visually
+                     distinct (blue = "the game shows this exit", purple =
+                     "hidden / requires a non-compass command"). -->
+                <ItemsControl x:Name="ObviousExitsList"
+                              ItemsSource="{Binding ViewModel.CurrentObviousExits}"
+                              VerticalAlignment="Center">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <WrapPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="x:String">
+                      <Button Content="{Binding}"
+                              Padding="6,1" Margin="0,1,3,1" FontSize="11"
+                              Background="#1a2838" Foreground="#8ac0e8"
+                              BorderBrush="#3a5a7a" BorderThickness="1"
+                              Command="{Binding $parent[ItemsControl].DataContext.ViewModel.WalkCompassCommand}"
+                              CommandParameter="{Binding}"/>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+              <TextBlock Grid.Column="1"
+                         Text="{Binding ViewModel.ZoneName}"
+                         Foreground="#888" FontSize="11"
+                         VerticalAlignment="Center" Margin="8,0,0,0"/>
+            </Grid>
+            <!-- Less Obvious Paths — clickable buttons for non-compass arcs
+                 (go-doors, climb-walls, swim-rivers, etc.). ItemsControl
+                 collapses to zero height when the collection is empty, so
+                 no extra IsVisible binding is needed. Each button sends its
+                 MoveCommand through the same input pipeline as a typed
+                 command. Future: tooltip on hover will show the arc's
+                 Requires hint (skill / class / level needed) once the
+                 community starts populating that data in the maps repo. -->
+            <ItemsControl x:Name="LessObviousList"
+                          ItemsSource="{Binding ViewModel.CurrentLessObviousPaths}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal"/>
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:LessObviousPath">
+                  <Button Content="{Binding MoveCommand}"
+                          Padding="6,2" Margin="0,1,4,1" FontSize="11"
+                          Background="#2d2238" Foreground="#d8c8e8"
+                          BorderBrush="#5a4475" BorderThickness="1"
+                          Command="{Binding $parent[ItemsControl].DataContext.ViewModel.WalkLessObviousCommand}"
+                          CommandParameter="{Binding MoveCommand}"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Diagnostic / auto-detect status — only visible when there's something to say -->
+            <SelectableTextBlock Text="{Binding ViewModel.LoadStatus}"
+                                 Foreground="#a8b8a8" FontSize="10"
+                                 TextWrapping="Wrap"
+                                 IsVisible="{Binding ViewModel.LoadStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+          </StackPanel>
+        </Border>
+
+      </Grid>
+    </DataTemplate>
+
+    <!-- ── Backpack ────────────────────────────────────────────────────── -->
+    <DataTemplate DataType="docking:BackpackTool">
+      <Grid RowDefinitions="*" Background="{Binding ToolBackground}">
+        <ScrollViewer x:Name="backpackScroll"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding ViewModel.Items}"
+                        FontFamily="{Binding ToolFontFamily}"
+                        FontSize="{Binding ToolFontSize}"
+                        Foreground="{Binding ToolForeground}"
+                        Margin="8">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TextLine">
+                <!-- Inherits Foreground from the ItemsControl (tool-scoped). -->
+                <SelectableTextBlock TextWrapping="Wrap" Margin="0,1"
+                                     controls:InlinesBehavior.Source="{Binding Inlines}"/>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </DataTemplate>
+
+    <!-- ── Streams (shared template for all 5 stream tools) ──────────────── -->
+    <DataTemplate DataType="docking:StreamTool">
+      <Grid Background="{Binding ToolBackground}">
+        <ScrollViewer x:Name="streamScroll"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      controls:AutoScrollBehavior.ItemsSource="{Binding Buffer.Lines}">
+          <ItemsControl ItemsSource="{Binding Buffer.Lines}"
+                        FontFamily="{Binding ToolFontFamily}"
+                        FontSize="{Binding ToolFontSize}"
+                        Foreground="{Binding ToolForeground}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate DataType="vm:TextLine">
+                <!-- Foreground inherits from the tool-scoped ItemsControl. -->
+                <SelectableTextBlock TextWrapping="Wrap"
+                                     controls:InlinesBehavior.Source="{Binding Inlines}"/>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+        <Button HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,20,8"
+                IsVisible="{Binding #streamScroll.Tag.IsScrolledUp}"
+                Command="{Binding #streamScroll.Tag.JumpToBottomCommand}"
+                Content="↓ Bottom" FontSize="11" Padding="8,4" Opacity="0.85"/>
+      </Grid>
+    </DataTemplate>
+
+  </Application.DataTemplates>
+
+</Application>

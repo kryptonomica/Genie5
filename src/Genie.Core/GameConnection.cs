@@ -1,0 +1,329 @@
+using System.Net.Sockets;
+using System.Reactive.Subjects;
+using System.Text;
+using Genie.Core.Events;
+using Microsoft.Extensions.Logging;
+
+namespace Genie.Core.Connection;
+
+/// <summary>
+/// Manages the live TCP connection to DragonRealms (or Lich proxy / dev replay).
+///
+/// Responsibilities:
+///   - Perform SGE auth (DirectSGE mode) or connect straight to the proxy/replay
+///   - Read the raw XML byte stream, accumulate into lines/tags
+///   - Publish every raw XML chunk to <see cref="RawXmlStream"/> for the parser
+///   - Publish every raw XML chunk to <see cref="AiRawStream"/> for the AI analyzer
+///   - Handle reconnection on drop
+///   - Send commands back to the game server
+///
+/// The connection class intentionally knows nothing about game semantics — it only
+/// moves bytes.  All interpretation happens downstream in DrXmlParser / GameState.
+/// </summary>
+public sealed class GameConnection : IAsyncDisposable
+{
+    private readonly ConnectionConfig       _cfg;
+    private readonly SgeAuthClient          _sge;
+    private readonly ILogger<GameConnection> _log;
+
+    // ── Observable streams (hot, multicast) ─────────────────────────────────
+
+    /// <summary>
+    /// Raw XML text chunks exactly as received from the game server.
+    /// Subscribers: DrXmlParser (game state), AiContextBuffer (AI), Logger.
+    /// </summary>
+    private readonly Subject<string> _rawXmlSubject  = new();
+    public IObservable<string> RawXmlStream => _rawXmlSubject;
+
+    /// <summary>
+    /// Mirror of RawXmlStream specifically for the AI pipeline.
+    /// Exists as a separate subject so the AI pipe can be suspended/resumed
+    /// without affecting the parser pipeline.
+    /// </summary>
+    private readonly Subject<string> _aiRawSubject   = new();
+    public IObservable<string> AiRawStream  => _aiRawSubject;
+
+    /// <summary>
+    /// Connection lifecycle events (Connected, Disconnected, Reconnecting, Error).
+    /// </summary>
+    private readonly Subject<ConnectionEvent> _stateSubject = new();
+    public IObservable<ConnectionEvent> StateStream => _stateSubject;
+
+    // ── Internal state ───────────────────────────────────────────────────────
+    private TcpClient?    _tcp;
+    private NetworkStream? _networkStream;
+    private StreamWriter?  _writer;
+    private CancellationTokenSource _cts = new();
+    private Task?          _readLoop;
+
+    public bool IsConnected => _tcp?.Connected ?? false;
+
+    // ── AI pipe toggle ───────────────────────────────────────────────────────
+    /// <summary>
+    /// When false, raw XML is NOT forwarded to AiRawStream.
+    /// Lets users disable AI processing without a reconnection.
+    /// </summary>
+    public bool AiPipeEnabled { get; set; } = true;
+
+    public GameConnection(
+        ConnectionConfig cfg,
+        SgeAuthClient sge,
+        ILogger<GameConnection> log)
+    {
+        _cfg = cfg;
+        _sge = sge;
+        _log = log;
+    }
+
+    // ── Public API ───────────────────────────────────────────────────────────
+
+    public async Task ConnectAsync(CancellationToken externalCt = default)
+    {
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
+        var ct = _cts.Token;
+
+        for (int attempt = 0; attempt <= _cfg.MaxReconnectAttempts; attempt++)
+        {
+            if (attempt > 0)
+            {
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Reconnecting, attempt));
+                _log.LogInformation("Reconnect attempt {Attempt}/{Max}",
+                    attempt, _cfg.MaxReconnectAttempts);
+                await Task.Delay(_cfg.ReconnectDelayMs, ct);
+            }
+
+            try
+            {
+                await EstablishConnectionAsync(ct);
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Connected));
+                _readLoop = ReadLoopAsync(ct);
+                return;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Connection attempt {Attempt} failed", attempt + 1);
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Error, 0, ex.Message));
+            }
+        }
+
+        throw new InvalidOperationException(
+            $"Failed to connect after {_cfg.MaxReconnectAttempts} attempts.");
+    }
+
+    /// <summary>
+    /// Sends a game command (e.g. "attack kobold", "get sword").
+    /// Automatically appends the newline the game expects.
+    /// </summary>
+    public async Task SendCommandAsync(string command, CancellationToken ct = default)
+    {
+        if (_writer is null)
+            throw new InvalidOperationException("Not connected.");
+
+        _log.LogDebug("→ {Command}", command);
+        await _writer.WriteLineAsync(command.AsMemory(), ct);
+        await _writer.FlushAsync(ct);
+    }
+
+    public async Task DisconnectAsync()
+    {
+        await _cts.CancelAsync();
+        if (_readLoop is not null)
+            await _readLoop.ConfigureAwait(false);
+        Cleanup();
+        _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Disconnected));
+    }
+
+    // ── Connection establishment ─────────────────────────────────────────────
+
+    private async Task EstablishConnectionAsync(CancellationToken ct)
+    {
+        Cleanup();
+        _tcp = new TcpClient { ReceiveTimeout = _cfg.ReadTimeoutMs };
+
+        switch (_cfg.Mode)
+        {
+            case ConnectionMode.DirectSGE:
+                await ConnectViaSgeAsync(ct);
+                break;
+
+            case ConnectionMode.LichProxy:
+                _log.LogInformation("Connecting to Lich proxy {Host}:{Port}",
+                    _cfg.LichProxyHost, _cfg.LichProxyPort);
+                await _tcp.ConnectAsync(_cfg.LichProxyHost, _cfg.LichProxyPort, ct);
+                _networkStream = _tcp.GetStream();
+                // Lich proxy is already authenticated; no key handshake needed.
+                break;
+
+            case ConnectionMode.DevReplay:
+                // DevReplay uses a local server that replays a recorded session.
+                // The replay server listens on LichProxyHost:LichProxyPort by convention.
+                _log.LogInformation("Connecting to dev-replay server at {Host}:{Port}",
+                    _cfg.LichProxyHost, _cfg.LichProxyPort);
+                await _tcp.ConnectAsync(_cfg.LichProxyHost, _cfg.LichProxyPort, ct);
+                _networkStream = _tcp.GetStream();
+                break;
+
+            default:
+                throw new NotSupportedException($"Unknown connection mode: {_cfg.Mode}");
+        }
+
+        // UTF-8: DR's XML stream is ASCII-safe but UTF-8 compatible for any
+        // extended characters in player names / room descriptions.
+        _writer = new StreamWriter(_networkStream!, Encoding.UTF8, leaveOpen: true)
+            { AutoFlush = false, NewLine = "\r\n" };
+    }
+
+    private async Task ConnectViaSgeAsync(CancellationToken ct)
+    {
+        _log.LogInformation("Authenticating via SGE for {Account}", _cfg.AccountName);
+        var sgeResult = await _sge.AuthenticateAsync(_cfg, ct);
+
+        _log.LogInformation("SGE OK → connecting to game {Host}:{Port}",
+            sgeResult.GameHost, sgeResult.GamePort);
+
+        await _tcp!.ConnectAsync(sgeResult.GameHost, sgeResult.GamePort, ct);
+        _networkStream = _tcp.GetStream();
+
+        // Send the key (plain ASCII, terminated with '\n') to prove identity.
+        var keyBytes = Encoding.ASCII.GetBytes(sgeResult.GameKey + "\n");
+        await _networkStream.WriteAsync(keyBytes, ct);
+        await _networkStream.FlushAsync(ct);
+        _log.LogDebug("Game key sent ({Len} bytes)", keyBytes.Length);
+
+        // StormFront mode: declare frontend to activate XML event stream.
+        // Wizard mode: no FE announcement — the server starts sending plain text
+        // immediately after the key. Sending any FE string causes the WIZ server
+        // to close the connection.
+        if (_cfg.ClientMode != GameClientMode.Wizard)
+        {
+            // FE identifier comes from ConnectionConfig so users can toggle
+            // between FE:GENIE (legacy Genie behavior) and FE:STORM (Wrayth
+            // identification, which DR appears to ungate richer click markup
+            // for) without recompiling. Default is GENIE for Genie 4 parity.
+            var feLine  = $"FE:{_cfg.FrontEndId} /VERSION:5.0.0.1 /P:WIN_UNKNOWN /XML\n";
+            var feBytes = Encoding.ASCII.GetBytes(feLine);
+            await _networkStream.WriteAsync(feBytes, ct);
+            await _networkStream.FlushAsync(ct);
+            _log.LogDebug("FE identification sent (StormFront)");
+        }
+        else
+        {
+            _log.LogDebug("Wizard mode — skipping FE announcement");
+        }
+
+        // "look" is sent by GenieCore when <settingsInfo/> arrives, not here.
+        // This keeps the connection layer free of game-semantic knowledge.
+    }
+
+    // ── Read loop ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Reads the raw XML stream continuously.  The DR stream is not line-delimited
+    /// in the traditional sense — it mixes bare text with XML tags in a single flow.
+    /// We buffer into logical chunks between tag boundaries and emit each chunk.
+    /// </summary>
+    private async Task ReadLoopAsync(CancellationToken ct)
+    {
+        var buffer  = new byte[8192];
+        var pending = new StringBuilder(4096);
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                int bytesRead = await _networkStream!.ReadAsync(buffer, ct);
+                if (bytesRead == 0)
+                {
+                    _log.LogWarning("Server closed connection (0 bytes read).");
+                    break;
+                }
+
+                var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                pending.Append(text);
+
+                // Emit complete logical chunks: each complete XML element or
+                // bare-text segment between elements.  We flush whenever we see
+                // a '>' (end of tag) or '\n' (end of text line), keeping partial
+                // tags buffered until complete.
+                EmitChunks(pending);
+            }
+        }
+        catch (OperationCanceledException) { /* normal shutdown */ }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _log.LogError(ex, "Read loop error — will trigger reconnect");
+            _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Error, 0, ex.Message));
+        }
+        finally
+        {
+            _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Disconnected));
+        }
+    }
+
+    /// <summary>
+    /// Scans the pending buffer for complete XML tags or newline-terminated text lines
+    /// and emits each as a discrete chunk to both the parser and AI streams.
+    /// Incomplete tags are left in the buffer for the next read.
+    /// </summary>
+    private void EmitChunks(StringBuilder pending)
+    {
+        while (pending.Length > 0)
+        {
+            var raw = pending.ToString();
+
+            // Find the next natural split point: end of an XML tag or a newline.
+            int tagClose  = raw.IndexOf('>');
+            int lineBreak = raw.IndexOf('\n');
+
+            int splitAt;
+            if (tagClose >= 0 && (lineBreak < 0 || tagClose < lineBreak))
+                splitAt = tagClose + 1;          // emit up to and including '>'
+            else if (lineBreak >= 0)
+                splitAt = lineBreak + 1;         // emit up to and including '\n'
+            else
+                break;                           // no complete chunk yet — wait
+
+            var chunk = raw[..splitAt];
+            pending.Remove(0, splitAt);
+
+            // Skip empty / whitespace-only chunks
+            if (string.IsNullOrWhiteSpace(chunk)) continue;
+
+            Publish(chunk);
+        }
+    }
+
+    private void Publish(string chunk)
+    {
+        _log.LogTrace("← {Chunk}", chunk.TrimEnd());
+
+        // Always publish to the parser stream
+        _rawXmlSubject.OnNext(chunk);
+
+        // Conditionally publish to the AI stream
+        if (AiPipeEnabled)
+            _aiRawSubject.OnNext(chunk);
+    }
+
+    // ── Cleanup ──────────────────────────────────────────────────────────────
+
+    private void Cleanup()
+    {
+        _writer?.Dispose();
+        _networkStream?.Dispose();
+        _tcp?.Dispose();
+        _writer = null;
+        _networkStream = null;
+        _tcp = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisconnectAsync();
+        _rawXmlSubject.Dispose();
+        _aiRawSubject.Dispose();
+        _stateSubject.Dispose();
+        _cts.Dispose();
+    }
+}

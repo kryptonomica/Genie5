@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Genie 5 baseline cross-zone connections
+  ========================================
+
+  This file is the starting point for the multi-zone pathfinder. It maps
+  transit links between zones — caravans, boats, climb-walls, ferries,
+  portals — that Dijkstra crosses when the destination is in a different
+  zone from the player.
+
+  HOW THIS WORKS
+  --------------
+  * Place this file at the root of your Maps directory (next to the
+    individual Map##_*.xml zone files). Genie 5 seeds it from this
+    baseline the first time it runs; subsequent edits stay on disk.
+  * Edit either by hand or via File -> Cross-Zone Connections... in
+    the app. Both round-trip cleanly.
+  * The from-zone / to-zone fields are zone-file basenames *without*
+    the .xml extension (e.g. "Map01_Crossing", not "Map01_Crossing.xml").
+  * The from-room / to-room fields can be either:
+      - An integer node ID (the "id" attribute on a <node> in the zone),
+        e.g. "127"
+      - A DR server room ID prefixed with #, e.g. "#37666999". These
+        are the values you'll see in <nav rm='#NNNN'/> events when you
+        walk through that room.
+  * The pathfinder ignores any connection whose from-zone/from-room or
+    to-zone/to-room can't be resolved against your loaded zones — so
+    a stale entry with a TODO room ID won't break routing, it'll just
+    silently sit out until you fill the real values in.
+
+  ENTRIES BELOW ARE EXAMPLES — VERIFY ROOM IDS BEFORE RELYING ON THEM
+  -------------------------------------------------------------------
+  Each connection is marked with a TODO comment indicating which fields
+  need to be set against your installed maps. The verbs, wait windows,
+  and transit-type tags are based on common community knowledge of DR
+  travel routes; the *room IDs* are placeholders.
+
+  To fill in a real room ID:
+    1. Walk to the embarkation room in-game.
+    2. Watch the Mapper status strip — it shows the matched node + the
+       <nav rm='#NNNN'> server ID.
+    3. Copy that into from-room (or to-room for the destination side).
+
+  Wait windows are in SECONDS. wait-min / wait-max define the expected
+  dwell time before the transit lands at the destination (e.g. boat
+  loops back in 300-600 seconds). The walker uses this to surface a
+  countdown bar so a 5-minute wait doesn't look like a hang.
+
+  Skill requirements use the same syntax as <exit requires="...">:
+    "climbing>=50"           — needs Climbing rank 50+
+    "athletics>=30, level>=10" — comma-separated AND
+    "class=Thief"            — guild restriction
+-->
+<connections>
+
+  <!--
+    ═══════════════════════════════════════════════════════════════
+    CARAVAN ROUTES — Crossing hub
+    ═══════════════════════════════════════════════════════════════
+    The Caravansary in the Crossing south of the Town Green runs
+    scheduled wagons to most major Western/Central cities. Verb is
+    typically "buy ticket" then "board wagon" — the actual flow
+    varies by destination, so the simplest single-verb example
+    shipped here is the post-ticketing "board wagon" step.
+  -->
+
+  <!-- TODO: Set from-room to your Caravansary node ID, to-room to the
+       Riverhaven arrival platform. Verify wait window — caravans
+       depart on a loop, typical wait 2-5 minutes. -->
+  <connection id="caravan-crossing-riverhaven"
+              from-zone="Map01_Crossing"    from-room="TODO"
+              to-zone="Map04_Riverhaven"    to-room="TODO"
+              verb="board wagon" transit-type="caravan"
+              wait-min="120" wait-max="300"
+              requires="" rt="0"
+              notes="Crossing Caravansary -> Riverhaven. Update room IDs."/>
+
+  <connection id="caravan-riverhaven-crossing"
+              from-zone="Map04_Riverhaven"  from-room="TODO"
+              to-zone="Map01_Crossing"      to-room="TODO"
+              verb="board wagon" transit-type="caravan"
+              wait-min="120" wait-max="300"
+              requires="" rt="0"
+              notes="Riverhaven -> Crossing return. Update room IDs."/>
+
+  <!-- TODO: Leth Deriel caravan. Long route — typical dwell 3-6 min. -->
+  <connection id="caravan-crossing-leth"
+              from-zone="Map01_Crossing"    from-room="TODO"
+              to-zone="Map08_Leth_Deriel"   to-room="TODO"
+              verb="board wagon" transit-type="caravan"
+              wait-min="180" wait-max="360"
+              requires="" rt="0"
+              notes="Crossing -> Leth Deriel. Verify zone basename + IDs."/>
+
+  <connection id="caravan-leth-crossing"
+              from-zone="Map08_Leth_Deriel" from-room="TODO"
+              to-zone="Map01_Crossing"      to-room="TODO"
+              verb="board wagon" transit-type="caravan"
+              wait-min="180" wait-max="360"
+              requires="" rt="0"
+              notes="Leth Deriel -> Crossing return. Update room IDs."/>
+
+  <!--
+    ═══════════════════════════════════════════════════════════════
+    BOAT ROUTES — Riverhaven harbor
+    ═══════════════════════════════════════════════════════════════
+    Riverhaven is the main eastern-seaboard port. Boats run on a
+    schedule with a longer dwell window than caravans (5-10 min).
+    The transit verb is "board boat" at the dock room; the boat
+    pulls out, sails, and lands at the destination dock.
+  -->
+
+  <!-- TODO: Verify Throne City zone basename. Some installs use
+       Map35_Throne_City, others Map10_Throne_City. The boat dock
+       in Riverhaven sits south of the harbor square. -->
+  <connection id="boat-riverhaven-throne"
+              from-zone="Map04_Riverhaven"  from-room="TODO"
+              to-zone="Map35_Throne_City"   to-room="TODO"
+              verb="board boat" transit-type="boat"
+              wait-min="300" wait-max="600"
+              requires="" rt="0"
+              notes="Riverhaven docks -> Throne City pier. ~5-10 min."/>
+
+  <connection id="boat-throne-riverhaven"
+              from-zone="Map35_Throne_City" from-room="TODO"
+              to-zone="Map04_Riverhaven"    to-room="TODO"
+              verb="board boat" transit-type="boat"
+              wait-min="300" wait-max="600"
+              requires="" rt="0"
+              notes="Throne City -> Riverhaven return."/>
+
+  <!-- TODO: Hibarnhvidar boat — northern destination, longer crossing. -->
+  <connection id="boat-riverhaven-hib"
+              from-zone="Map04_Riverhaven"      from-room="TODO"
+              to-zone="Map11_Hibarnhvidar"      to-room="TODO"
+              verb="board boat" transit-type="boat"
+              wait-min="420" wait-max="720"
+              requires="" rt="0"
+              notes="Riverhaven -> Hibarnhvidar. ~7-12 min. Verify zone basename."/>
+
+  <!--
+    ═══════════════════════════════════════════════════════════════
+    CLIMB / SKILL-GATED ROUTES
+    ═══════════════════════════════════════════════════════════════
+    Routes that require Climbing or Athletics ranks. The pathfinder
+    will exclude these from your routes until your SkillStore has
+    high enough ranks (run `skills` to populate it).
+  -->
+
+  <!-- TODO: Example climb-wall between Crossing North Gate area and
+       the northern wilds. Verb varies — could be "climb wall",
+       "climb rope", "go path". -->
+  <connection id="climb-crossing-northwilds"
+              from-zone="Map01_Crossing"        from-room="TODO"
+              to-zone="Map13_North_Crossing"    to-room="TODO"
+              verb="climb wall" transit-type="climb"
+              wait-min="0" wait-max="0"
+              requires="climbing>=50" rt="3"
+              notes="Climbing 50+. Verify route exists in your map version."/>
+
+  <!--
+    ═══════════════════════════════════════════════════════════════
+    NOTES FOR CONTRIBUTORS
+    ═══════════════════════════════════════════════════════════════
+    * Boat schedules in DR are not deterministic minute-to-minute —
+      the wait-min/wait-max range is a hint to the walker UI, not an
+      enforced timer. The actual arrival is detected by the parser
+      noticing a room change to the destination zone.
+    * Add new connections by appending <connection> elements anywhere
+      in this file. Order doesn't matter to the pathfinder.
+    * Each id should be unique. If you leave it blank on a hand-edited
+      entry, the app will generate a GUID stub on next save.
+    * Share useful connections back to the community Maps repo
+      (https://github.com/GenieClient/Maps) via PR so other Genie 5
+      users benefit.
+  -->
+
+</connections>

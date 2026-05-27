@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Genie.Core</AssemblyName>
+    <RootNamespace>Genie.Core</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <Platforms>AnyCPU</Platforms>
+
+    <!-- Mark as self contained so the App project can reference this
+         project in its self contained publish output. NETSDK1150 rule:
+         a self contained exe cannot reference a non self contained exe.
+         Does NOT affect dev `dotnet run` for TestHarness because that
+         path bypasses publish entirely. -->
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reactive event streams (no WinForms dependency) -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
+    <PackageReference Include="System.Reactive" Version="6.0.1" />
+    <!-- Anthropic .NET SDK for AI pipe -->
+    <PackageReference Include="Anthropic.SDK" Version="4.0.0" />
+    <!-- Structured logging -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Baseline ZoneConnections seed extracted on first launch when
+         the user's MapsDirectory has no ZoneConnections.xml yet.
+         See ZoneConnectionsRepository.Load() for the extraction path. -->
+    <EmbeddedResource Include="Mapper\Resources\ZoneConnections.baseline.xml" />
+  </ItemGroup>
+
+</Project>

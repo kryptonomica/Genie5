@@ -1,0 +1,98 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Genie.App.ViewModels"
+        xmlns:profiles="using:Genie.Core.Profiles"
+        x:Class="Genie.App.Views.ConnectDialog"
+        x:DataType="vm:ConnectDialogViewModel"
+        Title="Connect to DragonRealms"
+        Width="460" Height="440"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+
+    <!-- ── Profile picker row ──────────────────────────────────────────── -->
+    <Grid Grid.Row="0" ColumnDefinitions="90,*,Auto,Auto" Margin="0,0,0,4">
+      <TextBlock Grid.Column="0" Text="Profile" VerticalAlignment="Center"/>
+      <ComboBox  Grid.Column="1"
+                 ItemsSource="{Binding Profiles}"
+                 SelectedItem="{Binding SelectedProfile}"
+                 PlaceholderText="(none)"
+                 HorizontalAlignment="Stretch">
+        <ComboBox.ItemTemplate>
+          <DataTemplate DataType="profiles:ConnectionProfile">
+            <TextBlock Text="{Binding Name}"/>
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button Grid.Column="2" Content="Save"   Margin="4,0,0,0"
+              Command="{Binding SaveProfileCommand}"
+              ToolTip.Tip="Save the current fields under the given Name"/>
+      <Button Grid.Column="3" Content="Delete" Margin="4,0,0,0"
+              Command="{Binding DeleteProfileCommand}"
+              ToolTip.Tip="Delete the selected profile"/>
+    </Grid>
+
+    <Separator Grid.Row="1" Margin="0,4,0,8"/>
+
+    <!-- ── Editable fields ─────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="2" Spacing="8">
+      <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name"      VerticalAlignment="Center"/>
+        <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
+                   Text="{Binding ProfileName}"
+                   Watermark="Profile name (e.g. MyCharacter)"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Instance"  VerticalAlignment="Center"/>
+        <ComboBox  Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                   ItemsSource="{x:Static vm:ConnectDialogViewModel.Instances}"
+                   SelectedItem="{Binding Instance}"
+                   HorizontalAlignment="Stretch"/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Account"   VerticalAlignment="Center"/>
+        <TextBox   Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
+                   Text="{Binding Account}"/>
+
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Password"  VerticalAlignment="Center"/>
+        <TextBox   Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                   Text="{Binding Password}"
+                   PasswordChar="●"/>
+
+        <TextBlock Grid.Row="4" Grid.Column="0" Text="Character" VerticalAlignment="Center"/>
+        <ComboBox  Grid.Row="4" Grid.Column="1"
+                   x:Name="CharacterCombo"
+                   ItemsSource="{Binding AvailableCharacters}"
+                   SelectedItem="{Binding Character}"
+                   PlaceholderText="(click Fetch)"
+                   HorizontalAlignment="Stretch"/>
+        <Button    Grid.Row="4" Grid.Column="2"
+                   Content="{Binding FetchButtonLabel}" Margin="4,0,0,0" MinWidth="70"
+                   Command="{Binding FetchCharactersCommand}"
+                   ToolTip.Tip="Ask SGE for the character list on this account"/>
+
+        <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+                   Text="{Binding FetchStatus}"
+                   Foreground="#888" FontSize="11" Margin="0,2,0,0"/>
+
+        <!-- FE:STORM checkbox removed May 25, 2026 after empirical A/B
+             testing showed no observable XML difference between FE:GENIE
+             and FE:STORM identifiers across the info-verb surface
+             (news / news help / dir list / help index / profile help /
+             toggle list). The underlying ConnectionConfig.FrontEndId field
+             still exists (defaults to "GENIE") so wider-surface testing
+             can re-enable the toggle if needed. See backlog.md →
+             "FE:STORM hypothesis — disconfirmed" for the experiment. -->
+      </Grid>
+    </StackPanel>
+
+    <!-- ── Action buttons ──────────────────────────────────────────────── -->
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <Button Content="Cancel"  Command="{Binding CancelCommand}" Width="80"/>
+      <Button Content="Connect" Command="{Binding OkCommand}"     Width="80"
+              IsDefault="True"/>
+    </StackPanel>
+
+  </Grid>
+</Window>

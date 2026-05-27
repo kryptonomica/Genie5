@@ -1,0 +1,119 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:Genie.App.ViewModels"
+        xmlns:views="using:Genie.App.Views"
+        xmlns:profiles="using:Genie.Core.Profiles"
+        x:Class="Genie.App.Views.ConfigurationDialog"
+        x:DataType="vm:ConfigurationViewModel"
+        Title="Configuration"
+        Width="820" Height="640"
+        FontSize="11"
+        CanResize="True"
+        WindowStartupLocation="CenterOwner">
+
+  <!-- ~20% smaller than the Fluent default of 14 so the dense rule tables and
+       editor pane fit comfortably without the dialog needing to be huge.
+       FontSize inherits through the TabControl / DataGrid / Buttons / TextBoxes
+       automatically; a couple of controls that hard-set their own size are
+       caught by the explicit Styles below. -->
+  <Window.Styles>
+    <Style Selector="TabItem">
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="DataGridColumnHeader">
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <Style Selector="DataGridCell">
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto" Margin="8">
+
+    <!-- ════════════════════════════════════════════════════════════════
+         Profile scope: which character's configs are being edited.
+         When this matches the connected profile, edits go to LIVE engines
+         and apply immediately; otherwise edits act on draft engines that
+         load on the next connect to that profile.
+         ════════════════════════════════════════════════════════════════ -->
+    <Border Grid.Row="0" Background="#0e2438" CornerRadius="3"
+            Padding="8,4" Margin="0,0,0,6">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+        <TextBlock Grid.Column="0" Text="Profile:"
+                   Foreground="#9bcbe8" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <ComboBox Grid.Column="1"
+                  ItemsSource="{Binding Profiles}"
+                  SelectedItem="{Binding SelectedProfile}"
+                  PlaceholderText="(global / no profile)"
+                  HorizontalAlignment="Stretch">
+          <ComboBox.ItemTemplate>
+            <DataTemplate DataType="profiles:ConnectionProfile">
+              <TextBlock Text="{Binding Name}"/>
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Border Grid.Column="2" Margin="8,0,0,0" Padding="6,2"
+                Background="#1a4a1a" CornerRadius="3"
+                IsVisible="{Binding IsEditingConnectedProfile}"
+                ToolTip.Tip="Editing the connected profile — changes are live">
+          <TextBlock Text="LIVE" Foreground="#c8ffc8" FontWeight="SemiBold"/>
+        </Border>
+        <Border Grid.Column="3" Margin="6,0,0,0" Padding="6,2"
+                Background="#4a3a18" CornerRadius="3"
+                ToolTip.Tip="Editing a different profile — saved to disk, applies on next connect">
+          <TextBlock Text="{Binding EditingLabel}" Foreground="#ffe0a0"/>
+        </Border>
+      </Grid>
+    </Border>
+
+    <TabControl Grid.Row="1" TabStripPlacement="Top">
+
+      <!-- ════════════════════════════════════════════════════════════════
+           Layout — per-window display settings (title, font, fg/bg, redirect)
+           ════════════════════════════════════════════════════════════════ -->
+      <TabItem Header="Layout">
+        <views:LayoutPanel Name="LayoutPanelCtrl"/>
+      </TabItem>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           Highlights — three nested sub-tabs: Strings / Names / Presets
+           ════════════════════════════════════════════════════════════════ -->
+      <TabItem Header="Highlights">
+        <views:HighlightsPanel Name="HighlightsPanelCtrl"/>
+      </TabItem>
+
+      <!-- ════════════════════════════════════════════════════════════════
+           Phase 2 tabs — ported from dylb0t/Genie5
+           ════════════════════════════════════════════════════════════════ -->
+      <TabItem Header="Triggers">
+        <views:TriggersPanel    Name="TriggersPanelCtrl"/>
+      </TabItem>
+      <TabItem Header="Substitutes">
+        <views:SubstitutesPanel Name="SubstitutesPanelCtrl"/>
+      </TabItem>
+      <TabItem Header="Gags">
+        <views:GagsPanel        Name="GagsPanelCtrl"/>
+      </TabItem>
+      <TabItem Header="Aliases">
+        <views:AliasesPanel     Name="AliasesPanelCtrl"/>
+      </TabItem>
+
+      <TabItem Header="Macros">
+        <views:MacrosPanel    Name="MacrosPanelCtrl"/>
+      </TabItem>
+      <TabItem Header="Variables">
+        <views:VariablesPanel Name="VariablesPanelCtrl"/>
+      </TabItem>
+      <TabItem Header="Classes">
+        <views:ClassesPanel   Name="ClassesPanelCtrl"/>
+      </TabItem>
+
+    </TabControl>
+
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,8,4,0">
+      <Button Content="Close" Command="{Binding CloseCommand}" MinWidth="80"/>
+    </StackPanel>
+
+  </Grid>
+</Window>

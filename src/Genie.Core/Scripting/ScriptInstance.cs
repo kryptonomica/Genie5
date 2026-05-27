@@ -1,0 +1,116 @@
+namespace Genie.Core.Scripting;
+
+public enum PauseMode { None, Pause, Wait, Delay, Move }
+
+public sealed record ScriptLine(int LineNumber, string Origin, string Raw, string Trimmed, int Indent);
+
+public sealed class ScriptInstance
+{
+    public string Name = string.Empty;
+    public List<ScriptLine> Lines = new();
+    public Dictionary<string, int> Labels = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> Vars = new(StringComparer.OrdinalIgnoreCase);
+    public Stack<int> GosubStack = new();
+
+    // $0..$9 are a SEPARATE scope from %0..%9. They hold gosub arguments or
+    // the most recent regex capture groups, and are pushed/popped with the
+    // gosub stack — unlike script args (%N), which live in Vars for the
+    // entire script lifetime. Matches Genie4's per-frame ArgList semantics.
+    public Stack<string[]> DollarStack = new();
+
+    // if-block jump tables (built at parse time)
+    public Dictionary<int, int> IfFalseJump = new(); // if/elseif line idx → target when condition false
+    public Dictionary<int, int> ElseJump   = new(); // else line idx → target after else block
+    // When a closing '}' belongs to a true branch inside an if/elseif chain,
+    // it must skip over the remaining elseif/else branches. Keyed on the
+    // '}' line idx; value is the first line past the whole chain.
+    public Dictionary<int, int> BraceEndJump = new();
+    // When a closing '}' terminates a `while`'s body, control returns to
+    // the while-line so the condition is re-evaluated.
+    public Dictionary<int, int> WhileBackJump = new();
+
+    public int  Pc;
+    public bool Running = true;
+
+    /// <summary>Debug verbosity: 0=off, 1=goto/gosub/return, 2=+pause/wait,
+    /// 3=+if, 4=+var/math, 5=+actions, 10=all rows.</summary>
+    public int  DebugLevel;
+
+    /// <summary>
+    /// Line number of the most recent <c>dbg:10</c> trace. Used to suppress
+    /// duplicate row-trace echoes when a statement backs off (e.g. <c>put</c>
+    /// re-attempts while <c>_inFlight</c> is full, decrementing <c>Pc</c> and
+    /// returning to the same line next tick).
+    /// </summary>
+    public int  LastDebugLine = -1;
+
+    /// <summary>
+    /// Set by <c>SubstituteVars</c> when it encounters an undefined <c>$var</c>
+    /// during line execution. The runner checks this after substituting the
+    /// current line and aborts the script with a clear "stopped at line N:
+    /// undefined variable $X" message instead of silently sending malformed
+    /// commands like <c>put open my</c> (where the trailing var resolved to
+    /// empty). Cleared between substitution attempts on different lines.
+    /// </summary>
+    public string? AbortReason;
+
+    // Pause / sleep state
+    // PauseMode distinguishes the three blocking commands:
+    //   None  — not paused
+    //   Pause — blocks for duration AND until roundtime resolves (whichever is last)
+    //   Wait  — blocks until next game prompt AND until roundtime resolves
+    //   Delay — blocks for duration only (ignores roundtime and prompts)
+    public PauseMode PauseMode;
+    public bool      Paused;
+    public DateTime  PauseUntil = DateTime.MinValue;
+
+    // match / matchwait state
+    public bool     InMatchWait;
+    public DateTime MatchWaitDeadline = DateTime.MaxValue;
+    public List<(string Label, string Pattern, bool IsRegex)> PendingMatches = new();
+
+    // waitfor / waitforre state
+    public string?  WaitForPattern;
+    public bool     WaitForIsRegex;
+    public DateTime WaitForDeadline = DateTime.MaxValue;
+
+    // waiteval state — block until expression becomes true
+    public string?  WaitEvalExpr;
+    public DateTime WaitEvalDeadline = DateTime.MaxValue;
+
+    public bool IsBlocked => Paused || InMatchWait || WaitForPattern != null || WaitEvalExpr != null;
+
+    /// <summary>User-initiated pause from the script bar. While true the
+    /// tick loop skips this instance entirely.</summary>
+    public bool UserPaused;
+
+    // action triggers — persistent, fire whenever a matching line arrives
+    public List<ScriptAction> Actions = new();
+    public bool ActionsEnabled = true;
+
+    // Pending sends from a single put/send statement that contained multiple
+    // semicolon-separated commands; drained one-per-tick respecting type-ahead.
+    public Queue<string> PendingSends = new();
+
+    // 'timer start' baseline for the %timer pseudo-variable.
+    public DateTime? TimerStart;
+
+    // Shared RNG for the 'random' command.
+    public Random Rng = new();
+}
+
+public sealed class ScriptAction
+{
+    public string Label    = string.Empty; // Genie 'action (label) ...' name; "" = anonymous
+    public string Pattern  = string.Empty;
+    public string Command  = string.Empty; // statement to run on match (script-level, not raw send)
+    public bool   IsRegex;
+    public bool   IsEval;                  // 'when eval <expr>' form — Pattern holds the expression
+    public bool   Enabled  = true;
+    public bool   LastEvalResult;          // used to detect rising-edge for when-eval actions
+    /// <summary>Pre-compiled regex for IsRegex=true actions. Built once at
+    /// registration so the per-line FireActions hot path doesn't recompile
+    /// (with dozens of registered actions, that's a 30x+ savings per line).
+    /// Null for substring/eval actions and on compile failure.</summary>
+    public System.Text.RegularExpressions.Regex? CompiledRegex;
+}

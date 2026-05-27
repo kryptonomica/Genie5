@@ -1,0 +1,1370 @@
+using System.Reactive;
+using System.Reactive.Linq;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
+using Dock.Model.Controls;
+using Dock.Model.Core;
+using Genie.App.Diagnostics;
+using Genie.App.Docking;
+using Genie.App.Highlighting;
+using Genie.App.Settings;
+using Genie.Core;
+using Genie.Core.Connection;
+using Genie.Core.Events;
+using Genie.Core.Highlights;
+using Genie.Core.Layout;
+using Genie.Core.Persistence;
+using Genie.Core.Profiles;
+using Genie.Core.Runtime;
+using ReactiveUI;
+using ReactiveUI.Fody.Helpers;
+
+namespace Genie.App.ViewModels;
+
+public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
+{
+    public ViewModelActivator Activator { get; } = new();
+
+    // ── Sub-ViewModels ────────────────────────────────────────────────────────
+
+    public GameTextViewModel   GameText   { get; } = new();
+    public VitalsViewModel     Vitals     { get; } = new();
+    public RoomViewModel       Room       { get; } = new();
+    public InventoryViewModel  Inventory  { get; } = new();
+    public MapperViewModel     Mapper     { get; } = new();
+    public CommandViewModel    Command    { get; }
+    public StreamTabsViewModel StreamTabs { get; } = new();
+    public ScriptBarViewModel  ScriptBar  { get; } = new();
+
+    /// <summary>
+    /// Disk-backed store of user-named layout presets. Populated in
+    /// the constructor; the Layout menu consults it for the "Load ▶"
+    /// submenu items.
+    /// </summary>
+    public Settings.LayoutStore Layouts { get; private set; } = null!;
+
+    /// <summary>Current set of saved layouts, refreshed for the Layout
+    /// menu each time it opens. ObservableCollection so the menu's
+    /// ItemsControl picks up additions / deletions live.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<string> SavedLayoutNames { get; }
+        = new();
+
+    // ── Docking ───────────────────────────────────────────────────────────────
+
+    public IRootDock? DockLayout  { get; private set; }
+    public IFactory?  DockFactory { get; private set; }
+
+    // ── Connection state ──────────────────────────────────────────────────────
+
+    [Reactive] public string             ConnectionStatus { get; private set; } = "Disconnected";
+    [Reactive] public bool               IsConnected      { get; private set; }
+
+    /// <summary>
+    /// Profile that backs the current (or most recent) connection. Set by
+    /// <see cref="ConnectAsync"/> when a saved profile was picked in the Connect
+    /// dialog. Drives per-profile config storage paths and the title bar.
+    /// </summary>
+    [Reactive] public ConnectionProfile? ConnectedProfile { get; private set; }
+
+    // ── Commands & interactions ───────────────────────────────────────────────
+
+    public Interaction<Unit, ConnectResult?>              ShowConnectDialog        { get; } = new();
+    public Interaction<DisplaySettings, bool>             ShowDisplaySettingsDialog{ get; } = new();
+    public Interaction<ConfigurationViewModel, Unit>      ShowConfigurationDialog  { get; } = new();
+    public Interaction<Genie4ImportViewModel, Unit>       ShowGenie4ImportDialog   { get; } = new();
+    public Interaction<EditExitViewModel, bool>           ShowEditExitDialog       { get; } = new();
+    public Interaction<ZoneConnectionsViewModel, Unit>    ShowZoneConnectionsDialog{ get; } = new();
+    public ReactiveCommand<Unit, Unit>                    ConnectCommand           { get; }
+    public ReactiveCommand<Unit, Unit>                    DisconnectCommand        { get; }
+    public ReactiveCommand<Unit, Unit>                    DisplaySettingsCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    ConfigurationCommand     { get; }
+    public ReactiveCommand<Unit, Unit>                    Genie4ImportCommand      { get; }
+    public ReactiveCommand<Unit, Unit>                    ZoneConnectionsCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    SaveLayoutAsCommand      { get; }
+    public ReactiveCommand<string, Unit>                  LoadLayoutCommand        { get; }
+    public ReactiveCommand<Unit, Unit>                    RefreshLayoutListCommand { get; }
+    // ResetLayoutCommand is declared further down (existing); we re-assign
+    // it in the layout-feature block to use the new ApplyLayout helper
+    // so the dock + display flags both come back to factory defaults.
+
+    public Interaction<string, string?>                   ShowLayoutNamePrompt     { get; } = new();
+    public ReactiveCommand<Unit, Unit>                    ToggleStatusBarCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    ToggleHandsBarCommand    { get; }
+    /// <summary>Window → Hands Strip Position → Top. Snaps the strip to the top of the window.</summary>
+    public ReactiveCommand<Unit, Unit>                    HandsBarToTopCommand     { get; }
+    /// <summary>Window → Hands Strip Position → Bottom. Snaps it back to the Genie 4 position (above vitals).</summary>
+    public ReactiveCommand<Unit, Unit>                    HandsBarToBottomCommand  { get; }
+    /// <summary>Window → Roundtime Position → Command Bar. Keeps the "⏱ N.Ns" badge inline with the input row.</summary>
+    public ReactiveCommand<Unit, Unit>                    RoundTimeToCommandBarCommand { get; }
+    /// <summary>Window → Roundtime Position → Hands Strip. Moves the RT badge onto the L/R/S row.</summary>
+    public ReactiveCommand<Unit, Unit>                    RoundTimeToHandsStripCommand { get; }
+
+    /// <summary>File → Record Session — toggle raw-XML capture on/off.</summary>
+    public ReactiveCommand<Unit, Unit>                    ToggleRecordingCommand   { get; }
+
+    /// <summary>True iff the RT badge should render in its command-bar slot —
+    /// i.e. the character is in RT AND the user has chosen the command-bar
+    /// position. Computed from <see cref="VitalsViewModel.InRoundTime"/> and
+    /// <see cref="DisplaySettings.RoundTimeOnHandsStrip"/>.</summary>
+    [Reactive] public bool ShowRtInCommandBar  { get; private set; }
+
+    /// <summary>True iff the RT badge should render inline on the hands strip
+    /// (in RT AND user chose hands-strip position).</summary>
+    [Reactive] public bool ShowRtOnHandsStrip  { get; private set; }
+
+    /// <summary>True while <see cref="SessionRecorder"/> is actively writing the
+    /// raw XML stream to disk. Drives the File-menu checkbox + the title-bar
+    /// "● REC" suffix.</summary>
+    [Reactive] public bool IsRecording        { get; private set; }
+
+    /// <summary>Full window title with optional " ● REC" suffix when recording.
+    /// Composed reactively from <see cref="ConnectionStatus"/> + <see cref="IsRecording"/>.</summary>
+    [Reactive] public string WindowTitle      { get; private set; } = "Genie 5";
+
+    /// <summary>Raw-XML session capture. One file per Start invocation under
+    /// <c>{AppData}/Genie5/Logs/</c>. Always present (constructed once at startup);
+    /// only active when toggled via <see cref="ToggleRecordingCommand"/>.</summary>
+    public SessionRecorder Recorder { get; }
+    public ReactiveCommand<Unit, Unit>                    ResetLayoutCommand       { get; }
+    public ReactiveCommand<Unit, Unit>                    ExitCommand              { get; }
+    /// <summary>
+    /// File → Maps Directory... — opens a folder picker so the user can point
+    /// Genie at a different Maps location, e.g. their own <c>git clone</c> of
+    /// GenieClient/Maps. Persists to <c>paths.json</c>, then re-scans the new
+    /// directory for zones and rebuilds the auto-detect server-id index.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit>                    SetMapsDirectoryCommand  { get; }
+
+    /// <summary>
+    /// File → Open Maps Folder — opens the CURRENT Maps directory in the OS
+    /// file browser so the user can see their XML zone files directly.
+    /// Complements <see cref="SetMapsDirectoryCommand"/> (which is for
+    /// *changing* the directory, not viewing it — a folder picker hides
+    /// files which surprised users who clicked it expecting to see maps).
+    /// </summary>
+    public ReactiveCommand<Unit, Unit>                    OpenMapsFolderCommand    { get; }
+
+    /// <summary>
+    /// Opens the recordings directory (`{AppData}/Genie5/Logs/`) in the OS
+    /// file browser. Helps users find raw-XML recordings they captured via
+    /// File → Record Session — without it they'd have to hand-navigate the
+    /// AppData path, which most users can't easily find.
+    /// </summary>
+    public ReactiveCommand<Unit, Unit>                    OpenRecordingsFolderCommand { get; }
+
+    // ── Tool visibility (display-only; private setters guarantee these only
+    // change via the Toggle commands, never via stray binding pushes) ────────
+    [Reactive] public bool GameVisible     { get; private set; } = true;
+    [Reactive] public bool VitalsVisible   { get; private set; } = true;
+    [Reactive] public bool RoomVisible     { get; private set; } = true;
+    [Reactive] public bool BackpackVisible { get; private set; } = true;
+    [Reactive] public bool MapperVisible   { get; private set; } = true;
+    [Reactive] public bool LogonsVisible   { get; private set; } = true;
+    [Reactive] public bool TalkVisible     { get; private set; } = true;
+    [Reactive] public bool WhispersVisible { get; private set; } = true;
+    [Reactive] public bool ThoughtsVisible { get; private set; } = true;
+    [Reactive] public bool CombatVisible   { get; private set; } = true;
+
+    // ── Toggle commands (one per dockable) ───────────────────────────────────
+    public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
+    public ReactiveCommand<Unit, Unit> ToggleVitalsCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleRoomCommand     { get; }
+    public ReactiveCommand<Unit, Unit> ToggleBackpackCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleMapperCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleLogonsCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleTalkCommand     { get; }
+    public ReactiveCommand<Unit, Unit> ToggleWhispersCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleThoughtsCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleCombatCommand   { get; }
+
+    // ── Core ──────────────────────────────────────────────────────────────────
+
+    private GenieCore? _core;
+
+    /// <summary>
+    /// Read-only access to the live <see cref="GenieCore"/>. Null before the
+    /// first connect. Exposed for code-behind hooks (macro key handler,
+    /// Ctrl+Right paste, etc.) that need to dispatch input through
+    /// <see cref="GenieCore.ProcessInput"/>.
+    /// </summary>
+    public GenieCore? Core => _core;
+
+    // ── Profile store ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Saved connection profiles. Loaded at startup from <c>Config/profiles.json</c>
+    /// under the platform-appropriate user data directory (or alongside the app
+    /// in portable mode).
+    /// </summary>
+    public ProfileStore Profiles { get; } = new();
+
+    /// <summary>
+    /// Live display settings (fonts, colors). Edited via Edit → Display Settings.
+    /// Changes push directly into <see cref="Avalonia.Application.Resources"/>,
+    /// so the UI repaints without per-line property-change notifications.
+    /// </summary>
+    public DisplaySettings Display { get; }
+
+    /// <summary>
+    /// Per-window display settings (title, font, fg/bg, timestamp, redirect).
+    /// Edited via Edit → Configuration → Layout. Registered with the known
+    /// dock-tool ids at app start; pre-populated with Genie 4 default routing.
+    /// </summary>
+    public WindowSettingsStore WindowSettings { get; } = new();
+
+    private readonly string _profilesPath;
+    private readonly string _displayPath;
+    private readonly string _pathsPath;
+    private readonly string _configDir;
+    private readonly string _defaultMapsDir;
+
+    /// <summary>
+    /// Directory the <see cref="SessionRecorder"/> writes raw-XML captures to
+    /// (`{AppData}/Genie5/Logs/`). Exposed via <see cref="OpenRecordingsFolderCommand"/>
+    /// so users can browse captured `.xml` files from the File menu without
+    /// hunting through AppData paths.
+    /// </summary>
+    private readonly string _logsDir;
+
+    /// <summary>
+    /// Session-scoped map of DR's <c>#NNNN</c> container-item-IDs to their
+    /// human <c>title</c> (e.g. <c>#37666728 → "My Backpack"</c>). Populated
+    /// from <see cref="ContainerEvent"/>s the parser emits at session start
+    /// and whenever containers move. Consumed by <see cref="BuildLinkEcho"/>
+    /// to render click-echoes like <c>get a tapered cutlass in My Backpack</c>
+    /// instead of leaking the raw <c>in #37666728</c> ID.
+    /// <para>
+    /// ConcurrentDictionary because writes come from the parser's RX
+    /// subscription (any thread) and reads happen on the UI thread when
+    /// echoing the link click — the contention is trivial but the type's
+    /// thread-safety is free and avoids races.
+    /// </para>
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _containerNouns = new();
+
+    /// <summary>
+    /// Loaded path overrides. Currently just <see cref="PathSettings.MapsDirectory"/>;
+    /// expanded over time. Persisted to <c>Config\paths.json</c>.
+    /// </summary>
+    public PathSettings Paths { get; private set; } = new();
+
+    public MainWindowViewModel()
+    {
+        // ── Storage locations ─────────────────────────────────────────────
+        // LocalDirectoryService honors portable mode (Config\ next to the exe)
+        // and XDG / AppSupport paths on Linux / macOS.
+        var dir       = new LocalDirectoryService("Genie5", AppContext.BaseDirectory);
+        _configDir    = dir.Current.ValidateDirectory("Config");
+        _profilesPath = Path.Combine(_configDir, "profiles.json");
+        _displayPath  = Path.Combine(_configDir, "display.json");
+        _pathsPath    = Path.Combine(_configDir, "paths.json");
+        // Recordings live as a sibling to Config (not under it) — same parent
+        // dir, so {AppData}/Genie5/{Config, Logs, Maps, Profiles}/ is the layout.
+        _logsDir      = Path.Combine(Path.GetDirectoryName(_configDir)!, "Logs");
+
+        // Layout presets — one JSON per layout, lives at {AppData}/Genie5/Layouts/
+        var layoutsDir = Path.Combine(Path.GetDirectoryName(_configDir)!, "Layouts");
+        Layouts        = new Settings.LayoutStore(layoutsDir);
+
+        ErrorLog.Initialize(_configDir);
+
+        // Maps live at the TOP LEVEL of the data tree, parallel to Config/
+        // and Scripts/ — matching the Genie 4 layout users already know
+        // (Genie 4 ships Art/, Config/, Help/, Icons/, Logs/, Maps/,
+        // Plugins/, Scripts/, Sounds/ all at one level). An earlier rev
+        // had Maps inside Config/, which (a) didn't match Genie 4 muscle
+        // memory and (b) made the folder hard to point a git-clone at.
+        // Users can still override via File → Change Maps Directory... to
+        // point at a clone of GenieClient/Maps for git workflow.
+        _defaultMapsDir     = dir.Current.ResolvePath("Maps");
+        Paths               = PathSettings.Load(_pathsPath);
+
+        // ── One-time migration: Config\Maps → Maps ─────────────────────────
+        // Earlier builds defaulted to Config\Maps. If that folder exists with
+        // files AND the new top-level Maps is empty/missing, move the files
+        // up. Move (not copy) so we don't leave stale duplicates that drift
+        // out of sync. If the user has explicitly pointed Paths.MapsDirectory
+        // elsewhere, do nothing — their override wins.
+        if (string.IsNullOrWhiteSpace(Paths.MapsDirectory))
+        {
+            var legacyMapsDir = Path.Combine(_configDir, "Maps");
+            var newHasFiles   = Directory.Exists(_defaultMapsDir) &&
+                                Directory.GetFiles(_defaultMapsDir, "*.xml").Length > 0;
+            var legacyHasFiles = Directory.Exists(legacyMapsDir) &&
+                                 Directory.GetFiles(legacyMapsDir, "*.xml").Length > 0;
+            if (legacyHasFiles && !newHasFiles)
+            {
+                try
+                {
+                    Directory.CreateDirectory(_defaultMapsDir);
+                    foreach (var src in Directory.GetFiles(legacyMapsDir, "*.xml"))
+                    {
+                        var dst = Path.Combine(_defaultMapsDir, Path.GetFileName(src));
+                        if (!File.Exists(dst))
+                            File.Move(src, dst);
+                    }
+                    // Try to remove the now-empty legacy folder. Quietly skip
+                    // if it still has non-XML files — better to leave the
+                    // empty husk than to lose data we didn't expect.
+                    if (Directory.Exists(legacyMapsDir) &&
+                        Directory.GetFileSystemEntries(legacyMapsDir).Length == 0)
+                        Directory.Delete(legacyMapsDir);
+                }
+                catch (Exception ex) { ErrorLog.Log("MigrateMapsToTopLevel", ex); }
+            }
+        }
+
+        // One-time import from a Genie 4 install. If the user has no explicit
+        // override and the new location is empty, look for an existing Genie 4
+        // Maps directory at %APPDATA%\Genie Client 4\Maps\ and *copy* the
+        // XMLs over. Copy (not move) because many users still run Genie 4
+        // alongside Genie 5 — taking their data away would break that.
+        //
+        // Path is Windows-specific; on macOS/Linux the resolved directory
+        // simply won't exist, and the whole block is a quiet no-op.
+        if (string.IsNullOrWhiteSpace(Paths.MapsDirectory) &&
+            (!Directory.Exists(_defaultMapsDir) ||
+             Directory.GetFiles(_defaultMapsDir, "*.xml").Length == 0))
+        {
+            var genie4MapsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Genie Client 4",
+                "Maps");
+
+            if (Directory.Exists(genie4MapsDir) &&
+                Directory.GetFiles(genie4MapsDir, "*.xml").Length > 0)
+            {
+                try
+                {
+                    Directory.CreateDirectory(_defaultMapsDir);
+                    foreach (var src in Directory.GetFiles(genie4MapsDir, "*.xml"))
+                    {
+                        var dst = Path.Combine(_defaultMapsDir, Path.GetFileName(src));
+                        if (!File.Exists(dst)) File.Copy(src, dst);
+                    }
+                }
+                catch (Exception ex) { ErrorLog.Log("ImportGenie4Maps", ex); }
+            }
+        }
+
+        Mapper.MapsDirectory = string.IsNullOrWhiteSpace(Paths.MapsDirectory)
+            ? _defaultMapsDir
+            : Paths.MapsDirectory;
+
+        Profiles.Load(_profilesPath);
+
+        Display = DisplaySettings.Load(_displayPath);
+        Display.Apply();  // push values into Application.Resources
+        Mapper.AttachDisplay(Display, _displayPath);
+
+        // Register every known dockable with the window-settings store so the
+        // Layout tab in Configuration sees the full list. Genie 4 standard ids
+        // (talk, whispers, …) inherit IfClosed defaults from the store's
+        // built-in table; ours (game-text, vitals, …) just take generic defaults.
+        WindowSettings.Register("game-text", "Game");
+        WindowSettings.Register("vitals",    "Vitals");
+        WindowSettings.Register("room",      "Room");
+        WindowSettings.Register("backpack",  "Backpack");
+        WindowSettings.Register("logons",    "Logons");
+        WindowSettings.Register("talk",      "Talk");
+        WindowSettings.Register("whispers",  "Whispers");
+        WindowSettings.Register("thoughts",  "Thoughts");
+        WindowSettings.Register("combat",    "Combat");
+        WindowSettings.Register("mapper",    "Mapper");
+
+        Command = new CommandViewModel(SendCommand);
+
+        var factory = new GenieDockFactory(this);
+
+        // Keep the Window-menu check marks aligned with the dock's actual state:
+        // when the user closes a tab via its X, the factory raises DockableClosed
+        // and we flip the matching bool to false. Same for DockableAdded on re-open.
+        factory.DockableClosed += (_, e) =>
+        {
+            if (e.Dockable?.Id is { Length: > 0 } id)
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => SetVisibilityBool(id, false));
+        };
+        factory.DockableAdded += (_, e) =>
+        {
+            if (e.Dockable?.Id is { Length: > 0 } id)
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => SetVisibilityBool(id, true));
+        };
+
+        DockFactory = factory;
+        DockLayout  = factory.CreateLayout();
+
+        // Wire the Mapper's "pop out" button. Done here (after factory exists)
+        // because the VM doesn't carry a factory reference itself.
+        Mapper.FloatRequested = () => factory.FloatTool("mapper");
+
+        ConnectCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var result = await ShowConnectDialog.Handle(Unit.Default);
+            if (result is not null) await ConnectAsync(result.Config, result.Profile);
+        });
+
+        DisplaySettingsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var ok = await ShowDisplaySettingsDialog.Handle(Display);
+            if (ok) Display.Save(_displayPath);
+        });
+
+        ConfigurationCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            // The dialog scopes every config file to the selected profile.
+            // When the selected profile matches the connected one, edits go
+            // straight to the live engines; otherwise edits act on draft
+            // engines loaded from that profile's directory.
+            var cfgVm = new ConfigurationViewModel(_core, _configDir, Profiles, ConnectedProfile, WindowSettings);
+            await ShowConfigurationDialog.Handle(cfgVm);
+        });
+
+        // File -> Import from Genie 4...
+        // Opens the Genie4ImportDialog with auto-detected source path +
+        // probe + per-type checkboxes + Global/Profile routing. Disabled
+        // when no GenieCore is wired (pre-connect) — the dialog needs the
+        // live engines to apply imports to.
+        Genie4ImportCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            if (_core is null)
+            {
+                GameText.AddSystemLine("[import] Import is available once the app has finished initialising.");
+                return;
+            }
+            var profileDir   = ConnectedProfile is not null ? GetProfileConfigDir(ConnectedProfile) : null;
+            var profileChar  = ConnectedProfile?.CharacterName;
+            var importVm = new Genie4ImportViewModel(_core, _configDir, profileDir, profileChar);
+            await ShowGenie4ImportDialog.Handle(importVm);
+        });
+
+        // File -> Cross-Zone Connections...
+        // Opens the meta-graph editor where users curate transit links
+        // between zones (boats, climb-walls, etc.). The file lives at
+        // {MapsDirectory}/ZoneConnections.xml — same dir as the zone
+        // XMLs, so the community Maps repo absorbs it on `git pull`.
+        ZoneConnectionsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var mapsDir = Mapper.MapsDirectory;
+            if (string.IsNullOrWhiteSpace(mapsDir))
+            {
+                GameText.AddSystemLine("[mapper] No Maps directory set — pick one via File → Change Maps Directory first.");
+                return;
+            }
+            var repo = new Genie.Core.Mapper.ZoneConnectionsRepository(
+                System.IO.Path.Combine(mapsDir, "ZoneConnections.xml"));
+            var vm = new ZoneConnectionsViewModel(repo);
+            await ShowZoneConnectionsDialog.Handle(vm);
+        });
+
+        // ── Layout save/load (Workspace presets) ──────────────────────────
+        // Captures current panel arrangement + display flags into a named
+        // JSON file; loading restores all of them. Matches the muscle
+        // memory of Genie 4's Layout menu: "I have a hunt layout and a
+        // crafting layout, switch with one click."
+
+        // Save As: prompt for a name via the Interaction, then capture
+        // and persist. Empty name = user cancelled the prompt.
+        SaveLayoutAsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var defaultName = $"Layout {DateTime.Now:yyyy-MM-dd}";
+            var name = await ShowLayoutNamePrompt.Handle(defaultName);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var layout      = CaptureCurrentLayout();
+            layout.Name     = name.Trim();
+            Layouts.Save(layout);
+            RefreshSavedLayoutList();
+            GameText.AddSystemLine($"[layout] saved '{layout.Name}'");
+        });
+
+        // Load: parameter is the layout name; the menu populates one item
+        // per saved layout. Applies the saved state to the live VM.
+        LoadLayoutCommand = ReactiveCommand.Create<string>(name =>
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            var loaded = Layouts.Load(name);
+            if (loaded is null)
+            {
+                GameText.AddSystemLine($"[layout] could not load '{name}'");
+                return;
+            }
+            ApplyLayout(loaded);
+            GameText.AddSystemLine($"[layout] loaded '{name}'");
+        });
+
+        // Reset: bin the current state and let the dock factory rebuild
+        // from the canonical 3-column default. Useful as an "I broke
+        // something" escape hatch.
+        ResetLayoutCommand = ReactiveCommand.Create(() =>
+        {
+            ApplyLayout(new Settings.SavedLayout
+            {
+                Name              = "Default",
+                VisibleTools      = new List<string> {
+                    "game-text", "room", "backpack", "mapper",
+                    "logons", "talk", "whispers", "thoughts", "combat",
+                },
+                HandsStripVisible    = true,
+                HandsStripAtBottom   = true,
+                ShowStatusBar        = true,
+                RoundTimeOnHandsStrip= false,
+                ShowGameText         = true,
+                ShowEchoText         = true,
+                ShowScriptText       = true,
+            });
+            GameText.AddSystemLine("[layout] reset to default");
+        });
+
+        // Refresh the menu's "Load ▶" list — called on SubmenuOpened
+        // for the Layout menu so we re-read disk if new files landed.
+        RefreshLayoutListCommand = ReactiveCommand.Create(RefreshSavedLayoutList);
+
+        ToggleStatusBarCommand = ReactiveCommand.Create(() =>
+        {
+            Display.ShowStatusBar = !Display.ShowStatusBar;
+            Display.Save(_displayPath);
+        });
+
+        ToggleHandsBarCommand = ReactiveCommand.Create(() =>
+        {
+            Display.ShowHandsBar = !Display.ShowHandsBar;
+            Display.Save(_displayPath);
+        });
+
+        HandsBarToTopCommand = ReactiveCommand.Create(() =>
+        {
+            Display.HandsAtBottom = false;
+            Display.Save(_displayPath);
+        });
+
+        HandsBarToBottomCommand = ReactiveCommand.Create(() =>
+        {
+            Display.HandsAtBottom = true;
+            Display.Save(_displayPath);
+        });
+
+        RoundTimeToCommandBarCommand = ReactiveCommand.Create(() =>
+        {
+            Display.RoundTimeOnHandsStrip = false;
+            Display.Save(_displayPath);
+        });
+
+        RoundTimeToHandsStripCommand = ReactiveCommand.Create(() =>
+        {
+            Display.RoundTimeOnHandsStrip = true;
+            Display.Save(_displayPath);
+        });
+
+        // ── Session recorder ──────────────────────────────────────────────
+        // Logs sit beside Config under {AppData}/Genie5/ to mirror the layout
+        // TestHarness writes to. Always allocate the recorder (cheap — just
+        // ensures the dir exists); IsRecording stays false until the user
+        // toggles via the File menu.
+        // Wire a diagnostic-log callback so subscribe/stop events surface in
+        // the main Game window. Critical for debugging recorder issues —
+        // without this, a silent zero-chunks subscription is invisible.
+        Recorder = new SessionRecorder(_logsDir, msg =>
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg));
+        });
+        Recorder.CurrentFileChanged += file =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => IsRecording = file is not null);
+
+        ToggleRecordingCommand = ReactiveCommand.Create(() =>
+        {
+            if (Recorder.IsRecording)
+            {
+                Recorder.Stop();
+            }
+            else if (_core is null)
+            {
+                // Don't silently no-op — Avalonia's auto-toggle CheckBox on the
+                // MenuItem has already flipped the visual checkmark to ✓ at this
+                // point, and the user has no way to tell that recording didn't
+                // actually start. Tell them in the Game window, and then force
+                // IsRecording back to false (the line below) so the menu's
+                // OneWay binding repaints it as unchecked.
+                GameText.AddSystemLine("[recorder] cannot start — not connected. Connect first, then enable Record Session.");
+            }
+            else
+            {
+                var name = !string.IsNullOrWhiteSpace(_core.State.CharacterName)
+                    ? _core.State.CharacterName
+                    : ConnectedProfile?.CharacterName ?? "unknown";
+                Recorder.Start(_core, name);
+            }
+
+            // CRITICAL: ALWAYS reconcile the bool to the recorder's actual
+            // state at the end of every toggle. Avalonia's `ToggleType=CheckBox`
+            // MenuItem auto-toggles its IsChecked on click BEFORE the command
+            // runs; if the command then early-returns (e.g. _core was null),
+            // the visual ✓ stays on but the recorder never started. Forcing
+            // IsRecording = Recorder.IsRecording here pushes the truth back
+            // through the OneWay binding so the menu repaints correctly.
+            IsRecording = Recorder.IsRecording;
+        });
+
+        // Title-bar composition — show "🔴 REC" suffix while recording so the
+        // user can't forget the capture is running (matches the compliance
+        // review's recommendation that recording always be visibly indicated).
+        // The red-circle emoji (U+1F534) is rendered with its intrinsic red
+        // glyph by every modern color-emoji font; OS window-title chrome
+        // strings are otherwise plain text with no markup for per-char color,
+        // so this is the simplest reliable way to make the indicator red.
+        this.WhenAnyValue(x => x.ConnectionStatus, x => x.IsRecording)
+            .Subscribe(_ =>
+            {
+                var rec = IsRecording ? "  🔴 REC" : "";
+                WindowTitle = $"Genie 5 — {ConnectionStatus}{rec}";
+            });
+
+        // Compound visibility: ShowRtInCommandBar is true only when the
+        // character is in RT AND the user chose the command-bar position.
+        // ShowRtOnHandsStrip is its mirror. Bind both XAML badges to these
+        // so toggling the position re-routes the visible badge live without
+        // needing a converter or MultiBinding in the XAML.
+        this.WhenAnyValue(
+                x => x.Vitals.InRoundTime,
+                x => x.Display.RoundTimeOnHandsStrip)
+            .Subscribe(_ =>
+            {
+                ShowRtInCommandBar = Vitals.InRoundTime && !Display.RoundTimeOnHandsStrip;
+                ShowRtOnHandsStrip = Vitals.InRoundTime &&  Display.RoundTimeOnHandsStrip;
+            });
+
+        // ── Per-dockable toggle commands ───────────────────────────────────
+        // Each command derives the new desired state from the dock factory's
+        // actual state (not from the bool), so the menu and dock can never
+        // get out of sync even if something was closed via the dock's own X.
+        ToggleGameCommand     = MakeToggleCommand("game-text", v => GameVisible     = v);
+        ToggleVitalsCommand   = MakeToggleCommand("vitals",    v => VitalsVisible   = v);
+        ToggleRoomCommand     = MakeToggleCommand("room",      v => RoomVisible     = v);
+        ToggleBackpackCommand = MakeToggleCommand("backpack",  v => BackpackVisible = v);
+        ToggleMapperCommand   = MakeToggleCommand("mapper",    v => MapperVisible   = v);
+        ToggleLogonsCommand   = MakeToggleCommand("logons",    v => LogonsVisible   = v);
+        ToggleTalkCommand     = MakeToggleCommand("talk",      v => TalkVisible     = v);
+        ToggleWhispersCommand = MakeToggleCommand("whispers",  v => WhispersVisible = v);
+        ToggleThoughtsCommand = MakeToggleCommand("thoughts",  v => ThoughtsVisible = v);
+        ToggleCombatCommand   = MakeToggleCommand("combat",    v => CombatVisible   = v);
+
+        ResetLayoutCommand = ReactiveCommand.Create(() =>
+        {
+            if (DockFactory is not GenieDockFactory factory) return;
+            foreach (var id in new[] { "game-text", "vitals", "room", "backpack", "mapper", "logons", "talk", "whispers", "thoughts", "combat" })
+                factory.SetToolVisibility(id, true);
+
+            GameVisible   = VitalsVisible   = RoomVisible    = BackpackVisible = MapperVisible = true;
+            LogonsVisible = TalkVisible     = WhispersVisible = ThoughtsVisible = CombatVisible = true;
+        });
+
+        DisconnectCommand = ReactiveCommand.CreateFromTask(
+            DisconnectAsync,
+            this.WhenAnyValue(x => x.IsConnected));
+
+        ExitCommand = ReactiveCommand.Create(() =>
+        {
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                desktop.Shutdown();
+        });
+
+        SetMapsDirectoryCommand     = ReactiveCommand.CreateFromTask(SetMapsDirectoryAsync);
+        OpenMapsFolderCommand       = ReactiveCommand.Create(OpenMapsFolder);
+        OpenRecordingsFolderCommand = ReactiveCommand.Create(OpenRecordingsFolder);
+
+        // ── Exception logging for every async ReactiveCommand ────────────────
+        // Without a subscriber on ThrownExceptions, ReactiveUI considers the
+        // exception unobserved and tears down the process. Route everything
+        // to ErrorLog so causes are recorded instead of silent exits.
+        // (This block lives at the END of the constructor on purpose — every
+        // command above must already be assigned before we deref it.)
+        ConfigurationCommand  .ThrownExceptions.Subscribe(ex => ErrorLog.Log("ConfigurationCommand",   ex));
+        ConnectCommand        .ThrownExceptions.Subscribe(ex => ErrorLog.Log("ConnectCommand",         ex));
+        DisconnectCommand     .ThrownExceptions.Subscribe(ex => ErrorLog.Log("DisconnectCommand",      ex));
+        DisplaySettingsCommand.ThrownExceptions.Subscribe(ex => ErrorLog.Log("DisplaySettingsCommand", ex));
+    }
+
+    /// <summary>
+    /// Persist the current <see cref="Profiles"/> list to disk. Called by the
+    /// connect dialog after a Save / Delete action.
+    /// </summary>
+    public void SaveProfiles() => Profiles.Save(_profilesPath);
+
+    /// <summary>
+    /// File → Maps Directory... Opens a native folder picker, persists the
+    /// choice, and re-points the Mapper VM at the new directory. Designed to
+    /// be aimed at a <c>git clone</c> of GenieClient/Maps so users can edit
+    /// zones in Genie and contribute back via standard git workflow.
+    /// </summary>
+    /// <summary>
+    /// Open the current Maps directory in the host OS's file browser
+    /// (Explorer on Windows, Finder on macOS, xdg-open on Linux).
+    /// Uses an OS-specific launcher because passing the directory path as
+    /// the FileName of <see cref="System.Diagnostics.ProcessStartInfo"/>
+    /// fails on Windows ("Location is not available") — Explorer needs the
+    /// path as an ARGUMENT, not as the executable.
+    /// </summary>
+    private void OpenMapsFolder()
+    {
+        var dir = Mapper.MapsDirectory;
+        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+        {
+            ErrorLog.Log("OpenMapsFolder", new InvalidOperationException(
+                $"Maps directory not found: '{dir}'"));
+            return;
+        }
+
+        try
+        {
+            // Canonical Windows pattern: Process.Start(filename, argument).
+            // Quoting / escaping handled internally. The ProcessStartInfo
+            // route with explicit Arguments was failing here with
+            // "Location is not available" — likely because the quoted arg
+            // was being passed to explorer.exe in a form it interpreted
+            // as a literal filename to OPEN (not navigate to). The simpler
+            // overload works reliably.
+            var nativePath = Path.GetFullPath(dir);
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                    System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start("explorer.exe", nativePath);
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                         System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", nativePath);
+            else
+                System.Diagnostics.Process.Start("xdg-open", nativePath);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("OpenMapsFolder", ex);
+        }
+    }
+
+    /// <summary>
+    /// Opens the recordings folder in the OS file browser. Mirrors
+    /// <see cref="OpenMapsFolder"/>. Creates the directory if it doesn't
+    /// exist yet (user may have installed but never recorded).
+    /// </summary>
+    private void OpenRecordingsFolder()
+    {
+        var dir = _logsDir;
+        try
+        {
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            var nativePath = Path.GetFullPath(dir);
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                    System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start("explorer.exe", nativePath);
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                         System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", nativePath);
+            else
+                System.Diagnostics.Process.Start("xdg-open", nativePath);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("OpenRecordingsFolder", ex);
+        }
+    }
+
+    private async Task SetMapsDirectoryAsync()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+        if (desktop.MainWindow?.StorageProvider is not { } sp) return;
+
+        IStorageFolder? startLocation = null;
+        if (Directory.Exists(Mapper.MapsDirectory))
+        {
+            try   { startLocation = await sp.TryGetFolderFromPathAsync(Mapper.MapsDirectory); }
+            catch { /* picker just falls back to its default location */ }
+        }
+
+        var picked = await sp.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title              = "Choose Maps directory",
+            AllowMultiple      = false,
+            SuggestedStartLocation = startLocation,
+        });
+
+        var folder = picked?.FirstOrDefault();
+        if (folder is null) return;
+
+        var path = folder.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        Paths.MapsDirectory = path;
+        try   { Paths.Save(_pathsPath); }
+        catch (Exception ex) { ErrorLog.Log("SaveMapsDirectory", ex); }
+
+        // Re-point the Mapper VM and re-scan. RefreshAvailableZones runs on the
+        // current (UI) thread and is cheap; RebuildServerIdIndexAsync kicks
+        // off a background scan. Both fire off the MapsDirectory change so
+        // the auto-zone-detect index stays in sync with the new location.
+        Mapper.MapsDirectory = path;
+        Mapper.OnMapsDirectoryChanged();
+    }
+
+    /// <summary>
+    /// Re-sync every <c>XxxVisible</c> bool to the dock factory's actual state.
+    /// Called from the Window menu's SubmenuOpened handler so the check marks
+    /// always reflect truth at the moment the user looks at them — robust
+    /// against any close/move path that doesn't raise an event we caught.
+    /// </summary>
+    public void RefreshVisibilityBools()
+    {
+        if (DockFactory is not GenieDockFactory factory) return;
+
+        SetVisibilityBool("game-text", factory.IsToolVisible("game-text"));
+        SetVisibilityBool("vitals",    factory.IsToolVisible("vitals"));
+        SetVisibilityBool("room",      factory.IsToolVisible("room"));
+        SetVisibilityBool("backpack",  factory.IsToolVisible("backpack"));
+        SetVisibilityBool("mapper",    factory.IsToolVisible("mapper"));
+        SetVisibilityBool("logons",    factory.IsToolVisible("logons"));
+        SetVisibilityBool("talk",      factory.IsToolVisible("talk"));
+        SetVisibilityBool("whispers",  factory.IsToolVisible("whispers"));
+        SetVisibilityBool("thoughts",  factory.IsToolVisible("thoughts"));
+        SetVisibilityBool("combat",    factory.IsToolVisible("combat"));
+    }
+
+    /// <summary>
+    /// Resolve the per-profile config directory. When <paramref name="profile"/>
+    /// is null we use the legacy global <c>Config/</c> directory — preserving
+    /// behaviour for users who never picked a profile and for fresh installs.
+    /// </summary>
+    public string GetProfileConfigDir(ConnectionProfile? profile)
+    {
+        if (profile is null) return _configDir;
+        var dir = Path.Combine(_configDir, "Profiles", profile.Id.ToString("N"));
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    /// <summary>
+    /// Replay every saved rule file from the connected profile's config dir
+    /// (or the global dir for an ad-hoc connection) into the live engines so
+    /// anything configured offline via the Configuration dialog is active
+    /// from the moment the connection comes up.
+    /// </summary>
+    private void LoadSavedConfiguration(GenieCore core)
+    {
+        var p   = new PersistenceService();
+        var dir = GetProfileConfigDir(ConnectedProfile);
+
+        SafeLoad(dir, "highlights.json", path =>
+        {
+            foreach (var m in p.LoadHighlights(path))
+            {
+                core.Highlights.RemoveRule(m.Pattern);
+                core.Highlights.AddRule(
+                    m.Pattern, m.ForegroundColor, m.BackgroundColor,
+                    Enum.TryParse<HighlightMatchType>(m.MatchType, out var mt) ? mt : HighlightMatchType.String,
+                    m.CaseSensitive, m.IsEnabled, m.ClassName);
+            }
+        });
+
+        SafeLoad(dir, "triggers.json", path =>
+        {
+            foreach (var m in p.LoadTriggers(path))
+            {
+                core.Triggers.RemoveTrigger(m.Pattern);
+                core.Triggers.AddTrigger(m.Pattern, m.Action, m.CaseSensitive, m.IsEnabled, m.ClassName);
+            }
+        });
+
+        SafeLoad(dir, "substitutes.json", path =>
+        {
+            foreach (var m in p.LoadSubstitutes(path))
+            {
+                core.Substitutes.RemoveRule(m.Pattern);
+                core.Substitutes.AddRule(m.Pattern, m.Replacement, m.CaseSensitive, m.IsEnabled, m.ClassName);
+            }
+        });
+
+        SafeLoad(dir, "gags.json", path =>
+        {
+            foreach (var m in p.LoadGags(path))
+            {
+                core.Gags.RemoveRule(m.Pattern);
+                core.Gags.AddRule(m.Pattern, m.CaseSensitive, m.IsEnabled, m.ClassName);
+            }
+        });
+
+        SafeLoad(dir, "aliases.json", path =>
+        {
+            foreach (var m in p.LoadAliases(path))
+            {
+                core.Aliases.RemoveAlias(m.Name);
+                core.Aliases.AddAlias(m.Name, m.Expansion, m.IsEnabled);
+            }
+        });
+
+        SafeLoad(dir, "macros.json", path =>
+        {
+            foreach (var m in p.LoadMacros(path))
+                core.Macros.Add(m.Key, m.Action);
+        });
+
+        SafeLoad(dir, "variables.json", path =>
+        {
+            foreach (var m in p.LoadVariables(path))
+                core.Variables.Store.Set(m.Name, m.Value);
+        });
+
+        SafeLoad(dir, "windows.json", path =>
+        {
+            foreach (var m in p.LoadWindowSettings(path))
+                WindowSettings.Apply(m);
+        });
+    }
+
+    /// <summary>Run a load callback against <c>{dir}/{name}</c> if it exists, swallowing exceptions.</summary>
+    private static void SafeLoad(string dir, string fileName, Action<string> load)
+    {
+        var path = Path.Combine(dir, fileName);
+        if (!File.Exists(path)) return;
+        try { load(path); } catch { /* corrupt JSON shouldn't block connect */ }
+    }
+
+    /// <summary>
+    /// Build a toggle command for the named tool. The command always asks the
+    /// dock factory for the actual current state and flips it — this keeps the
+    /// menu's check mark and the dock's true state aligned even if the user
+    /// closed a tool by some other means (e.g. the X on its tab).
+    /// </summary>
+    private ReactiveCommand<Unit, Unit> MakeToggleCommand(string toolId, Action<bool> updateBool)
+        => ReactiveCommand.Create(() =>
+        {
+            if (DockFactory is not GenieDockFactory factory) return;
+            var newVisible = !factory.IsToolVisible(toolId);
+            factory.SetToolVisibility(toolId, newVisible);
+            // The Opened/Closed events also push this; explicitly setting it
+            // here covers cases where the event already fired with the same
+            // value (no PropertyChanged would otherwise refresh the binding).
+            updateBool(newVisible);
+        });
+
+    /// <summary>
+    /// Sync the matching <c>XxxVisible</c> bool to <paramref name="visible"/>
+    /// for a dockable id reported by the factory's open/close events. We force
+    /// a property change even if the value didn't move so the OneWay binding
+    /// always re-pushes to <c>MenuItem.IsChecked</c> (otherwise the auto-toggle
+    /// from the menu click can leave the visible check mark stuck inverted).
+    /// </summary>
+    private void SetVisibilityBool(string id, bool visible)
+    {
+        // Force the property-changed notification by flipping twice when needed.
+        switch (id)
+        {
+            case "game-text": ForceSet(visible, v => GameVisible     = v, () => GameVisible);     break;
+            case "vitals":    ForceSet(visible, v => VitalsVisible   = v, () => VitalsVisible);   break;
+            case "room":      ForceSet(visible, v => RoomVisible     = v, () => RoomVisible);     break;
+            case "backpack":  ForceSet(visible, v => BackpackVisible = v, () => BackpackVisible); break;
+            case "mapper":    ForceSet(visible, v => MapperVisible   = v, () => MapperVisible);   break;
+            case "logons":    ForceSet(visible, v => LogonsVisible   = v, () => LogonsVisible);   break;
+            case "talk":      ForceSet(visible, v => TalkVisible     = v, () => TalkVisible);     break;
+            case "whispers":  ForceSet(visible, v => WhispersVisible = v, () => WhispersVisible); break;
+            case "thoughts":  ForceSet(visible, v => ThoughtsVisible = v, () => ThoughtsVisible); break;
+            case "combat":    ForceSet(visible, v => CombatVisible   = v, () => CombatVisible);   break;
+        }
+
+        static void ForceSet(bool target, Action<bool> set, Func<bool> get)
+        {
+            if (get() == target)
+            {
+                // Same value — flip then restore to force a PropertyChanged
+                // notification so any OneWay-bound MenuItem.IsChecked refreshes
+                // (cures the "checkmark stuck inverted after X-close" bug).
+                set(!target);
+            }
+            set(target);
+        }
+    }
+
+    private async Task ConnectAsync(ConnectionConfig cfg, ConnectionProfile? profile)
+    {
+        if (_core is not null)
+            await _core.DisposeAsync();
+
+        _core            = new GenieCore(cfg, loggerFactory: null);
+        ConnectedProfile = profile;   // null if user typed credentials without picking a saved profile
+
+        _core.ConnectionState.ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                IsConnected      = e.Kind == ConnectionEventKind.Connected;
+                ConnectionStatus = e.Kind == ConnectionEventKind.Connected
+                    ? $"Connected — {cfg.CharacterName}"
+                    : e.Kind.ToString();
+            });
+
+        // Auto-load every saved rule file into the live engines so anything
+        // the user configured offline (via the Configuration dialog) is
+        // immediately active. Then expose Highlights to the renderer.
+        LoadSavedConfiguration(_core);
+        UserHighlights.Engine = _core.Highlights;
+
+        // Wire <d cmd="..."> link clicks to the command pipeline so they
+        // behave like the user typed the command. Mirror the ShowLinks
+        // config gate so users can opt out of clickable styling entirely.
+        // Pass the display text as echoOverride so the Game window shows
+        // "get a tapered cutlass" (readable) instead of the raw cmd
+        // "get #49489411 in #49489410" (item exist-IDs).
+        Highlighting.DefaultHighlights.OnLinkClicked = (cmd, displayText) =>
+            _core?.ProcessInput(cmd, echoOverride: BuildLinkEcho(cmd, displayText));
+        Highlighting.DefaultHighlights.LinksEnabled  = _core.Config.ShowLinks;
+
+        // External URL hyperlinks (<a href='URL'>) — DR emits these in the
+        // news/login resources block (Simucoin Store, Elanthipedia, etc.).
+        // Hand them off to the OS shell so the user's default browser opens
+        // the URL. UseShellExecute=true is required by .NET for URL strings
+        // (the runtime won't launch them as raw filenames).
+        Highlighting.DefaultHighlights.OnUrlClicked = url =>
+        {
+            if (string.IsNullOrWhiteSpace(url)) return;
+            try
+            {
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Log("OnUrlClicked", ex);
+            }
+        };
+
+        // GameText filters lines based on the user's per-tag visibility
+        // toggles (Window → Game Window) — supply Display so it can read
+        // ShowGameText / ShowEchoText / ShowScriptText at subscription time.
+        GameText.DisplaySettings = Display;
+        GameText.Attach(_core);
+        Vitals.Attach(_core);
+        Room.Attach(_core);
+        Inventory.Attach(_core);
+        Mapper.Attach(_core);
+        StreamTabs.Attach(_core);
+        ScriptBar.Attach(_core);
+
+        // Edit-in-editor requests come from two places, both routed to the
+        // same handler: the Script Bar's pencil button (per-running-script),
+        // and the `#edit <name>` meta-command (from the command bar). Both
+        // ultimately want to open the script file in the user-configured
+        // editor (or OS default `.cmd` handler) — so the App owns the
+        // launch logic and both sources fan in here.
+        ScriptBar.EditScript          += OpenScriptInEditor;
+        _core.EditScriptRequested     += name =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => OpenScriptInEditor(name));
+
+        // Mapper Edit-Exit requests — user right-clicks a map node, picks
+        // "Edit Exit ▶ {verb}". MapperViewModel raises the event, we open
+        // the dialog, and on save we ask the mapper to persist the zone.
+        Mapper.EditExitRequested += (node, exit) =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(async () =>
+            {
+                var fromTitle = node.Title;
+                var toTitle   = exit.DestinationId.HasValue
+                                && _core.AutoMapper.ActiveZone.Nodes.TryGetValue(exit.DestinationId.Value, out var toNode)
+                    ? toNode.Title
+                    : "(unknown)";
+                var editVm = new EditExitViewModel(exit, fromTitle, toTitle);
+                var ok = await ShowEditExitDialog.Handle(editVm);
+                if (ok) Mapper.SaveCurrentZone();
+            });
+
+        // ── Container noun map: harvest <container target='#NNNN' title='…'/>
+        // events into a per-session dict so BuildLinkEcho can substitute
+        // container IDs in click-echoes ("get a cutlass in My Backpack"
+        // rather than "get a cutlass in #37666728"). Subscription doesn't
+        // need to marshal to the UI thread — the dict is concurrent-safe
+        // and only read inside OnLinkClicked (which can run on any thread).
+        _core.GameEvents
+            .OfType<ContainerEvent>()
+            .Subscribe(e =>
+            {
+                if (string.IsNullOrEmpty(e.TargetId)) return;
+                if (string.IsNullOrEmpty(e.Title))
+                    _containerNouns.TryRemove(e.TargetId, out _);
+                else
+                    _containerNouns[e.TargetId] = e.Title;
+            });
+
+        // ── Fallback: when a stream tool is hidden, mirror its text into the
+        // main Game window so the player still sees it. The StreamBuffer
+        // continues to accumulate either way, so the history is preserved
+        // when the tool is re-opened.
+        _core.GameEvents
+            .OfType<TextEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                var streamVisible = e.Stream.ToLowerInvariant() switch
+                {
+                    "logons"   => LogonsVisible,
+                    "talk"     => TalkVisible,
+                    "whispers" => WhispersVisible,
+                    "thoughts" => ThoughtsVisible,
+                    "combat"   => CombatVisible,
+                    _          => true   // main + non-tool streams: nothing to mirror
+                };
+                if (!streamVisible)
+                    GameText.AddStreamLine(e.Stream, e.Text);
+            });
+
+        await _core.ConnectAsync();
+    }
+
+    private async Task DisconnectAsync()
+    {
+        // Stop the raw-XML recorder when the user disconnects — letting it run
+        // after the session ends just produces a file that trails off mid-tag.
+        // The user can re-toggle Record Session on the next connect.
+        Recorder.Stop();
+        if (_core is not null)
+            await _core.DisconnectAsync();
+    }
+
+    /// <summary>
+    /// Route the typed command through the full Genie pipeline:
+    /// alias expansion → separator split → #cmd dispatch → game send.
+    /// Local echo of the typed text happens inside <see cref="GenieCore"/>.
+    /// </summary>
+    // ── Layout save / load helpers ─────────────────────────────────────
+
+    /// <summary>
+    /// Capture the current layout-affecting state into a fresh
+    /// <see cref="Settings.SavedLayout"/> ready to persist. Reads
+    /// from the live VM + DisplaySettings + DockFactory.
+    /// </summary>
+    private Settings.SavedLayout CaptureCurrentLayout()
+    {
+        var layout = new Settings.SavedLayout
+        {
+            HandsStripVisible     = Display.ShowHandsBar,
+            HandsStripAtBottom    = Display.HandsAtBottom,
+            ShowStatusBar         = Display.ShowStatusBar,
+            RoundTimeOnHandsStrip = Display.RoundTimeOnHandsStrip,
+            ShowGameText          = Display.ShowGameText,
+            ShowEchoText          = Display.ShowEchoText,
+            ShowScriptText        = Display.ShowScriptText,
+            MapBackgroundHex      = Display.MapBackgroundHex,
+        };
+
+        // Visible-tool list — walk the dock factory's known tools and
+        // record which ones are currently in the dock tree. The factory
+        // knows the canonical set; checking IsToolVisible per id gives
+        // us a stable, normalised list.
+        if (DockFactory is Docking.GenieDockFactory factory)
+        {
+            foreach (var id in factory.ToolIds)
+            {
+                if (factory.IsToolVisible(id))
+                    layout.VisibleTools.Add(id);
+            }
+        }
+        return layout;
+    }
+
+    /// <summary>
+    /// Push a loaded <see cref="Settings.SavedLayout"/> back into the
+    /// live VM + DisplaySettings + DockFactory. Display settings are
+    /// applied first (cheap, instant); tool-visibility toggles run
+    /// last because Dock.Avalonia mutations need a UI-thread tick.
+    /// </summary>
+    private void ApplyLayout(Settings.SavedLayout layout)
+    {
+        // Display flags — these have property-changed observers that
+        // push through to the Avalonia resources so changes show
+        // immediately.
+        Display.ShowHandsBar           = layout.HandsStripVisible;
+        Display.HandsAtBottom          = layout.HandsStripAtBottom;
+        Display.ShowStatusBar          = layout.ShowStatusBar;
+        Display.RoundTimeOnHandsStrip  = layout.RoundTimeOnHandsStrip;
+        Display.ShowGameText           = layout.ShowGameText;
+        Display.ShowEchoText           = layout.ShowEchoText;
+        Display.ShowScriptText         = layout.ShowScriptText;
+        if (!string.IsNullOrWhiteSpace(layout.MapBackgroundHex))
+            Display.MapBackgroundHex   = layout.MapBackgroundHex;
+        Display.Save(_displayPath);
+
+        // Dock tool visibility. Build the wanted-set; flip every known
+        // tool to match. Dock.Avalonia handles re-adding to the original
+        // parent (the registry tracks this) when SetToolVisibility(true).
+        if (DockFactory is Docking.GenieDockFactory factory)
+        {
+            var wanted = new HashSet<string>(layout.VisibleTools, StringComparer.OrdinalIgnoreCase);
+            foreach (var id in factory.ToolIds)
+                factory.SetToolVisibility(id, wanted.Contains(id));
+        }
+    }
+
+    /// <summary>Re-read the disk and rebuild <see cref="SavedLayoutNames"/>
+    /// so the Layout → Load ▶ submenu reflects current state.</summary>
+    private void RefreshSavedLayoutList()
+    {
+        SavedLayoutNames.Clear();
+        foreach (var name in Layouts.List())
+            SavedLayoutNames.Add(name);
+    }
+
+    private Task SendCommand(string cmd)
+    {
+        if (_core is not null && !string.IsNullOrWhiteSpace(cmd))
+        {
+            // Typed user input cancels any in-flight auto-walk — per the
+            // compliance review, "any non-map-click input cancels." The
+            // user has taken manual control of the session; respecting
+            // that immediately keeps the walker on the responsive side
+            // of DR policy. Cancel BEFORE dispatching the typed input
+            // so the cancelled walk doesn't try to send a stale step
+            // when the next room-change fires.
+            if (Mapper.AutoWalk?.Current is not null)
+                Mapper.AutoWalk.Cancel("user took manual command");
+
+            _core.ProcessInput(cmd);
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Opens the named script file in the user-configured external editor
+    /// (<see cref="DisplaySettings.EditorPath"/>) or, when none is set,
+    /// in the OS default handler for <c>.cmd</c> files.
+    /// <para>
+    /// Looks up <c>{ScriptsDir}/{name}.cmd</c> first, then <c>.inc</c>.
+    /// If neither exists, surfaces a system line in the Game window so
+    /// the user knows nothing happened (rather than a silent failure).
+    /// </para>
+    /// </summary>
+    public void OpenScriptInEditor(string name)
+    {
+        if (_core is null || string.IsNullOrWhiteSpace(name)) return;
+
+        var dir = _core.Scripts.ScriptsDir;
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            GameText.AddSystemLine($"[editor] scripts directory not found: '{dir}'");
+            return;
+        }
+
+        // Try .cmd first, fall back to .inc. Scripts are typically .cmd
+        // but #include-style helpers use .inc.
+        var candidate = Path.Combine(dir, name + ".cmd");
+        if (!File.Exists(candidate))
+            candidate = Path.Combine(dir, name + ".inc");
+        if (!File.Exists(candidate))
+        {
+            GameText.AddSystemLine(
+                $"[editor] script not found: '{name}' (looked for {name}.cmd, {name}.inc in {dir})");
+            return;
+        }
+
+        try
+        {
+            var editorPath = Display.EditorPath;
+            if (!string.IsNullOrWhiteSpace(editorPath) && File.Exists(editorPath))
+            {
+                // Configured editor: invoke it with the file path as a
+                // single argument. Works for Notepad++, VS Code, Sublime,
+                // any GUI editor that takes a file path.
+                System.Diagnostics.Process.Start(editorPath, $"\"{candidate}\"");
+            }
+            else
+            {
+                // No configured editor — let the OS open with whatever's
+                // associated with `.cmd`. UseShellExecute=true is required
+                // for shell-association launch.
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(candidate) { UseShellExecute = true });
+            }
+            GameText.AddSystemLine($"[editor] opened '{Path.GetFileName(candidate)}'");
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("OpenScriptInEditor", ex);
+            GameText.AddSystemLine($"[editor] failed to open '{name}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Returns script-name completions for the given prefix, sorted
+    /// alphabetically (case-insensitive). Used by the command bar's Tab-
+    /// completion handler: typing <c>.MC</c> + Tab cycles through
+    /// <c>MC_Setup</c>, <c>MC_Hunt</c>, etc.
+    /// <para>
+    /// Scans the current <c>ScriptsDir</c> for <c>*.cmd</c> and <c>*.inc</c>
+    /// files (the two extensions our engine accepts) and returns the
+    /// basename (without extension). An empty prefix returns ALL scripts
+    /// so the user can cycle through the whole library by typing
+    /// <c>.</c> + Tab.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<string> GetScriptCompletions(string prefix)
+    {
+        if (_core is null) return Array.Empty<string>();
+        var dir = _core.Scripts.ScriptsDir;
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+            return Array.Empty<string>();
+
+        try
+        {
+            return Directory.EnumerateFiles(dir)
+                .Where(f =>
+                {
+                    var ext = Path.GetExtension(f);
+                    return ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+                        || ext.Equals(".inc", StringComparison.OrdinalIgnoreCase);
+                })
+                .Select(f => Path.GetFileNameWithoutExtension(f) ?? "")
+                .Where(n => !string.IsNullOrEmpty(n) &&
+                            n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("GetScriptCompletions", ex);
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Build the friendly echo string for a clicked <c>&lt;d cmd&gt;</c> link.
+    /// DR's links carry server-bound item-exist-IDs like
+    /// <c>get #49489411 in #49489410</c>, but the visible link text is the
+    /// human-readable noun (<c>a tapered cutlass</c>). When the user clicks
+    /// the link, the Game-window echo should show the noun-form rather than
+    /// the IDs.
+    /// <para>
+    /// Approach: substitute the FIRST <c>#NNNN</c> occurrence with the link's
+    /// visible text (the item being acted on), then substitute any further
+    /// <c>#NNNN</c>s against <see cref="_containerNouns"/> — the per-session
+    /// map populated from <c>&lt;container&gt;</c> events. The typical
+    /// two-ID command <c>get #49489411 in #37666728</c> renders as
+    /// <c>get a tapered cutlass in My Backpack</c>. IDs not in the dict
+    /// (rare — a container we somehow missed at session start) fall back
+    /// to the raw <c>#NNNN</c> form rather than guessing.
+    /// </para>
+    /// <para>
+    /// If <paramref name="cmd"/> has no IDs at all (e.g.
+    /// <c>&lt;d&gt;look around&lt;/d&gt;</c> bare-text links), the cmd IS
+    /// the readable form and is returned unchanged.
+    /// </para>
+    /// </summary>
+    private string BuildLinkEcho(string cmd, string displayText)
+    {
+        if (string.IsNullOrWhiteSpace(cmd))          return cmd;
+        if (string.IsNullOrWhiteSpace(displayText))  return cmd;
+        if (cmd.IndexOf('#') < 0)                    return cmd;
+
+        var index = 0;
+        return System.Text.RegularExpressions.Regex.Replace(
+            cmd, @"#\d+", m =>
+            {
+                if (index++ == 0)
+                    return displayText;
+                return _containerNouns.TryGetValue(m.Value, out var title)
+                    ? title
+                    : m.Value;
+            });
+    }
+}

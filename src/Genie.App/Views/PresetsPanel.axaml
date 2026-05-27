@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Genie.App.Views.PresetsPanel">
+
+  <!-- Top: preset list. Bottom: editor pane. -->
+  <Grid RowDefinitions="*,Auto" Margin="6">
+
+    <DataGrid Name="PresetList"
+              Grid.Row="0"
+              Margin="0,0,0,6"
+              IsReadOnly="True"
+              SelectionMode="Single"
+              CanUserSortColumns="True"
+              GridLinesVisibility="Horizontal"
+              HeadersVisibility="Column"
+              x:CompileBindings="False"
+              SelectionChanged="OnSelectionChanged">
+      <DataGrid.Columns>
+        <!-- Preset id rendered in its own fg/bg so the row previews how the
+             token will look when the renderer applies the preset. -->
+        <DataGridTemplateColumn Header="Id" Width="*">
+          <DataGridTemplateColumn.CellTemplate>
+            <DataTemplate>
+              <Border Background="{Binding IdBackground}" Padding="6,1">
+                <TextBlock Text="{Binding Id}"
+                           Foreground="{Binding IdForeground}"
+                           VerticalAlignment="Center"/>
+              </Border>
+            </DataTemplate>
+          </DataGridTemplateColumn.CellTemplate>
+        </DataGridTemplateColumn>
+        <DataGridTextColumn Header="Fg"   Binding="{Binding ForegroundColor}" Width="Auto" />
+        <DataGridTextColumn Header="Bg"   Binding="{Binding BackgroundColor}" Width="Auto" />
+        <DataGridTextColumn Header="Line" Binding="{Binding LineGlyph}"       Width="40" />
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <Grid Grid.Row="1"
+          ColumnDefinitions="Auto,*,Auto,Auto"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+          Margin="0,4,0,0">
+
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Preset:" FontWeight="Bold"
+                 VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBlock Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3"
+                 Name="IdLabel" Foreground="Gray" VerticalAlignment="Center" Margin="0,0,0,4"/>
+
+      <TextBlock Grid.Row="1" Grid.Column="0" Text="Foreground:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,8,4">
+        <ColorPicker Name="FgColorPicker" IsAlphaEnabled="False"/>
+        <CheckBox    Name="FgDefaultCheck" Content="Use default" VerticalAlignment="Center"/>
+      </StackPanel>
+      <TextBlock Grid.Row="1" Grid.Column="2" Text="Background:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+        <ColorPicker Name="BgColorPicker" IsAlphaEnabled="False"/>
+        <CheckBox    Name="BgNoneCheck" Content="None" VerticalAlignment="Center"/>
+      </StackPanel>
+
+      <CheckBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3"
+                Name="HighlightLineCheck" Content="Highlight entire line" Margin="0,2,0,4"/>
+
+      <StackPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3"
+                  Orientation="Horizontal" Spacing="8" Margin="0,2,0,0">
+        <Border Name="PreviewBorder" Height="22" Width="160" CornerRadius="3" Padding="6,2">
+          <TextBlock Name="PreviewText" Text="Preview text"/>
+        </Border>
+        <Button Content="Apply" Click="OnApply"/>
+        <Button Content="Reset" Click="OnReset"/>
+      </StackPanel>
+
+      <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3"
+                 Name="StatusText" Margin="0,6,0,0"
+                 Foreground="Gray" FontStyle="Italic"/>
+    </Grid>
+  </Grid>
+
+</UserControl>
