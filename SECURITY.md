@@ -6,11 +6,11 @@
 
 If you've found a security issue in Genie 5, email the maintainers privately at:
 
-> **security@<your-domain>.com** *(replace before publishing)*
+> **genie5@theshadowrealms.com**
 
 We aim to:
 
-- Acknowledge receipt within **3 business days**
+- Acknowledge receipt within **3-5 business days**
 - Provide an initial assessment within **7 business days**
 - Issue a fix or detailed timeline within **30 days** for confirmed high-severity issues
 
