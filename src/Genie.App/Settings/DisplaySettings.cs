@@ -51,6 +51,21 @@ public sealed class DisplaySettings : ReactiveObject
     [Reactive] public bool   ShowStatusBar { get; set; } = true;
 
     /// <summary>
+    /// Name of the global layout preset auto-applied on connect when the
+    /// connected profile has no <c>DefaultLayoutName</c> of its own (and for
+    /// bare-credential connections). Empty means no global default — fall back
+    /// to the built-in layout.
+    /// </summary>
+    [Reactive] public string GlobalDefaultLayout { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether the character's guild is appended to the window title
+    /// ("Genie 5 — Connected — Name — Guild"). Off hides the guild slot even
+    /// when a guild is known. Default on.
+    /// </summary>
+    [Reactive] public bool ShowGuildInTitle { get; set; } = true;
+
+    /// <summary>
     /// Whether the Wrayth-style hands / prepared-spell strip is shown at all.
     /// Position (top vs. bottom) is controlled by <see cref="HandsAtBottom"/>.
     /// </summary>

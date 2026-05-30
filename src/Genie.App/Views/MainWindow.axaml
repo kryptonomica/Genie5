@@ -25,18 +25,21 @@
                   Command="{Binding OpenRecordingsFolderCommand}"
                   ToolTip.Tip="Open the {AppData}/Genie5/Logs/ folder where Record Session saves its `.xml` captures. There's no in-App replay viewer yet — use the Console (dotnet run --project src/Genie.Core -- REPLAY &lt;file&gt;) to play recordings back."/>
         <Separator/>
-        <MenuItem Header="_Update Maps from Official Repo..."
-                  Command="{Binding Mapper.UpdateMapsCommand}"
-                  ToolTip.Tip="Download the latest zone XML files from github.com/GenieClient/Maps and merge with your local maps directory."/>
-        <MenuItem Header="_Open Maps Folder"
-                  Command="{Binding OpenMapsFolderCommand}"
-                  ToolTip.Tip="Open the current Maps directory in your file browser so you can see / hand-edit the .xml zone files."/>
-        <MenuItem Header="C_hange Maps Directory..."
-                  Command="{Binding SetMapsDirectoryCommand}"
-                  ToolTip.Tip="Pick a DIFFERENT folder to use as your Maps directory. Useful for pointing at a local git clone of github.com/GenieClient/Maps for git workflow (pull / push / pull-request)."/>
-        <MenuItem Header="Cross-_Zone Connections..."
-                  Command="{Binding ZoneConnectionsCommand}"
-                  ToolTip.Tip="Open the meta-graph editor: transit links between zones (boats, climb-walls, ferry crossings) that the multi-zone pathfinder consults. Saves to {MapsDirectory}/ZoneConnections.xml."/>
+        <MenuItem Header="_Maps">
+          <MenuItem Header="_Update from Official Repo..."
+                    Command="{Binding Mapper.UpdateMapsCommand}"
+                    ToolTip.Tip="Download the latest zone XML files from github.com/GenieClient/Maps and merge with your local maps directory."/>
+          <MenuItem Header="_Open Maps Folder"
+                    Command="{Binding OpenMapsFolderCommand}"
+                    ToolTip.Tip="Open the current Maps directory in your file browser so you can see / hand-edit the .xml zone files."/>
+          <MenuItem Header="C_hange Maps Directory..."
+                    Command="{Binding SetMapsDirectoryCommand}"
+                    ToolTip.Tip="Pick a DIFFERENT folder to use as your Maps directory. Useful for pointing at a local git clone of github.com/GenieClient/Maps for git workflow (pull / push / pull-request)."/>
+          <Separator/>
+          <MenuItem Header="Cross-_Zone Connections..."
+                    Command="{Binding ZoneConnectionsCommand}"
+                    ToolTip.Tip="Open the meta-graph editor: transit links between zones (boats, climb-walls, ferry crossings) that the multi-zone pathfinder consults. Saves to {MapsDirectory}/ZoneConnections.xml."/>
+        </MenuItem>
         <Separator/>
         <MenuItem Header="_Import from Genie 4..."
                   Command="{Binding Genie4ImportCommand}"
@@ -49,21 +52,33 @@
         <Separator/>
         <MenuItem Header="_Display Settings..." Command="{Binding DisplaySettingsCommand}"/>
       </MenuItem>
-      <MenuItem Header="_Layout" Command="{Binding RefreshLayoutListCommand}">
+      <MenuItem Header="_Layout" SubmenuOpened="OnLayoutMenuOpened">
         <MenuItem Header="_Save Layout As..."
                   Command="{Binding SaveLayoutAsCommand}"
                   ToolTip.Tip="Save the current arrangement of panels + hands strip + RT badge etc as a named preset. Each preset lives at {AppData}/Genie5/Layouts/{Name}.json so you can copy / share between machines."/>
         <MenuItem Header="_Load Layout"
-                  ItemsSource="{Binding SavedLayoutNames}"
+                  Classes="layouts-host"
+                  ItemsSource="{Binding SavedLayouts}"
                   ToolTip.Tip="Switch to a saved layout preset.">
-          <MenuItem.DataTemplates>
-            <DataTemplate DataType="x:String">
-              <MenuItem Header="{Binding}"
-                        Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).LoadLayoutCommand}"
-                        CommandParameter="{Binding}"/>
-            </DataTemplate>
-          </MenuItem.DataTemplates>
+          <!-- Style the auto-generated container MenuItem per item. Each
+               container's DataContext is the LayoutMenuItem record, so the
+               Header / Command / CommandParameter bindings resolve against
+               it. The :not(.layouts-host) excludes THIS MenuItem itself —
+               otherwise Avalonia would also apply the bindings to the host
+               (its Styles include the host) and try to coerce the parent
+               VM's `Command` property (a CommandViewModel) into ICommand,
+               breaking the host menu item mid-hover. -->
+          <MenuItem.Styles>
+            <Style Selector="MenuItem:not(.layouts-host)">
+              <Setter Property="Header"           Value="{Binding Display}"/>
+              <Setter Property="Command"          Value="{Binding Command}"/>
+              <Setter Property="CommandParameter" Value="{Binding}"/>
+            </Style>
+          </MenuItem.Styles>
         </MenuItem>
+        <MenuItem Header="_Manage Layouts..."
+                  Command="{Binding ManageLayoutsCommand}"
+                  ToolTip.Tip="Copy layouts between this profile and Global (or other profiles), set the default layout applied on connect, rename, and delete."/>
         <Separator/>
         <MenuItem Header="_Reset to Default Layout"
                   Command="{Binding ResetLayoutCommand}"
@@ -108,6 +123,11 @@
                   IsChecked="{Binding Display.ShowStatusBar}"
                   Command="{Binding ToggleStatusBarCommand}"
                   ToolTip.Tip="Show/hide the Wrayth-style vitals strip at the bottom of the window"/>
+        <MenuItem Header="G_uild in Title Bar"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding Display.ShowGuildInTitle}"
+                  Command="{Binding ToggleGuildInTitleCommand}"
+                  ToolTip.Tip="Append the character's guild to the window title (after you've run 'info' this session). Off hides it."/>
 
         <Separator/>
 
@@ -190,10 +210,66 @@
 
         <Separator/>
 
+        <MenuItem Header="_Experience"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding ExperienceVisible, Mode=OneWay}"
+                  Command="{Binding ToggleExperienceCommand}"
+                  ToolTip.Tip="Skill ranks and learning rates, tracked by the Experience plugin. Train a skill or type 'exp' to populate it."/>
+
+        <Separator/>
+
         <MenuItem Header="Reset _Layout"
                   Command="{Binding ResetLayoutCommand}"
                   ToolTip.Tip="Restore all windows to visible (does not move them back to default positions)"/>
 
+      </MenuItem>
+
+      <!-- ── Plugins ─────────────────────────────────────────────────────── -->
+      <MenuItem Header="_Plugins" SubmenuOpened="OnPluginsMenuOpened">
+        <MenuItem Header="_Open Plugins Folder"
+                  Command="{Binding OpenPluginsFolderCommand}"
+                  ToolTip.Tip="Open {AppData}/Genie5/Plugins — drop plugin .dll files here. Loaded on connect (and via Reload)."/>
+        <MenuItem Header="_Reload Plugins"
+                  Command="{Binding ReloadPluginsCommand}"
+                  ToolTip.Tip="Re-scan the Plugins folder and load any new .dll plugins into the current session."/>
+        <Separator/>
+        <MenuItem Header="_Load"
+                  Classes="plugins-load-host"
+                  ItemsSource="{Binding AvailablePluginFiles}"
+                  ToolTip.Tip="Load an individual plugin .dll sitting in the Plugins folder that isn't loaded yet.">
+          <MenuItem.Styles>
+            <Style Selector="MenuItem:not(.plugins-load-host)">
+              <Setter Property="Header"  Value="{Binding Display}"/>
+              <Setter Property="Command" Value="{Binding LoadCommand}"/>
+            </Style>
+          </MenuItem.Styles>
+        </MenuItem>
+        <MenuItem Header="Enable / _Disable"
+                  Classes="plugins-host"
+                  ItemsSource="{Binding PluginMenuItems}"
+                  ToolTip.Tip="Enable/disable each loaded plugin for this session. Disabled plugins stay loaded (re-enable is instant); the plugin's window blanks while off.">
+          <MenuItem.Styles>
+            <!-- Per-plugin checkbox. :not(.plugins-host) excludes this host item
+                 so the bindings only apply to the generated child containers. -->
+            <Style Selector="MenuItem:not(.plugins-host)">
+              <Setter Property="Header"     Value="{Binding Display}"/>
+              <Setter Property="ToggleType" Value="CheckBox"/>
+              <Setter Property="IsChecked"  Value="{Binding Enabled, Mode=OneWay}"/>
+              <Setter Property="Command"    Value="{Binding ToggleCommand}"/>
+            </Style>
+          </MenuItem.Styles>
+        </MenuItem>
+        <MenuItem Header="_Unload"
+                  Classes="plugins-unload-host"
+                  ItemsSource="{Binding PluginMenuItems}"
+                  ToolTip.Tip="Fully unload a plugin — removes it and releases its .dll so it can be replaced/deleted. Use Reload Plugins to bring it back.">
+          <MenuItem.Styles>
+            <Style Selector="MenuItem:not(.plugins-unload-host)">
+              <Setter Property="Header"  Value="{Binding Display}"/>
+              <Setter Property="Command" Value="{Binding UnloadCommand}"/>
+            </Style>
+          </MenuItem.Styles>
+        </MenuItem>
       </MenuItem>
     </Menu>
 
@@ -775,9 +851,12 @@
     </Grid>
 
     <!-- ── Dock control (fills remaining space) ──────────────────────────── -->
+    <!-- InitializeLayout="False": the VM/factory init the layout explicitly
+         (BuildDefaultLayout / BuildLayout call InitLayout) so runtime layout
+         swaps are deterministic and don't double-initialise. -->
     <dockc:DockControl Layout="{Binding DockLayout}"
                        Factory="{Binding DockFactory}"
-                       InitializeLayout="True"/>
+                       InitializeLayout="False"/>
 
   </DockPanel>
 </Window>

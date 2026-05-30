@@ -46,8 +46,18 @@ public sealed class SavedLayout
     /// <summary>String IDs of every tool that should be visible in the
     /// dock. Matches <see cref="Docking.GenieDockFactory"/> tool IDs:
     /// "vitals", "room", "backpack", "mapper", "logons", "talk",
-    /// "whispers", "thoughts", "combat", etc.</summary>
+    /// "whispers", "thoughts", "combat", etc.
+    /// <para>Retained for backward-compat + as the fallback when
+    /// <see cref="DockTree"/> is absent (layouts saved before full-tree
+    /// serialisation landed).</para></summary>
     public List<string> VisibleTools { get; set; } = new();
+
+    /// <summary>Full dock-tree snapshot — container structure, proportions,
+    /// alignments, and active tabs. When present, this is the authoritative
+    /// source for restoring the layout (it round-trips the *arrangement*, not
+    /// just which tools are visible). Null for layouts saved before this
+    /// feature; those fall back to <see cref="VisibleTools"/>.</summary>
+    public Docking.DockNodeSnapshot? DockTree { get; set; }
 
     // ── Cross-cutting display flags ────────────────────────────────────
 

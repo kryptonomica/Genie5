@@ -35,24 +35,35 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public MapperViewModel     Mapper     { get; } = new();
     public CommandViewModel    Command    { get; }
     public StreamTabsViewModel StreamTabs { get; } = new();
+    public ExperienceViewModel Experience { get; } = new();
     public ScriptBarViewModel  ScriptBar  { get; } = new();
 
     /// <summary>
-    /// Disk-backed store of user-named layout presets. Populated in
-    /// the constructor; the Layout menu consults it for the "Load ▶"
-    /// submenu items.
+    /// Global layout presets, shared across every character —
+    /// <c>{AppData}/Genie5/Layouts/</c>. Always present.
     /// </summary>
-    public Settings.LayoutStore Layouts { get; private set; } = null!;
+    private Settings.LayoutStore _globalLayouts = null!;
+
+    /// <summary>
+    /// Per-profile layout presets for the connected saved profile —
+    /// <c>{Config}/Profiles/{guid}/Layouts/</c>. Null when not connected, or
+    /// connected via bare credentials (no saved profile to scope to).
+    /// </summary>
+    private Settings.LayoutStore? _profileLayouts;
+
 
     /// <summary>Current set of saved layouts, refreshed for the Layout
     /// menu each time it opens. ObservableCollection so the menu's
-    /// ItemsControl picks up additions / deletions live.</summary>
-    public System.Collections.ObjectModel.ObservableCollection<string> SavedLayoutNames { get; }
+    /// ItemsControl picks up additions / deletions live. Each item wraps
+    /// the layout name together with a pre-bound <see cref="LoadLayoutCommand"/>
+    /// reference so the menu DataTemplate can bind without an ancestor
+    /// cast — see <see cref="LayoutMenuItem"/>.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<LayoutMenuItem> SavedLayouts { get; }
         = new();
 
     // ── Docking ───────────────────────────────────────────────────────────────
 
-    public IRootDock? DockLayout  { get; private set; }
+    [Reactive] public IRootDock? DockLayout  { get; private set; }
     public IFactory?  DockFactory { get; private set; }
 
     // ── Connection state ──────────────────────────────────────────────────────
@@ -66,6 +77,16 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// dialog. Drives per-profile config storage paths and the title bar.
     /// </summary>
     [Reactive] public ConnectionProfile? ConnectedProfile { get; private set; }
+
+    /// <summary>
+    /// The <see cref="ConnectionConfig"/> used by the most recent successful
+    /// connect (or attempt). Survives disconnect so reopening the Connect
+    /// dialog can pre-fill the just-used credentials — important for the
+    /// bare-credential / no-saved-profile path where, without this, the
+    /// dialog would fall back to auto-selecting some saved profile instead
+    /// of showing what the user just typed.
+    /// </summary>
+    public ConnectionConfig? LastConnectionConfig { get; private set; }
 
     // ── Commands & interactions ───────────────────────────────────────────────
 
@@ -82,14 +103,27 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit>                    Genie4ImportCommand      { get; }
     public ReactiveCommand<Unit, Unit>                    ZoneConnectionsCommand   { get; }
     public ReactiveCommand<Unit, Unit>                    SaveLayoutAsCommand      { get; }
-    public ReactiveCommand<string, Unit>                  LoadLayoutCommand        { get; }
+    public ReactiveCommand<LayoutMenuItem, Unit>          LoadLayoutCommand        { get; }
     public ReactiveCommand<Unit, Unit>                    RefreshLayoutListCommand { get; }
+    public ReactiveCommand<Unit, Unit>                    ManageLayoutsCommand     { get; }
+    public Interaction<ManageLayoutsViewModel, Unit>      ShowManageLayoutsDialog  { get; } = new();
+
+    // ── Plugins menu ────────────────────────────────────────────────────────
+    /// <summary>Loaded plugins shown in the Plugins menu (enable/disable).
+    /// Rebuilt when the menu opens.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<PluginMenuItem> PluginMenuItems { get; } = new();
+    /// <summary>Unloaded plugin DLLs in the Plugins folder (Plugins → Load).</summary>
+    public System.Collections.ObjectModel.ObservableCollection<PluginFileItem> AvailablePluginFiles { get; } = new();
+    public ReactiveCommand<Unit, Unit> OpenPluginsFolderCommand { get; }
+    public ReactiveCommand<Unit, Unit> ReloadPluginsCommand     { get; }
+    public ReactiveCommand<Unit, Unit> RefreshPluginListCommand { get; }
     // ResetLayoutCommand is declared further down (existing); we re-assign
     // it in the layout-feature block to use the new ApplyLayout helper
     // so the dock + display flags both come back to factory defaults.
 
-    public Interaction<string, string?>                   ShowLayoutNamePrompt     { get; } = new();
+    public Interaction<LayoutSavePrompt, LayoutSaveResult?> ShowLayoutSavePrompt   { get; } = new();
     public ReactiveCommand<Unit, Unit>                    ToggleStatusBarCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    ToggleGuildInTitleCommand{ get; }
     public ReactiveCommand<Unit, Unit>                    ToggleHandsBarCommand    { get; }
     /// <summary>Window → Hands Strip Position → Top. Snaps the strip to the top of the window.</summary>
     public ReactiveCommand<Unit, Unit>                    HandsBarToTopCommand     { get; }
@@ -119,8 +153,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool IsRecording        { get; private set; }
 
     /// <summary>Full window title with optional " ● REC" suffix when recording.
-    /// Composed reactively from <see cref="ConnectionStatus"/> + <see cref="IsRecording"/>.</summary>
+    /// Composed reactively from <see cref="ConnectionStatus"/>, <see cref="CharacterGuild"/>,
+    /// and <see cref="IsRecording"/>.</summary>
     [Reactive] public string WindowTitle      { get; private set; } = "Genie 5";
+
+    /// <summary>Character guild for the title bar, parsed from the <c>info</c>
+    /// verb (empty until the player runs <c>info</c>). Appended to the title
+    /// as " — {Guild}" only when non-empty.</summary>
+    [Reactive] public string CharacterGuild   { get; private set; } = "";
 
     /// <summary>Raw-XML session capture. One file per Start invocation under
     /// <c>{AppData}/Genie5/Logs/</c>. Always present (constructed once at startup);
@@ -160,6 +200,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool RoomVisible     { get; private set; } = true;
     [Reactive] public bool BackpackVisible { get; private set; } = true;
     [Reactive] public bool MapperVisible   { get; private set; } = true;
+    [Reactive] public bool ExperienceVisible { get; private set; }   // hidden by default (opt-in)
     [Reactive] public bool LogonsVisible   { get; private set; } = true;
     [Reactive] public bool TalkVisible     { get; private set; } = true;
     [Reactive] public bool WhispersVisible { get; private set; } = true;
@@ -172,6 +213,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleRoomCommand     { get; }
     public ReactiveCommand<Unit, Unit> ToggleBackpackCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleMapperCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleExperienceCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleLogonsCommand   { get; }
     public ReactiveCommand<Unit, Unit> ToggleTalkCommand     { get; }
     public ReactiveCommand<Unit, Unit> ToggleWhispersCommand { get; }
@@ -226,6 +268,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// hunting through AppData paths.
     /// </summary>
     private readonly string _logsDir;
+    private string _pluginsDir = "";
 
     /// <summary>
     /// Session-scoped map of DR's <c>#NNNN</c> container-item-IDs to their
@@ -262,10 +305,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // Recordings live as a sibling to Config (not under it) — same parent
         // dir, so {AppData}/Genie5/{Config, Logs, Maps, Profiles}/ is the layout.
         _logsDir      = Path.Combine(Path.GetDirectoryName(_configDir)!, "Logs");
+        _pluginsDir   = Path.Combine(Path.GetDirectoryName(_configDir)!, "Plugins");
 
-        // Layout presets — one JSON per layout, lives at {AppData}/Genie5/Layouts/
+        // Global layout presets — one JSON per layout, at {AppData}/Genie5/Layouts/.
+        // Per-profile presets attach on connect (see SetProfileLayoutScope).
         var layoutsDir = Path.Combine(Path.GetDirectoryName(_configDir)!, "Layouts");
-        Layouts        = new Settings.LayoutStore(layoutsDir);
+        _globalLayouts = new Settings.LayoutStore(layoutsDir);
 
         ErrorLog.Initialize(_configDir);
 
@@ -372,6 +417,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("thoughts",  "Thoughts");
         WindowSettings.Register("combat",    "Combat");
         WindowSettings.Register("mapper",    "Mapper");
+        WindowSettings.Register("experience", "Experience");
 
         Command = new CommandViewModel(SendCommand);
 
@@ -392,7 +438,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         };
 
         DockFactory = factory;
-        DockLayout  = factory.CreateLayout();
+        DockLayout  = factory.BuildDefaultLayout();
 
         // Wire the Mapper's "pop out" button. Done here (after factory exists)
         // because the VM doesn't carry a factory reference itself.
@@ -463,34 +509,47 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // memory of Genie 4's Layout menu: "I have a hunt layout and a
         // crafting layout, switch with one click."
 
-        // Save As: prompt for a name via the Interaction, then capture
-        // and persist. Empty name = user cancelled the prompt.
+        // Save As: prompt for a name via the Interaction, then capture and
+        // persist to the ACTIVE store (connected profile, else global). Empty
+        // name = user cancelled the prompt.
         SaveLayoutAsCommand = ReactiveCommand.CreateFromTask(async () =>
         {
-            var defaultName = $"Layout {DateTime.Now:yyyy-MM-dd}";
-            var name = await ShowLayoutNamePrompt.Handle(defaultName);
-            if (string.IsNullOrWhiteSpace(name)) return;
+            var prompt = new LayoutSavePrompt(
+                DefaultName:      $"Layout {DateTime.Now:yyyy-MM-dd}",
+                ProfileAvailable: _profileLayouts is not null,
+                ProfileNames:     _profileLayouts?.List() ?? Array.Empty<string>(),
+                GlobalNames:      _globalLayouts.List());
 
-            var layout      = CaptureCurrentLayout();
-            layout.Name     = name.Trim();
-            Layouts.Save(layout);
+            var result = await ShowLayoutSavePrompt.Handle(prompt);
+            if (result is null || string.IsNullOrWhiteSpace(result.Name)) return;
+
+            var store = result.Scope == LayoutScope.Profile && _profileLayouts is not null
+                ? _profileLayouts
+                : _globalLayouts;
+
+            var layout  = CaptureCurrentLayout();
+            layout.Name = result.Name.Trim();
+            store.Save(layout);
             RefreshSavedLayoutList();
-            GameText.AddSystemLine($"[layout] saved '{layout.Name}'");
+            GameText.AddSystemLine(
+                $"[layout] saved '{layout.Name}' ({(ReferenceEquals(store, _profileLayouts) ? "profile" : "global")})");
         });
 
-        // Load: parameter is the layout name; the menu populates one item
-        // per saved layout. Applies the saved state to the live VM.
-        LoadLayoutCommand = ReactiveCommand.Create<string>(name =>
+        // Load: parameter is the menu item, which carries the layout's scope so
+        // we read from the right store. Applies the saved state to the live VM.
+        LoadLayoutCommand = ReactiveCommand.Create<LayoutMenuItem>(item =>
         {
-            if (string.IsNullOrWhiteSpace(name)) return;
-            var loaded = Layouts.Load(name);
+            if (item is null || string.IsNullOrWhiteSpace(item.Name)) return;
+            var store  = item.Scope == LayoutScope.Profile ? _profileLayouts : _globalLayouts;
+            var loaded = store?.Load(item.Name);
             if (loaded is null)
             {
-                GameText.AddSystemLine($"[layout] could not load '{name}'");
+                GameText.AddSystemLine($"[layout] could not load '{item.Name}'");
                 return;
             }
             ApplyLayout(loaded);
-            GameText.AddSystemLine($"[layout] loaded '{name}'");
+            GameText.AddSystemLine(
+                $"[layout] loaded '{item.Name}'{(item.Scope == LayoutScope.Global ? " (global)" : "")}");
         });
 
         // Reset: bin the current state and let the dock factory rebuild
@@ -520,9 +579,44 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // for the Layout menu so we re-read disk if new files landed.
         RefreshLayoutListCommand = ReactiveCommand.Create(RefreshSavedLayoutList);
 
+        // Manage Layouts… — copy between scopes/profiles, set defaults,
+        // rename, delete. Build a VM over the current stores + all profiles,
+        // show the dialog, then refresh the Load menu since the set may change.
+        ManageLayoutsCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var vm = new ManageLayoutsViewModel(
+                _globalLayouts,
+                _profileLayouts,
+                ConnectedProfile,
+                Profiles.Profiles,
+                p => new Settings.LayoutStore(Path.Combine(GetProfileConfigDir(p), "Layouts")),
+                Display,
+                () => Display.Save(_displayPath),
+                SaveProfiles);
+            await ShowManageLayoutsDialog.Handle(vm);
+            RefreshSavedLayoutList();
+        });
+
+        // ── Plugins menu ────────────────────────────────────────────────────
+        RefreshPluginListCommand = ReactiveCommand.Create(RefreshPluginList);
+        OpenPluginsFolderCommand = ReactiveCommand.Create(OpenPluginsFolder);
+        ReloadPluginsCommand     = ReactiveCommand.Create(() =>
+        {
+            if (_core is null) { GameText.AddSystemLine("[plugin] connect first to (re)load plugins."); return; }
+            _core.Plugins.DiscoverAndLoad(_pluginsDir);
+            RefreshPluginList();
+            GameText.AddSystemLine($"[plugin] {_core.Plugins.Plugins.Count} plugin(s) loaded.");
+        });
+
         ToggleStatusBarCommand = ReactiveCommand.Create(() =>
         {
             Display.ShowStatusBar = !Display.ShowStatusBar;
+            Display.Save(_displayPath);
+        });
+
+        ToggleGuildInTitleCommand = ReactiveCommand.Create(() =>
+        {
+            Display.ShowGuildInTitle = !Display.ShowGuildInTitle;
             Display.Save(_displayPath);
         });
 
@@ -612,11 +706,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // glyph by every modern color-emoji font; OS window-title chrome
         // strings are otherwise plain text with no markup for per-char color,
         // so this is the simplest reliable way to make the indicator red.
-        this.WhenAnyValue(x => x.ConnectionStatus, x => x.IsRecording)
+        this.WhenAnyValue(x => x.ConnectionStatus, x => x.CharacterGuild,
+                          x => x.IsRecording, x => x.Display.ShowGuildInTitle)
             .Subscribe(_ =>
             {
-                var rec = IsRecording ? "  🔴 REC" : "";
-                WindowTitle = $"Genie 5 — {ConnectionStatus}{rec}";
+                var guild = (Display.ShowGuildInTitle && !string.IsNullOrWhiteSpace(CharacterGuild))
+                    ? $" — {CharacterGuild}" : "";
+                var rec   = IsRecording ? "  🔴 REC" : "";
+                WindowTitle = $"Genie 5 — {ConnectionStatus}{guild}{rec}";
             });
 
         // Compound visibility: ShowRtInCommandBar is true only when the
@@ -642,6 +739,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleRoomCommand     = MakeToggleCommand("room",      v => RoomVisible     = v);
         ToggleBackpackCommand = MakeToggleCommand("backpack",  v => BackpackVisible = v);
         ToggleMapperCommand   = MakeToggleCommand("mapper",    v => MapperVisible   = v);
+        ToggleExperienceCommand = MakeToggleCommand("experience", v => ExperienceVisible = v);
         ToggleLogonsCommand   = MakeToggleCommand("logons",    v => LogonsVisible   = v);
         ToggleTalkCommand     = MakeToggleCommand("talk",      v => TalkVisible     = v);
         ToggleWhispersCommand = MakeToggleCommand("whispers",  v => WhispersVisible = v);
@@ -704,18 +802,187 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// fails on Windows ("Location is not available") — Explorer needs the
     /// path as an ARGUMENT, not as the executable.
     /// </summary>
+    // ── #plugin command bar handler ─────────────────────────────────────────
+    //
+    //   #plugin                       list loaded + available
+    //   #plugin list
+    //   #plugin enable  <id|name>     enable a loaded plugin
+    //   #plugin disable <id|name>     disable a loaded plugin
+    //   #plugin unload  <id|name>     unload a loaded plugin (releases the .dll)
+    //   #plugin load    <file>        load a .dll from the Plugins folder
+    //   #plugin reload                re-scan the folder, load all new
+    //   #plugin folder                open the Plugins folder
+    private void HandlePluginCommand(string args)
+    {
+        if (_core is null) { GameText.AddSystemLine("[plugin] connect first."); return; }
+
+        var trimmed = (args ?? string.Empty).Trim();
+        var split   = trimmed.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var sub     = split.Length > 0 ? split[0].ToLowerInvariant() : "list";
+        var rest    = split.Length > 1 ? split[1].Trim() : string.Empty;
+
+        switch (sub)
+        {
+            case "":
+            case "list":    PluginCmdList();                 break;
+            case "enable":  PluginCmdSetEnabled(rest, true); break;
+            case "disable": PluginCmdSetEnabled(rest, false);break;
+            case "unload":  PluginCmdUnload(rest);           break;
+            case "load":    PluginCmdLoad(rest);             break;
+            case "reload":  ReloadPluginsCommand.Execute().Subscribe(); RefreshPluginList(); break;
+            case "folder":  OpenPluginsFolder();             break;
+            default:
+                GameText.AddSystemLine(
+                    "[plugin] usage: #plugin [list | enable <id> | disable <id> | unload <id> | load <file> | reload | folder]");
+                break;
+        }
+    }
+
+    private void PluginCmdList()
+    {
+        GameText.AddSystemLine("[plugin] loaded:");
+        var any = false;
+        foreach (var p in _core!.Plugins.Plugins)
+        {
+            GameText.AddSystemLine($"  {p.Name} v{p.Version}  [{p.Id}]  {(p.Enabled ? "enabled" : "disabled")}");
+            any = true;
+        }
+        if (!any) GameText.AddSystemLine("  (none loaded)");
+
+        if (Directory.Exists(_pluginsDir))
+        {
+            var unloaded = Directory.EnumerateFiles(_pluginsDir, "*.dll")
+                .Where(f => !_core.Plugins.IsFileLoaded(f)).ToList();
+            if (unloaded.Count > 0)
+            {
+                GameText.AddSystemLine("[plugin] available to load:");
+                foreach (var f in unloaded) GameText.AddSystemLine($"  {Path.GetFileName(f)}");
+            }
+        }
+    }
+
+    /// <summary>Find a loaded plugin by exact id or name (case-insensitive).</summary>
+    private Genie.Plugins.IGeniePlugin? FindPlugin(string idOrName)
+        => _core!.Plugins.Plugins.FirstOrDefault(p =>
+               p.Id.Equals(idOrName,   StringComparison.OrdinalIgnoreCase) ||
+               p.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
+
+    private void PluginCmdSetEnabled(string idOrName, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(idOrName)) { GameText.AddSystemLine($"[plugin] usage: #plugin {(enabled ? "enable" : "disable")} <id|name>"); return; }
+        if (FindPlugin(idOrName) is not { } p) { GameText.AddSystemLine($"[plugin] not loaded: '{idOrName}'"); return; }
+        p.Enabled = enabled;
+        RefreshPluginList();
+        GameText.AddSystemLine($"[plugin] '{p.Name}' {(enabled ? "enabled" : "disabled")}.");
+    }
+
+    private void PluginCmdUnload(string idOrName)
+    {
+        if (string.IsNullOrWhiteSpace(idOrName)) { GameText.AddSystemLine("[plugin] usage: #plugin unload <id|name>"); return; }
+        if (FindPlugin(idOrName) is not { } p) { GameText.AddSystemLine($"[plugin] not loaded: '{idOrName}'"); return; }
+        _core!.Plugins.Unload(p.Id);
+        RefreshPluginList();
+        GameText.AddSystemLine($"[plugin] unloaded '{p.Id}'.");
+    }
+
+    private void PluginCmdLoad(string file)
+    {
+        if (string.IsNullOrWhiteSpace(file)) { GameText.AddSystemLine("[plugin] usage: #plugin load <file.dll>"); return; }
+        if (!Directory.Exists(_pluginsDir)) { GameText.AddSystemLine("[plugin] no Plugins folder."); return; }
+
+        // Match by filename, with or without the .dll extension (case-insensitive).
+        var match = Directory.EnumerateFiles(_pluginsDir, "*.dll").FirstOrDefault(f =>
+        {
+            var n = Path.GetFileName(f);
+            return n.Equals(file, StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileNameWithoutExtension(n).Equals(file, StringComparison.OrdinalIgnoreCase);
+        });
+
+        if (match is null) { GameText.AddSystemLine($"[plugin] no such DLL in Plugins folder: '{file}'"); return; }
+        if (_core!.Plugins.IsFileLoaded(match)) { GameText.AddSystemLine($"[plugin] already loaded: {Path.GetFileName(match)}"); return; }
+
+        if (_core.Plugins.LoadFile(match)) GameText.AddSystemLine($"[plugin] loaded from {Path.GetFileName(match)}.");
+        else                                GameText.AddSystemLine($"[plugin] no plugin found in {Path.GetFileName(match)}.");
+        RefreshPluginList();
+    }
+
+    /// <summary>Rebuild the Plugins-menu list from the live session's loaded
+    /// plugins. Empty when not connected (plugins load on connect).</summary>
+    private void RefreshPluginList()
+    {
+        PluginMenuItems.Clear();
+        AvailablePluginFiles.Clear();
+        if (_core is null) return;
+
+        // Loaded plugins (enable/disable + unload).
+        foreach (var p in _core.Plugins.Plugins)
+        {
+            var id = p.Id;
+            PluginMenuItems.Add(new PluginMenuItem(p, onUnload: () =>
+            {
+                _core?.Plugins.Unload(id);
+                RefreshPluginList();
+                GameText.AddSystemLine($"[plugin] unloaded '{id}'.");
+            }));
+        }
+
+        // Unloaded DLLs in the folder (load each individually).
+        if (Directory.Exists(_pluginsDir))
+            foreach (var dll in Directory.EnumerateFiles(_pluginsDir, "*.dll"))
+            {
+                if (_core.Plugins.IsFileLoaded(dll)) continue;
+                var path = dll;
+                AvailablePluginFiles.Add(new PluginFileItem(Path.GetFileName(dll), onLoad: () =>
+                {
+                    if (_core?.Plugins.LoadFile(path) == true)
+                        GameText.AddSystemLine($"[plugin] loaded from {Path.GetFileName(path)}.");
+                    else
+                        GameText.AddSystemLine($"[plugin] no plugin found in {Path.GetFileName(path)}.");
+                    RefreshPluginList();
+                }));
+            }
+    }
+
+    private void OpenPluginsFolder() => OpenFolder(_pluginsDir, "OpenPluginsFolder");
+
+    /// <summary>Open a folder in the OS file browser, creating it if missing.
+    /// Cross-platform (explorer / open / xdg-open).</summary>
+    private static void OpenFolder(string dir, string logTag)
+    {
+        if (string.IsNullOrWhiteSpace(dir)) return;
+        try
+        {
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            var nativePath = Path.GetFullPath(dir);
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                    System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start("explorer.exe", nativePath);
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                         System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", nativePath);
+            else
+                System.Diagnostics.Process.Start("xdg-open", nativePath);
+        }
+        catch (Exception ex) { ErrorLog.Log(logTag, ex); }
+    }
+
     private void OpenMapsFolder()
     {
         var dir = Mapper.MapsDirectory;
-        if (string.IsNullOrWhiteSpace(dir) || !Directory.Exists(dir))
+        if (string.IsNullOrWhiteSpace(dir))
         {
             ErrorLog.Log("OpenMapsFolder", new InvalidOperationException(
-                $"Maps directory not found: '{dir}'"));
+                "Maps directory is not configured."));
             return;
         }
 
         try
         {
+            // First-run users typically haven't pulled the Maps repo yet, so
+            // the configured directory may not exist on disk. Create it so
+            // the menu item actually opens a folder instead of silently
+            // failing — matches OpenRecordingsFolder's behavior.
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             // Canonical Windows pattern: Process.Start(filename, argument).
             // Quoting / escaping handled internally. The ProcessStartInfo
             // route with explicit Arguments was failing here with
@@ -820,6 +1087,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("room",      factory.IsToolVisible("room"));
         SetVisibilityBool("backpack",  factory.IsToolVisible("backpack"));
         SetVisibilityBool("mapper",    factory.IsToolVisible("mapper"));
+        SetVisibilityBool("experience", factory.IsToolVisible("experience"));
         SetVisibilityBool("logons",    factory.IsToolVisible("logons"));
         SetVisibilityBool("talk",      factory.IsToolVisible("talk"));
         SetVisibilityBool("whispers",  factory.IsToolVisible("whispers"));
@@ -838,6 +1106,19 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         var dir = Path.Combine(_configDir, "Profiles", profile.Id.ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    /// <summary>
+    /// Point the per-profile layout store at the connected profile's dir, or
+    /// clear it (global-only) when there's no saved profile. Only real saved
+    /// profiles get a scope — a bare-credential connection stays global so we
+    /// don't strand presets under a throwaway dir.
+    /// </summary>
+    private void SetProfileLayoutScope(ConnectionProfile? profile)
+    {
+        _profileLayouts = profile is null
+            ? null
+            : new Settings.LayoutStore(Path.Combine(GetProfileConfigDir(profile), "Layouts"));
     }
 
     /// <summary>
@@ -961,6 +1242,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "room":      ForceSet(visible, v => RoomVisible     = v, () => RoomVisible);     break;
             case "backpack":  ForceSet(visible, v => BackpackVisible = v, () => BackpackVisible); break;
             case "mapper":    ForceSet(visible, v => MapperVisible   = v, () => MapperVisible);   break;
+            case "experience": ForceSet(visible, v => ExperienceVisible = v, () => ExperienceVisible); break;
             case "logons":    ForceSet(visible, v => LogonsVisible   = v, () => LogonsVisible);   break;
             case "talk":      ForceSet(visible, v => TalkVisible     = v, () => TalkVisible);     break;
             case "whispers":  ForceSet(visible, v => WhispersVisible = v, () => WhispersVisible); break;
@@ -986,8 +1268,24 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         if (_core is not null)
             await _core.DisposeAsync();
 
-        _core            = new GenieCore(cfg, loggerFactory: null);
-        ConnectedProfile = profile;   // null if user typed credentials without picking a saved profile
+        _core                = new GenieCore(cfg, loggerFactory: null);
+        ConnectedProfile     = profile;   // null if user typed credentials without picking a saved profile
+        LastConnectionConfig = cfg;       // remembered so reopening Connect after disconnect pre-fills
+        CharacterGuild       = "";        // cleared until this session's `info` reveals the guild
+
+        // Guild for the title bar — fires when the player runs `info`. DR has
+        // no structured guild tag, so we parse it from the info output.
+        _core.GameEvents.OfType<GuildEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e => CharacterGuild = e.Guild);
+
+        // Scope the per-profile layout store to this profile (global-only for
+        // bare-credential connects), refresh the Load menu, and auto-apply the
+        // profile's default layout (falling back to the global default, then
+        // the built-in layout if neither resolves).
+        SetProfileLayoutScope(profile);
+        RefreshSavedLayoutList();
+        ApplyDefaultLayoutForConnect(profile);
 
         _core.ConnectionState.ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>
@@ -1043,6 +1341,13 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Inventory.Attach(_core);
         Mapper.Attach(_core);
         StreamTabs.Attach(_core);
+        Experience.Attach(_core);
+
+        // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin
+        // Experience plugin is already registered in GenieCore's ctor), then
+        // populate the Plugins menu.
+        _core.Plugins.DiscoverAndLoad(_pluginsDir);
+        RefreshPluginList();
         ScriptBar.Attach(_core);
 
         // Edit-in-editor requests come from two places, both routed to the
@@ -1054,6 +1359,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ScriptBar.EditScript          += OpenScriptInEditor;
         _core.EditScriptRequested     += name =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => OpenScriptInEditor(name));
+
+        // #layout … from the command bar — dock + store work happens on the
+        // UI thread.
+        _core.LayoutCommandRequested  += args =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => HandleLayoutCommand(args));
+
+        // #plugin … — load/unload/enable/disable from the command bar.
+        _core.PluginCommandRequested  += args =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => HandlePluginCommand(args));
 
         // Mapper Edit-Exit requests — user right-clicks a map node, picks
         // "Edit Exit ▶ {verb}". MapperViewModel raises the event, we open
@@ -1152,7 +1466,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // Visible-tool list — walk the dock factory's known tools and
         // record which ones are currently in the dock tree. The factory
         // knows the canonical set; checking IsToolVisible per id gives
-        // us a stable, normalised list.
+        // us a stable, normalised list. Kept as a fallback for clients
+        // that read VisibleTools; DockTree below is authoritative.
         if (DockFactory is Docking.GenieDockFactory factory)
         {
             foreach (var id in factory.ToolIds)
@@ -1160,6 +1475,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 if (factory.IsToolVisible(id))
                     layout.VisibleTools.Add(id);
             }
+
+            // Full-tree snapshot — captures arrangement (proportions,
+            // alignments, active tabs, container structure), so loading the
+            // layout restores the visual arrangement, not just visibility.
+            layout.DockTree = factory.CaptureLayout();
         }
         return layout;
     }
@@ -1186,24 +1506,229 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             Display.MapBackgroundHex   = layout.MapBackgroundHex;
         Display.Save(_displayPath);
 
-        // Dock tool visibility. Build the wanted-set; flip every known
-        // tool to match. Dock.Avalonia handles re-adding to the original
-        // parent (the registry tracks this) when SetToolVisibility(true).
         if (DockFactory is Docking.GenieDockFactory factory)
         {
-            var wanted = new HashSet<string>(layout.VisibleTools, StringComparer.OrdinalIgnoreCase);
-            foreach (var id in factory.ToolIds)
-                factory.SetToolVisibility(id, wanted.Contains(id));
+            if (layout.DockTree is not null)
+            {
+                // Authoritative path: rebuild the whole tree from the snapshot
+                // and swap it into the bound DockControl. Restores proportions,
+                // alignments, active tabs — the full arrangement.
+                DockLayout = factory.BuildLayout(layout.DockTree);
+            }
+            else
+            {
+                // Legacy fallback (layout saved before full-tree serialisation,
+                // or Reset). Rebuild the default tree FIRST so every parent
+                // ToolDock exists again — Dock auto-removes a ToolDock when its
+                // last child is closed, so without the rebuild a hidden tool
+                // (e.g. the mapper) could never be re-shown. Then apply the
+                // saved visibility set on top of the fresh default.
+                DockLayout = factory.BuildDefaultLayout();
+                var wanted = new HashSet<string>(layout.VisibleTools, StringComparer.OrdinalIgnoreCase);
+                foreach (var id in factory.ToolIds)
+                    factory.SetToolVisibility(id, wanted.Contains(id));
+            }
         }
     }
 
-    /// <summary>Re-read the disk and rebuild <see cref="SavedLayoutNames"/>
+    /// <summary>
+    /// On connect, apply the appropriate default layout: the profile's own
+    /// <see cref="ConnectionProfile.DefaultLayoutName"/> from its store, else
+    /// the global default (<see cref="DisplaySettings.GlobalDefaultLayout"/>),
+    /// else leave the current/built-in layout untouched.
+    /// </summary>
+    private void ApplyDefaultLayoutForConnect(ConnectionProfile? profile)
+    {
+        var profileDefault = profile?.DefaultLayoutName;
+        if (!string.IsNullOrWhiteSpace(profileDefault)
+            && _profileLayouts?.Load(profileDefault) is { } pl)
+        {
+            ApplyLayout(pl);
+            return;
+        }
+
+        var globalDefault = Display.GlobalDefaultLayout;
+        if (!string.IsNullOrWhiteSpace(globalDefault)
+            && _globalLayouts.Load(globalDefault) is { } gl)
+        {
+            ApplyLayout(gl);
+        }
+        // else: keep whatever is showing (built-in default from startup).
+    }
+
+    /// <summary>Re-read the disk and rebuild <see cref="SavedLayouts"/>
     /// so the Layout → Load ▶ submenu reflects current state.</summary>
     private void RefreshSavedLayoutList()
     {
-        SavedLayoutNames.Clear();
-        foreach (var name in Layouts.List())
-            SavedLayoutNames.Add(name);
+        SavedLayouts.Clear();
+
+        // Profile layouts first (the character's own), then global presets
+        // suffixed "(Global)" so duplicate names across scopes stay distinct.
+        if (_profileLayouts is not null)
+            foreach (var name in _profileLayouts.List())
+                SavedLayouts.Add(new LayoutMenuItem(name, name, LayoutScope.Profile, LoadLayoutCommand));
+
+        foreach (var name in _globalLayouts.List())
+            SavedLayouts.Add(new LayoutMenuItem($"{name} (Global)", name, LayoutScope.Global, LoadLayoutCommand));
+    }
+
+    // ── #layout command bar handler ─────────────────────────────────────────
+    //
+    //   #layout                        list all (★ = default)
+    //   #layout list
+    //   #layout load <name>            load (profile first, then global)
+    //   #layout save <name>            save to current scope (profile if connected)
+    //   #layout save global  <name>    save to global
+    //   #layout save profile <name>    save to this profile
+    //   #layout default <name>         set <name> as default in its scope
+    //   #layout delete <name>          delete <name> from its scope
+    //   #layout reset                  built-in default layout
+    private void HandleLayoutCommand(string args)
+    {
+        var trimmed = (args ?? string.Empty).Trim();
+        var split   = trimmed.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var sub     = split.Length > 0 ? split[0].ToLowerInvariant() : "list";
+        var rest    = split.Length > 1 ? split[1].Trim() : string.Empty;
+
+        switch (sub)
+        {
+            case "":
+            case "list":    LayoutCmdList();              break;
+            case "load":
+            case "apply":   LayoutCmdLoad(rest);          break;
+            case "save":    LayoutCmdSave(rest);          break;
+            case "default": LayoutCmdSetDefault(rest);    break;
+            case "delete":
+            case "remove":  LayoutCmdDelete(rest);        break;
+            case "reset":   ResetLayoutCommand.Execute().Subscribe(); break;
+            default:
+                GameText.AddSystemLine(
+                    "[layout] usage: #layout [list | load <name> | save [global|profile] <name> | default <name> | delete <name> | reset]");
+                break;
+        }
+    }
+
+    private void LayoutCmdList()
+    {
+        var any = false;
+        GameText.AddSystemLine("[layout] saved layouts:");
+        if (_profileLayouts is not null)
+            foreach (var n in _profileLayouts.List())
+            {
+                var def = string.Equals(n, ConnectedProfile?.DefaultLayoutName, StringComparison.OrdinalIgnoreCase) ? "  ★ default" : "";
+                GameText.AddSystemLine($"  {n}  (profile){def}");
+                any = true;
+            }
+        foreach (var n in _globalLayouts.List())
+        {
+            var def = string.Equals(n, Display.GlobalDefaultLayout, StringComparison.OrdinalIgnoreCase) ? "  ★ default" : "";
+            GameText.AddSystemLine($"  {n}  (global){def}");
+            any = true;
+        }
+        if (!any) GameText.AddSystemLine("  (none saved)");
+    }
+
+    /// <summary>Resolve a layout name to its store + scope — profile first
+    /// (when connected), then global. Null if not found in either.</summary>
+    private (Settings.LayoutStore Store, LayoutScope Scope)? ResolveLayout(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        if (_profileLayouts is not null && _profileLayouts.Exists(name))
+            return (_profileLayouts, LayoutScope.Profile);
+        if (_globalLayouts.Exists(name))
+            return (_globalLayouts, LayoutScope.Global);
+        return null;
+    }
+
+    private void LayoutCmdLoad(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { GameText.AddSystemLine("[layout] usage: #layout load <name>"); return; }
+        if (ResolveLayout(name) is not { } hit) { GameText.AddSystemLine($"[layout] not found: '{name}'"); return; }
+        var loaded = hit.Store.Load(name);
+        if (loaded is null) { GameText.AddSystemLine($"[layout] could not read '{name}'"); return; }
+        ApplyLayout(loaded);
+        GameText.AddSystemLine($"[layout] loaded '{name}'{(hit.Scope == LayoutScope.Global ? " (global)" : "")}");
+    }
+
+    private void LayoutCmdSave(string rest)
+    {
+        var scope = LayoutScope.Profile;
+        var name  = rest;
+
+        // Optional leading scope word, but only when a name follows it — so a
+        // layout literally named "global"/"profile" can still be saved.
+        var sp = rest.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        if (sp.Length == 2)
+        {
+            var first = sp[0].ToLowerInvariant();
+            if (first is "global" or "profile")
+            {
+                scope = first == "global" ? LayoutScope.Global : LayoutScope.Profile;
+                name  = sp[1].Trim();
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(name)) { GameText.AddSystemLine("[layout] usage: #layout save [global|profile] <name>"); return; }
+
+        Settings.LayoutStore store;
+        if (scope == LayoutScope.Profile && _profileLayouts is not null)
+            store = _profileLayouts;
+        else
+        {
+            if (scope == LayoutScope.Profile)
+                GameText.AddSystemLine("[layout] no profile connected — saving to global.");
+            store = _globalLayouts;
+        }
+
+        var layout  = CaptureCurrentLayout();
+        layout.Name = name.Trim();
+        store.Save(layout);
+        RefreshSavedLayoutList();
+        GameText.AddSystemLine($"[layout] saved '{layout.Name}' ({(ReferenceEquals(store, _profileLayouts) ? "profile" : "global")})");
+    }
+
+    private void LayoutCmdSetDefault(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { GameText.AddSystemLine("[layout] usage: #layout default <name>"); return; }
+        if (ResolveLayout(name) is not { } hit) { GameText.AddSystemLine($"[layout] not found: '{name}'"); return; }
+
+        if (hit.Scope == LayoutScope.Profile)
+        {
+            if (ConnectedProfile is null) { GameText.AddSystemLine("[layout] no connected profile to set a default on."); return; }
+            ConnectedProfile.DefaultLayoutName = name;
+            SaveProfiles();
+            GameText.AddSystemLine($"[layout] '{name}' is now this profile's default.");
+        }
+        else
+        {
+            Display.GlobalDefaultLayout = name;
+            Display.Save(_displayPath);
+            GameText.AddSystemLine($"[layout] '{name}' is now the global default.");
+        }
+    }
+
+    private void LayoutCmdDelete(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) { GameText.AddSystemLine("[layout] usage: #layout delete <name>"); return; }
+        if (ResolveLayout(name) is not { } hit) { GameText.AddSystemLine($"[layout] not found: '{name}'"); return; }
+
+        // Clear a default pointing at the deleted layout.
+        if (hit.Scope == LayoutScope.Profile && ConnectedProfile is not null
+            && string.Equals(ConnectedProfile.DefaultLayoutName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            ConnectedProfile.DefaultLayoutName = "";
+            SaveProfiles();
+        }
+        else if (hit.Scope == LayoutScope.Global
+            && string.Equals(Display.GlobalDefaultLayout, name, StringComparison.OrdinalIgnoreCase))
+        {
+            Display.GlobalDefaultLayout = "";
+            Display.Save(_displayPath);
+        }
+
+        hit.Store.Delete(name);
+        RefreshSavedLayoutList();
+        GameText.AddSystemLine($"[layout] deleted '{name}'");
     }
 
     private Task SendCommand(string cmd)

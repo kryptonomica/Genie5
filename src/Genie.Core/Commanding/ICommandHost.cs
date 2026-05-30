@@ -74,4 +74,23 @@ public interface ICommandHost
     /// </para>
     /// </summary>
     void EditScript(string name);
+
+    /// <summary>
+    /// Run a <c>#layout</c> command — the raw argument string after
+    /// <c>#layout </c> (e.g. <c>save global My Layout</c>, <c>load Base</c>,
+    /// <c>list</c>). Layout storage + dock manipulation live in the App layer,
+    /// so <see cref="Genie.Core"/> forwards the args to a host handler; the
+    /// Console build with no handler echoes a diagnostic.
+    /// </summary>
+    void LayoutCommand(string args);
+
+    /// <summary>
+    /// Run a <c>#plugin</c> command — the raw argument string after
+    /// <c>#plugin </c> (e.g. <c>list</c>, <c>enable Experience</c>,
+    /// <c>unload genie.experience</c>, <c>load Plugin_EXPTrackerV5</c>). Plugin
+    /// management (loader + folder) is orchestrated by the App layer, so
+    /// <see cref="Genie.Core"/> forwards the args to a host handler; the Console
+    /// build with no handler echoes a diagnostic.
+    /// </summary>
+    void PluginCommand(string args);
 }

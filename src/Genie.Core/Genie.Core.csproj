@@ -31,6 +31,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Plugin API contract — host implements IPluginHost, ships the builtin
+         Experience plugin against IGeniePlugin. External plugin DLLs reference
+         this same assembly (not all of Core). -->
+    <ProjectReference Include="..\Genie.Plugins.Abstractions\Genie.Plugins.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Baseline ZoneConnections seed extracted on first launch when
          the user's MapsDirectory has no ZoneConnections.xml yet.
          See ZoneConnectionsRepository.Load() for the extraction path. -->

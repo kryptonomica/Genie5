@@ -14,11 +14,14 @@ public class GenieDockFactory : Factory
     private readonly MainWindowViewModel _vm;
 
     /// <summary>
-    /// Map of dockable-id → (instance, its default parent dock). Populated by
-    /// <see cref="CreateLayout"/> so the Window menu can show/hide both Tools
-    /// and Documents by id while remembering where to put them back.
+    /// Map of dockable-id → (instance, its default parent dock id). Populated
+    /// by <see cref="CreateLayout"/> so the Window menu can show/hide both
+    /// Tools and Documents by id while remembering where to put them back.
+    /// The parent is stored as an <b>id</b>, not a reference, so it survives a
+    /// <see cref="BuildLayout"/> tree rebuild — the rebuilt docks keep their
+    /// ids, so a live lookup always finds the right parent.
     /// </summary>
-    private readonly Dictionary<string, (IDockable Dockable, IDock Parent)> _tools =
+    private readonly Dictionary<string, (IDockable Dockable, string ParentId)> _tools =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -73,6 +76,7 @@ public class GenieDockFactory : Factory
         var whispers = new StreamTool      (_vm.StreamTabs.Whispers, ws.Get("whispers"));
         var thoughts = new StreamTool      (_vm.StreamTabs.Thoughts, ws.Get("thoughts"));
         var combat   = new StreamTool      (_vm.StreamTabs.Combat,   ws.Get("combat"));
+        var experience = new ExperienceTool(_vm.Experience,          ws.Get("experience"));
 
         // ── Default ship layout — three vertical columns ─────────────────
         //   ┌──────────┬─────────────────────┬──────────┐
@@ -156,18 +160,6 @@ public class GenieDockFactory : Factory
             ActiveDockable   = backpack
         };
 
-        // ── Side dock holds Vitals as a registered-but-hidden tool ──────
-        // Kept so SetToolVisibility("vitals", true) re-opens it next to the
-        // Backpack. Not part of the visible layout by default.
-        var sideDock = new ToolDock
-        {
-            Id               = "side",
-            Alignment        = Alignment.Right,
-            Proportion       = 0.22,
-            VisibleDockables = CreateList<IDockable>(),  // empty — Vitals re-attaches here when toggled on
-            ActiveDockable   = null
-        };
-
         // ── Root: three columns side-by-side ────────────────────────────
         var rootLayout = new ProportionalDock
         {
@@ -199,19 +191,193 @@ public class GenieDockFactory : Factory
         // After the layout rebuild the parents differ from the pre-rebuild
         // single sideDock: Room → roomDock, Backpack → backpackDock, etc.
         _tools.Clear();
-        _tools[gameText.Id] = (gameText, documentDock);
-        _tools[vitals.Id]   = (vitals,   sideDock);       // Vitals re-opens beside Backpack when toggled on
-        _tools[room.Id]     = (room,     roomDock);
-        _tools[backpack.Id] = (backpack, backpackDock);
-        _tools[mapper.Id]   = (mapper,   mapperDock);
-        _tools[logons.Id]   = (logons,   streamDock);
-        _tools[talk.Id]     = (talk,     streamDock);
-        _tools[whispers.Id] = (whispers, streamDock);
-        _tools[thoughts.Id] = (thoughts, streamDock);
-        _tools[combat.Id]   = (combat,   streamDock);
+        _tools[gameText.Id] = (gameText, documentDock.Id);
+        // Vitals + Experience are hidden by default and re-open as tabs in the
+        // right column beside the Backpack. (They previously pointed at a
+        // never-tree-attached "side" dock, so their toggles silently no-op'd.)
+        _tools[vitals.Id]   = (vitals,   backpackDock.Id);
+        _tools[room.Id]     = (room,     roomDock.Id);
+        _tools[backpack.Id] = (backpack, backpackDock.Id);
+        _tools[mapper.Id]   = (mapper,   mapperDock.Id);
+        _tools[logons.Id]   = (logons,   streamDock.Id);
+        _tools[talk.Id]     = (talk,     streamDock.Id);
+        _tools[whispers.Id] = (whispers, streamDock.Id);
+        _tools[thoughts.Id] = (thoughts, streamDock.Id);
+        _tools[combat.Id]   = (combat,   streamDock.Id);
+        // Experience: registered but hidden by default (like Vitals) — re-opens
+        // beside the Backpack via Window → Experience. The plugin fills it.
+        _tools[experience.Id] = (experience, backpackDock.Id);
 
         return root;
     }
+
+    // ── Layout snapshot (full-tree round-trip) ─────────────────────────────
+
+    /// <summary>
+    /// Capture the live dock tree (proportions, alignments, active tabs,
+    /// container structure) into a serializable snapshot. Leaf tools/documents
+    /// are recorded by id; their view-models stay attached to the live
+    /// instances, which <see cref="BuildLayout"/> re-uses. Returns null if the
+    /// layout hasn't been created yet.
+    /// </summary>
+    public DockNodeSnapshot? CaptureLayout()
+    {
+        // root.VisibleDockables[0] is the top-level "root-layout" ProportionalDock.
+        if (_root?.VisibleDockables is not { Count: > 0 } top) return null;
+        return Capture(top[0]);
+    }
+
+    private static DockNodeSnapshot? Capture(IDockable node) => node switch
+    {
+        ProportionalDockSplitter => new DockNodeSnapshot { Kind = "splitter" },
+
+        ProportionalDock pd => new DockNodeSnapshot
+        {
+            Kind        = "proportional",
+            Id          = pd.Id,
+            Orientation = pd.Orientation.ToString(),
+            Proportion  = pd.Proportion,
+            Children    = CaptureChildren(pd.VisibleDockables),
+        },
+
+        DocumentDock dd => new DockNodeSnapshot
+        {
+            Kind       = "documentdock",
+            Id         = dd.Id,
+            Proportion = dd.Proportion,
+            ActiveId   = dd.ActiveDockable?.Id,
+            Children   = CaptureChildren(dd.VisibleDockables),
+        },
+
+        ToolDock td => new DockNodeSnapshot
+        {
+            Kind       = "tooldock",
+            Id         = td.Id,
+            Alignment  = td.Alignment.ToString(),
+            Proportion = td.Proportion,
+            ActiveId   = td.ActiveDockable?.Id,
+            Children   = CaptureChildren(td.VisibleDockables),
+        },
+
+        // Any other dockable is a leaf tool/document — store by id.
+        { } leaf => new DockNodeSnapshot { Kind = "leaf", Id = leaf.Id },
+    };
+
+    private static List<DockNodeSnapshot> CaptureChildren(IList<IDockable>? children)
+    {
+        var list = new List<DockNodeSnapshot>();
+        if (children is null) return list;
+        foreach (var c in children)
+            if (Capture(c) is { } snap) list.Add(snap);
+        return list;
+    }
+
+    /// <summary>
+    /// Rebuild a full dock tree from a snapshot, re-using the live leaf tool
+    /// instances from the registry (so view-models stay wired). Returns a new
+    /// fully-initialised <see cref="IRootDock"/> ready to assign to the
+    /// DockControl. Updates <see cref="_root"/> so subsequent visibility
+    /// queries operate on the new tree.
+    /// </summary>
+    public IRootDock BuildLayout(DockNodeSnapshot snapshot)
+    {
+        var rootLayout = BuildNode(snapshot);
+
+        var root = CreateRootDock();
+        root.Id               = "root";
+        root.IsCollapsable    = false;
+        root.VisibleDockables = CreateList(rootLayout!);
+        root.ActiveDockable   = rootLayout;
+        root.DefaultDockable  = rootLayout;
+        _root                 = root;
+
+        InitLayout(root);
+        return root;
+    }
+
+    /// <summary>
+    /// Build the canonical default 3-column layout AND initialise it, ready to
+    /// assign to the DockControl. Used at startup and as the base for the
+    /// legacy (no-snapshot) load path: rebuilding from scratch guarantees every
+    /// parent ToolDock exists again, so a tool whose dock was auto-removed when
+    /// it was closed can be re-shown. The DockControl runs with
+    /// InitializeLayout="False" so this is the single, deterministic init.
+    /// </summary>
+    public IRootDock BuildDefaultLayout()
+    {
+        var root = CreateLayout();
+        InitLayout(root);
+        return root;
+    }
+
+    private IDockable? BuildNode(DockNodeSnapshot n)
+    {
+        switch (n.Kind)
+        {
+            case "proportional":
+            {
+                var kids = BuildChildren(n.Children);
+                return new ProportionalDock
+                {
+                    Id               = n.Id ?? "",
+                    Orientation      = ParseOrientation(n.Orientation),
+                    Proportion       = n.Proportion,
+                    IsCollapsable    = false,
+                    VisibleDockables = CreateList(kids.ToArray()),
+                };
+            }
+            case "documentdock":
+            {
+                var kids = BuildChildren(n.Children);
+                return new DocumentDock
+                {
+                    Id               = n.Id ?? "docs",
+                    IsCollapsable    = false,
+                    Proportion       = n.Proportion,
+                    VisibleDockables = CreateList(kids.ToArray()),
+                    ActiveDockable   = FindById(kids, n.ActiveId),
+                };
+            }
+            case "tooldock":
+            {
+                var kids = BuildChildren(n.Children);
+                return new ToolDock
+                {
+                    Id               = n.Id ?? "",
+                    Alignment        = ParseAlignment(n.Alignment),
+                    Proportion       = n.Proportion,
+                    VisibleDockables = CreateList(kids.ToArray()),
+                    ActiveDockable   = FindById(kids, n.ActiveId),
+                };
+            }
+            case "splitter":
+                return new ProportionalDockSplitter();
+            case "leaf":
+                return n.Id is not null && _tools.TryGetValue(n.Id, out var entry)
+                    ? entry.Dockable
+                    : null;   // unregistered id — skip
+            default:
+                return null;
+        }
+    }
+
+    private List<IDockable> BuildChildren(List<DockNodeSnapshot> children)
+    {
+        var list = new List<IDockable>();
+        foreach (var c in children)
+            if (BuildNode(c) is { } node) list.Add(node);
+        return list;
+    }
+
+    private static IDockable? FindById(List<IDockable> children, string? id)
+        => id is null ? null
+         : children.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    private static Orientation ParseOrientation(string? s)
+        => Enum.TryParse<Orientation>(s, ignoreCase: true, out var o) ? o : Orientation.Horizontal;
+
+    private static Alignment ParseAlignment(string? s)
+        => Enum.TryParse<Alignment>(s, ignoreCase: true, out var a) ? a : Alignment.Unset;
 
     // ── Window-management API ──────────────────────────────────────────────
 
@@ -234,7 +400,7 @@ public class GenieDockFactory : Factory
     public void SetToolVisibility(string id, bool visible)
     {
         if (!_tools.TryGetValue(id, out var entry)) return;
-        var (dockable, parent) = entry;
+        var (dockable, parentId) = entry;
 
         var current = _root is null ? null : FindByIdInTree(_root, id);
         var currentlyVisible = current is not null;
@@ -242,6 +408,10 @@ public class GenieDockFactory : Factory
 
         if (visible)
         {
+            // Resolve the parent dock live by id — the stored reference would
+            // be stale after a BuildLayout rebuild. If the parent dock isn't
+            // present in the current layout there's nowhere to put it.
+            if (_root is null || FindByIdInTree(_root, parentId) is not IDock parent) return;
             AddDockable(parent, dockable);
             SetActiveDockable(dockable);
         }

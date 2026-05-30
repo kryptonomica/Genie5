@@ -51,11 +51,17 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
         {
             d(ViewModel!.ShowConnectDialog.RegisterHandler(async ctx =>
             {
+                // Pass the previous session's actual config so the dialog
+                // shows what the user actually used. The dialog itself
+                // decides whether a saved profile matches the config (and
+                // pre-selects it) or whether the credentials are bare (and
+                // shows them with the profile dropdown empty).
                 var dlg = new ConnectDialog
                 {
                     DataContext = new ConnectDialogViewModel(
                         ViewModel.Profiles,
-                        ViewModel.SaveProfiles)
+                        ViewModel.SaveProfiles,
+                        ViewModel.LastConnectionConfig)
                 };
                 var result = await dlg.ShowDialog<ConnectResult?>(this);
                 ctx.SetOutput(result);
@@ -128,19 +134,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                 ctx.SetOutput(System.Reactive.Unit.Default);
             }));
 
-            d(ViewModel!.ShowLayoutNamePrompt.RegisterHandler(async ctx =>
+            d(ViewModel!.ShowManageLayoutsDialog.RegisterHandler(async ctx =>
+            {
+                var dlg = new ManageLayoutsDialog { DataContext = ctx.Input };
+                await dlg.ShowDialog(this);
+                ctx.SetOutput(System.Reactive.Unit.Default);
+            }));
+
+            d(ViewModel!.ShowLayoutSavePrompt.RegisterHandler(async ctx =>
             {
                 try
                 {
-                    var name = await NamePromptDialog.Show(this,
-                        "Save layout as:",
-                        ctx.Input,           // default value (timestamp-based)
-                        "Save Layout As");
-                    ctx.SetOutput(name);
+                    var result = await SaveLayoutDialog.Show(this, ctx.Input);
+                    ctx.SetOutput(result);
                 }
                 catch (Exception ex)
                 {
-                    Genie.App.Diagnostics.ErrorLog.Log("LayoutNamePrompt.Show", ex);
+                    Genie.App.Diagnostics.ErrorLog.Log("SaveLayoutDialog.Show", ex);
                     ctx.SetOutput(null);
                 }
             }));
@@ -154,6 +164,19 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
     /// </summary>
     private void OnWindowMenuOpened(object? sender, RoutedEventArgs e)
         => ViewModel?.RefreshVisibilityBools();
+
+    // Layout menu uses SubmenuOpened (not Command on the parent MenuItem,
+    // which doesn't fire when the click opens a submenu) so the Load Layout ▶
+    // child sees a freshly-populated SavedLayouts collection. Without this,
+    // SavedLayouts stays empty and Avalonia renders the Load Layout item as
+    // disabled because its ItemsSource has nothing in it.
+    private void OnLayoutMenuOpened(object? sender, RoutedEventArgs e)
+        => ViewModel?.RefreshLayoutListCommand.Execute().Subscribe();
+
+    // Rebuild the Plugins-menu list when it opens, so newly-loaded plugins
+    // (e.g. after Reload) show up.
+    private void OnPluginsMenuOpened(object? sender, RoutedEventArgs e)
+        => ViewModel?.RefreshPluginListCommand.Execute().Subscribe();
 
     /// <summary>
     /// Set to <c>true</c> right before we re-call <see cref="Window.Close()"/>

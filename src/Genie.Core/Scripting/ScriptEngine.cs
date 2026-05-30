@@ -106,7 +106,10 @@ public sealed class ScriptEngine
         _echo         = echo;
         _handleHashCmd = handleHashCmd;
         Extensions   = new ExtensionManager(new EngineExtensionHost(this));
-        Extensions.Register(new ExpTrackerExtension());
+        // Exp tracking moved to the Experience plugin (Plugin_EXPTrackerV5), which
+        // now owns the $Skill.* / TDPs globals scripts read. The old
+        // ExpTrackerExtension was removed to avoid a second, parallel exp parser
+        // (it also had a stale mindstate table).
         Extensions.Register(new InfoTrackerExtension());
         Directory.CreateDirectory(_scriptsDir);
     }

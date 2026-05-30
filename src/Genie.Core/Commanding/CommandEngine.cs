@@ -183,6 +183,20 @@ public sealed class CommandEngine
                 _host.EditScript(parts[1]);
                 break;
             }
+            case "layout":
+            case "layouts":
+                // #layout <sub> [args] — forwarded whole (minus the verb) to
+                // the App layer, which owns layout storage + dock state. The
+                // remainder is passed verbatim so layout names may contain
+                // spaces (e.g. "#layout save My Big Layout").
+                _host.LayoutCommand(string.Join(" ", parts.Skip(1)));
+                break;
+            case "plugin":
+            case "plugins":
+                // #plugin <sub> [args] — forwarded to the App layer, which owns
+                // the plugin loader + Plugins folder.
+                _host.PluginCommand(string.Join(" ", parts.Skip(1)));
+                break;
             case "class":
             case "classes":
                 HandleClass(parts);

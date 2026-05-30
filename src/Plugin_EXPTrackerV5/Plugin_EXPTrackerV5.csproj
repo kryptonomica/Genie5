@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A loadable Genie 5 plugin. References ONLY the contract assembly and
+       ships as a single DLL dropped into {AppData}/Genie5/Plugins. The host
+       discovers + loads it at runtime — it is NOT referenced by Genie.App or
+       Genie.Core. This is the template every external plugin follows. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Genie.Plugins.Experience</RootNamespace>
+    <AssemblyName>Plugin_EXPTrackerV5</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Private=false: the host already provides Genie.Plugins.Abstractions, so
+         we don't ship a copy. The plugin DLL is the only file that deploys —
+         the load context resolves the contract from the host (unified type
+         identity). External plugins would reference this as a NuGet package. -->
+    <ProjectReference Include="..\Genie.Plugins.Abstractions\Genie.Plugins.Abstractions.csproj"
+                      Private="false" />
+  </ItemGroup>
+
+</Project>

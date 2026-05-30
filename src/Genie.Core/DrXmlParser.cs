@@ -147,6 +147,14 @@ public sealed class DrXmlParser : IDisposable
     private static readonly System.Text.RegularExpressions.Regex _promptRe =
         new(@"^[A-Z]*>$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // The `info` verb's first line: "Name: <name>   Race: <race>   Guild: <guild>".
+    // Anchored to start at "Name:" and capture the trailing "Guild: X" so we
+    // don't false-match on arbitrary game text mentioning a guild. Race can be
+    // multi-word (e.g. "S'Kra Mur"), hence the lazy ".+?" between fields.
+    private static readonly System.Text.RegularExpressions.Regex _guildRe =
+        new(@"^\s*Name:\s.+?\bGuild:\s+([A-Za-z][A-Za-z' ]*?)\s*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
     // Buffers raw text fragments across inline tag splits (e.g. <pushBold/>, <d>).
     // Flushed on '\n' or explicit FlushTextLine() call.
     private void AccumulateText(string text)
@@ -220,6 +228,13 @@ public sealed class DrXmlParser : IDisposable
             _events.OnNext(new PromptEvent(DateTimeOffset.MinValue));
             return;
         }
+
+        // Guild detection from the `info` first line. Fire alongside the
+        // TextEvent (the line still displays) so GameState + the title can
+        // pick up the guild when the player runs `info`.
+        var guildMatch = _guildRe.Match(stripped);
+        if (guildMatch.Success)
+            _events.OnNext(new GuildEvent(guildMatch.Groups[1].Value.Trim()));
 
         _events.OnNext(new TextEvent(_activeStream, stripped, links, boldSpans));
     }

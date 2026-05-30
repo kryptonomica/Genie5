@@ -85,6 +85,22 @@ public class ConnectDialogViewModel : ReactiveObject
     public ConnectDialogViewModel() : this(null, null) { }
 
     public ConnectDialogViewModel(ProfileStore? store, Action? onStoreChanged)
+        : this(store, onStoreChanged, lastConnection: null) { }
+
+    /// <summary>
+    /// Full constructor. <paramref name="lastConnection"/> carries the
+    /// just-disconnected session's actual config so the reopened dialog
+    /// shows what the user actually used. If a saved profile's stored
+    /// values match the config field-for-field, the profile is re-selected;
+    /// otherwise the bare credentials are filled and the profile dropdown
+    /// stays empty (because the connection isn't associated with any saved
+    /// profile). This avoids the previous bug where a saved profile would
+    /// "stick" even after the user connected with edited credentials.
+    /// </summary>
+    public ConnectDialogViewModel(
+        ProfileStore? store,
+        Action? onStoreChanged,
+        ConnectionConfig? lastConnection)
     {
         _store          = store;
         _onStoreChanged = onStoreChanged;
@@ -140,9 +156,51 @@ public class ConnectDialogViewModel : ReactiveObject
         DeleteProfileCommand   = ReactiveCommand.Create(DeleteProfile, canDelete);
         FetchCharactersCommand = ReactiveCommand.CreateFromTask(FetchCharactersAsync, canFetch);
 
-        // ── Auto-select the lone profile if there's exactly one ────────────
-        if (Profiles.Count == 1)
+        // ── Initial population ─────────────────────────────────────────────
+        // 1. If we have a remembered connection: find a saved profile whose
+        //    stored credentials match it field-for-field. If one exists,
+        //    select it (PopulateFrom fires with identical values — no
+        //    overwrite damage). Otherwise the connection wasn't associated
+        //    with a saved profile — fill the fields directly from the
+        //    config and leave the profile dropdown blank.
+        // 2. Else if there's exactly one saved profile (fresh app start,
+        //    no prior connection this session): auto-select it.
+        if (lastConnection is not null
+            && !string.IsNullOrWhiteSpace(lastConnection.AccountName))
+        {
+            var match = _store is null ? null : Profiles.FirstOrDefault(p =>
+                string.Equals(p.AccountName,   lastConnection.AccountName,   StringComparison.OrdinalIgnoreCase)
+             && string.Equals(_store.GetPassword(p), lastConnection.AccountPassword, StringComparison.Ordinal)
+             && string.Equals(p.CharacterName, lastConnection.CharacterName, StringComparison.OrdinalIgnoreCase)
+             && string.Equals(p.GameCode,      lastConnection.GameCode,      StringComparison.OrdinalIgnoreCase));
+
+            if (match is not null) SelectedProfile = match;
+            else                   PopulateFromConfig(lastConnection);
+        }
+        else if (Profiles.Count == 1)
+        {
             SelectedProfile = Profiles[0];
+        }
+    }
+
+    /// <summary>Fill the editable fields from a <see cref="ConnectionConfig"/> —
+    /// the bare-credential equivalent of <see cref="PopulateFrom"/>. Leaves
+    /// <see cref="ProfileName"/> blank because a config without a profile is,
+    /// by definition, not associated with a saved profile.</summary>
+    private void PopulateFromConfig(ConnectionConfig cfg)
+    {
+        ProfileName = "";
+        Instance    = Instances.FirstOrDefault(i =>
+            string.Equals(i.GameCode, cfg.GameCode, StringComparison.OrdinalIgnoreCase))
+            ?? Instances[0];
+        Account     = cfg.AccountName;
+        Password    = cfg.AccountPassword;
+
+        AvailableCharacters.Clear();
+        if (!string.IsNullOrEmpty(cfg.CharacterName))
+            AvailableCharacters.Add(cfg.CharacterName);
+        Character   = cfg.CharacterName;
+        FetchStatus = "";
     }
 
     private void PopulateFrom(ConnectionProfile p)
@@ -260,4 +318,35 @@ public class ConnectDialogViewModel : ReactiveObject
 
         _onStoreChanged?.Invoke();
     }
+
+    /// <summary>Returns the saved profile whose name matches the currently-entered
+    /// <see cref="ProfileName"/> (case-insensitive), or <c>null</c> if no
+    /// store is wired, the name is blank, or no match exists. The dialog uses
+    /// this to decide whether OK should prompt to save edits.</summary>
+    public ConnectionProfile? FindProfileByEnteredName()
+    {
+        if (_store is null || string.IsNullOrWhiteSpace(ProfileName)) return null;
+        return _store.Profiles.FirstOrDefault(p =>
+            string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>True when an existing profile with the entered <see cref="ProfileName"/>
+    /// is present AND the entered account name or password differs from what's
+    /// stored. Character / game-code changes are NOT considered "unsaved" — those
+    /// are routine per-session choices on the same profile. Returns false when
+    /// <see cref="ProfileName"/> is blank (bare-credential connects have no
+    /// profile to update).</summary>
+    public bool EnteredCredentialsDifferFromStored()
+    {
+        var existing = FindProfileByEnteredName();
+        if (existing is null || _store is null) return false;
+        var storedPassword = _store.GetPassword(existing);
+        return !string.Equals(existing.AccountName, Account, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(storedPassword,        Password, StringComparison.Ordinal);
+    }
+
+    /// <summary>Public surface for the OK-time save prompt: writes the
+    /// dialog's current field values to the matched profile (update path
+    /// inside <see cref="SaveProfile"/>). No-op if no store is wired.</summary>
+    public void PersistCurrentEdits() => SaveProfile();
 }

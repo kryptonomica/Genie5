@@ -1,0 +1,98 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: dotnet build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Genie.slnx
+
+      - name: Build Genie.Core (Release)
+        run: dotnet build src/Genie.Core/Genie.Core.csproj -c Release --no-restore
+
+      - name: Build Genie.App (Release)
+        run: dotnet build src/Genie.App/Genie.App.csproj -c Release --no-restore
+
+      # The Profiles/ folder was silently shadowed by an over-broad
+      # .gitignore rule for five days before another clone surfaced it.
+      # Belt-and-braces: assert the source folders we expect to exist
+      # actually do exist in the tree we just cloned. If anyone re-adds
+      # an unanchored gitignore rule that shadows source, this fails fast.
+      - name: Sanity-check expected source folders exist
+        shell: bash
+        run: |
+          set -e
+          required_paths=(
+            "src/Genie.Core/Profiles/ConnectionProfile.cs"
+            "src/Genie.Core/Profiles/ProfileStore.cs"
+            "src/Genie.Core/Profiles/ProfileCrypto.cs"
+            "src/Genie.Core/Mapper/AutoMapperEngine.cs"
+            "src/Genie.Core/Scripting/ScriptEngine.cs"
+            "src/Genie.App/Views/MainWindow.axaml"
+          )
+          missing=0
+          for p in "${required_paths[@]}"; do
+            if [ ! -f "$p" ]; then
+              echo "::error::Expected source file missing: $p"
+              missing=$((missing+1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing required source file(s) missing — likely a .gitignore over-match. Check the most recent .gitignore commit."
+            exit 1
+          fi
+
+  publish-smoke:
+    name: dotnet publish smoke (win-x64)
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish self-contained win-x64
+        run: |
+          dotnet publish src/Genie.App/Genie.App.csproj `
+            -c Release -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o publish/win-x64
+
+      - name: Confirm Genie.exe produced
+        shell: bash
+        run: |
+          if [ ! -f "publish/win-x64/Genie.exe" ]; then
+            echo "::error::Genie.exe not produced — publish failed silently"
+            exit 1
+          fi
+          size_mb=$(du -m publish/win-x64/Genie.exe | cut -f1)
+          echo "Genie.exe: ${size_mb} MB"
+          if [ "$size_mb" -gt 80 ]; then
+            echo "::warning::Genie.exe is ${size_mb} MB — drift from the ~45 MB baseline. Check for accidentally-bundled debug symbols or extra runtimes."
+          fi

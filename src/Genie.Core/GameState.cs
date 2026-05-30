@@ -112,6 +112,10 @@ public sealed class GameState
     public string    CharacterName { get; set; } = "";
     public DrRace    Race          { get; set; } = DrRace.Unknown;
     public DrGuild   Guild         { get; set; } = DrGuild.Unknown;
+    /// <summary>Raw guild display name from the <c>info</c> verb (e.g.
+    /// "Barbarian", "Moon Mage", "Commoner"). May hold values outside the
+    /// <see cref="DrGuild"/> enum (un-guilded characters report "Commoner").</summary>
+    public string    GuildName     { get; set; } = "";
     public int       Circle        { get; set; }  // character circle (level equivalent)
 
     // Core DR stats

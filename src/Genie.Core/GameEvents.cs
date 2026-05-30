@@ -165,6 +165,14 @@ public sealed record EndSetupEvent() : GameEvent;
 public sealed record NavEvent(string RoomId) : GameEvent;
 
 /// <summary>
+/// Character's guild, parsed from the <c>info</c> verb output line
+/// (<c>Name: … Race: … Guild: X</c>). DR doesn't push guild in a structured
+/// tag, so this only fires when the player runs <c>info</c>. <see cref="Guild"/>
+/// is the raw display name (e.g. "Barbarian", "Moon Mage", "Commoner").
+/// </summary>
+public sealed record GuildEvent(string Guild) : GameEvent;
+
+/// <summary>
 /// &lt;settingsInfo .../&gt; — server init block done and ready for commands.
 /// GenieCore auto-sends "look" when this fires to populate room/vitals state.
 /// </summary>

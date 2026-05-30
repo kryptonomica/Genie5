@@ -2,22 +2,36 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Genie.App.Views.NamePromptDialog"
         Title="Name"
-        Width="380" Height="160"
+        Width="380" Height="320"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
-  <Grid RowDefinitions="Auto,*,Auto" Margin="16">
+  <Grid RowDefinitions="Auto,*,Auto,Auto,Auto" Margin="16">
 
-    <TextBlock x:Name="PromptText" Grid.Row="0"
+    <!-- Existing-items header + list. Shown only when the caller supplies a
+         list (e.g. Save Layout As). Click an item to reuse its name —
+         OK then overwrites that entry. -->
+    <TextBlock x:Name="ExistingHeader" Grid.Row="0"
+               Text="Existing (click to overwrite, or type a new name below):"
+               Foreground="#cdd" FontSize="12"
+               TextWrapping="Wrap"
+               Margin="0,0,0,6"/>
+
+    <ListBox x:Name="ExistingList" Grid.Row="1"
+             SelectionMode="Single"
+             FontSize="12"
+             Margin="0,0,0,10"/>
+
+    <TextBlock x:Name="PromptText" Grid.Row="2"
                Text="Enter a name:"
                Foreground="#cdd" FontSize="12"
                Margin="0,0,0,8"/>
 
-    <TextBox x:Name="NameInput" Grid.Row="1"
+    <TextBox x:Name="NameInput" Grid.Row="3"
              Text=""
              FontSize="12"
              VerticalAlignment="Top"/>
 
-    <StackPanel Grid.Row="2" Orientation="Horizontal"
+    <StackPanel Grid.Row="4" Orientation="Horizontal"
                 HorizontalAlignment="Right"
                 Spacing="8" Margin="0,16,0,0">
       <Button x:Name="CancelButton" Content="Cancel" Width="80"

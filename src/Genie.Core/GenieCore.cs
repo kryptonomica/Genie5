@@ -50,8 +50,13 @@ namespace Genie.Core;
 /// await core.ConnectAsync();
 /// </code>
 /// </summary>
-public sealed class GenieCore : IAsyncDisposable, ICommandHost
+public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IPluginHost
 {
+    /// <summary>Plugin-API contract version (bumped only on a breaking change
+    /// to <see cref="Genie.Plugins.IGeniePlugin"/> / <see cref="Genie.Plugins.IPluginHost"/>).</summary>
+    public const int PluginInterfaceVersion = 1;
+    private const string HostVersionString  = "5.0.0-alpha.1";
+
     // ── Network / parser layer ─────────────────────────────────────────────────
     private readonly GameConnection    _connection;
     private readonly DrXmlParser       _parser;
@@ -59,6 +64,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
     private readonly IDisposable       _parserFeed;
     private readonly IDisposable       _settingsInfoSub;
     private readonly IDisposable       _gameEventSub;
+    private readonly IDisposable       _pluginXmlSub;
+    private readonly Plugins.GameStateView _pluginStateView;
 
     // ── Configuration / runtime ────────────────────────────────────────────────
     private readonly LocalDirectoryService _localDir;
@@ -85,6 +92,10 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
     public GagEngine           Gags           { get; }
     public MacroEngine         Macros         { get; }
     public AutoMapperEngine    AutoMapper     { get; }
+
+    /// <summary>Loaded plugins. Phase 1 = in-process registration; the DLL
+    /// loader bolts discovery onto this same manager.</summary>
+    public Plugins.PluginManager Plugins      { get; }
 
     // ── Mapper ────────────────────────────────────────────────────────────────
     private readonly MapperGameStateAdapter _mapperAdapter;
@@ -182,6 +193,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
         var state    = new Models.GameState();
         _stateEngine = new GameStateEngine(_parser.GameEvents, state,
             lf.CreateLogger<GameStateEngine>());
+
+        // Plugin layer — read-only state view + manager (this GenieCore is the
+        // IPluginHost). Must exist before the game-event subscription below
+        // dispatches to it.
+        _pluginStateView = new Plugins.GameStateView(state);
+        Plugins          = new Plugins.PluginManager(this);
+        // No builtin plugins — the Experience tracker is now an external DLL
+        // (Plugin_EXPTrackerV5) loaded from {AppData}/Genie5/Plugins by the App
+        // on connect. Drop the DLL there to enable exp tracking.
 
         // Wire raw XML → parser
         _parserFeed = _connection.RawXmlStream.Subscribe(_parser.Feed);
@@ -286,10 +306,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
                 case TextEvent te:
                     Scripts.OnGameLine(te.Text);   // match/waitfor + EXP/info trackers
                     Triggers.ProcessLine(te.Text); // user-defined triggers
+                    // Plugins observe each line. Phase 1 ignores the transform
+                    // return (display-pipeline rewrite/gag wiring is deferred);
+                    // observe-only plugins return the text unchanged.
+                    Plugins.DispatchGameText(te.Text, te.Stream);
                     break;
 
                 case PromptEvent:
                     Scripts.OnPrompt();            // advance RT-gated script execution
+                    Plugins.DispatchPrompt();
                     break;
 
                 case NavEvent:
@@ -297,6 +322,10 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
                     break;
             }
         });
+
+        // Plugins see raw XML chunks (Genie 4 ParseXML parity) for structured
+        // data the typed events don't surface — e.g. <component id='exp X'>.
+        _pluginXmlSub = _connection.RawXmlStream.Subscribe(xml => Plugins.DispatchXml(xml));
 
         // ── Ready-for-input signal ─────────────────────────────────────────────
         // StormFront / DevReplay: <settingsInfo/> is authoritative (see docs/SGE_PROTOCOL.md).
@@ -483,6 +512,70 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
     /// </summary>
     public event Action<string>? EditScriptRequested;
 
+    void ICommandHost.LayoutCommand(string args)
+    {
+        // Layout storage + dock manipulation are App-layer concerns; forward
+        // the raw args to the subscriber. Console builds with no handler just
+        // get a diagnostic.
+        if (LayoutCommandRequested is null)
+            EchoLine?.Invoke("[layout] no layout host wired (Console build).");
+        else
+            LayoutCommandRequested.Invoke(args);
+    }
+
+    /// <summary>
+    /// Raised by <c>#layout …</c> from the command bar. Carries the raw
+    /// argument string (verb + args). The App subscribes and performs the
+    /// save/load/list/default/delete against its layout stores and dock state.
+    /// </summary>
+    public event Action<string>? LayoutCommandRequested;
+
+    void ICommandHost.PluginCommand(string args)
+    {
+        if (PluginCommandRequested is null)
+            EchoLine?.Invoke("[plugin] no plugin host wired (Console build).");
+        else
+            PluginCommandRequested.Invoke(args);
+    }
+
+    /// <summary>Raised by <c>#plugin …</c>. The App handles list/enable/disable/
+    /// load/unload/reload against <see cref="Plugins"/> and the Plugins folder.</summary>
+    public event Action<string>? PluginCommandRequested;
+
+    // ── IPluginHost (explicit — avoids name clashes with ICommandHost.Echo,
+    //    the public State (GameState) and Variables (VariableEngine)) ──────────
+
+    string Genie.Plugins.IPluginHost.HostVersion      => HostVersionString;
+    int    Genie.Plugins.IPluginHost.InterfaceVersion => PluginInterfaceVersion;
+
+    void Genie.Plugins.IPluginHost.Echo(string text) => EchoLine?.Invoke(text);
+
+    void Genie.Plugins.IPluginHost.EchoToWindow(string window, string text)
+        => EchoToWindow?.Invoke(text, window, null);
+
+    void Genie.Plugins.IPluginHost.SetWindow(string window, string content)
+        => SetPluginWindow?.Invoke(window, content);
+
+    /// <summary>Raised when a plugin replaces a named window's full contents
+    /// (<see cref="Genie.Plugins.IPluginHost.SetWindow"/>). The App surfaces the
+    /// window as a dock panel and swaps its text.</summary>
+    public event Action<string, string>? SetPluginWindow;
+
+    void Genie.Plugins.IPluginHost.SendCommand(string command) => Commands.ProcessInput(command);
+
+    IReadOnlyDictionary<string, string> Genie.Plugins.IPluginHost.Variables
+        => new Dictionary<string, string>(Scripts.Globals);
+
+    string? Genie.Plugins.IPluginHost.GetVariable(string name)
+        => Scripts.Globals.TryGetValue(name, out var v) ? v : Variables?.Store.Get(name);
+
+    void Genie.Plugins.IPluginHost.SetVariable(string name, string value)
+        => Scripts.Globals[name] = value ?? string.Empty;
+
+    Genie.Plugins.IGameStateView Genie.Plugins.IPluginHost.State => _pluginStateView;
+
+    void Genie.Plugins.IPluginHost.Log(string message) => EchoLine?.Invoke(message);
+
     // ── Public API ─────────────────────────────────────────────────────────────
 
     public Task ConnectAsync(CancellationToken ct = default)
@@ -530,6 +623,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost
     public async ValueTask DisposeAsync()
     {
         _gameEventSub.Dispose();
+        _pluginXmlSub.Dispose();
+        Plugins.Shutdown();
         _parserFeed.Dispose();
         _settingsInfoSub.Dispose();
         _mapperAdapter.Dispose();

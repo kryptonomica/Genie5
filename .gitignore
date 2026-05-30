@@ -6,7 +6,6 @@ CLAUDE.md
 .cursorrules
 .aider*
 
-
 # ─── .NET / Visual Studio / Rider build artefacts ──────────────────────────
 bin/
 obj/
@@ -51,9 +50,14 @@ Logs/
 *.log
 
 # Per-character profiles: encrypted passwords, character names, layout
-# state. Lives in {AppData}/Genie5/Profiles/ at runtime but in case anyone
-# copies one into the repo for testing, gitignore here too.
-Profiles/
+# state. Lives in {AppData}/Genie5/Profiles/ at runtime. The rule is
+# anchored to the repo root with the leading slash so it only catches a
+# stray runtime profiles dir copied to the top level — NOT the legitimate
+# source folder at src/Genie.Core/Profiles/ that defines ConnectionProfile,
+# ProfileStore, ProfileCrypto. (The unanchored form, "Profiles/", silently
+# shadowed those source files for a week before another machine's build
+# surfaced the bug.)
+/Profiles/
 profiles.json
 display.json
 paths.json

@@ -13,7 +13,15 @@ public partial class ConnectDialog : ReactiveWindow<ConnectDialogViewModel>
         InitializeComponent();
         this.WhenActivated(d =>
         {
-            d(ViewModel!.OkCommand.Subscribe(result => Close(result)));
+            // OK path: surface a Yes/No save prompt before connecting in two
+            // cases: (a) the user typed a profile name with no matching saved
+            // profile — offer to save it as a new profile; (b) the user picked
+            // an existing profile and edited the account or password — offer
+            // to update the stored credentials. Bare-credential connects
+            // (ProfileName blank) skip the prompt; they aren't intended to
+            // persist. Saying No still connects — the prompt is just about
+            // whether the change reaches disk.
+            d(ViewModel!.OkCommand.Subscribe(result => _ = HandleOkAsync(result)));
             d(ViewModel!.CancelCommand.Subscribe(_ => Close(null)));
 
             // After Fetch completes, auto-open the Character dropdown so
@@ -33,5 +41,44 @@ public partial class ConnectDialog : ReactiveWindow<ConnectDialogViewModel>
                 Dispatcher.UIThread.Post(() => CharacterCombo.IsDropDownOpen = true);
             }));
         });
+    }
+
+    private async Task HandleOkAsync(ConnectResult? result)
+    {
+        if (result is null || ViewModel is null) { Close(result); return; }
+
+        var existing = ViewModel.FindProfileByEnteredName();
+        var hasName  = !string.IsNullOrWhiteSpace(ViewModel.ProfileName);
+
+        string? title   = null;
+        string? message = null;
+
+        if (existing is null && hasName)
+        {
+            title   = "Save new profile?";
+            message = $"Save these credentials as a new profile named " +
+                      $"'{ViewModel.ProfileName.Trim()}'?";
+        }
+        else if (existing is not null && ViewModel.EnteredCredentialsDifferFromStored())
+        {
+            title   = "Save profile changes?";
+            message = $"The account or password for profile '{existing.Name}' has changed.\n\n" +
+                      "Save changes to the profile before connecting?";
+        }
+
+        if (title is null) { Close(result); return; }
+
+        // Three options: Yes saves and connects; No connects without saving;
+        // Cancel returns to the Connect dialog without closing so the user
+        // can keep editing fields.
+        var choice = await new ConfirmDialog(
+            title, message!,
+            yesText:    "_Save profile",
+            noText:     "Connect _without saving",
+            cancelText: "_Cancel").ShowDialog<bool?>(this);
+
+        if (choice is null) return;                  // Cancel — stay in Connect dialog
+        if (choice == true) ViewModel.PersistCurrentEdits();
+        Close(result);
     }
 }

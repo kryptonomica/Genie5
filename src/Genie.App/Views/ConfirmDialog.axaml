@@ -16,21 +16,29 @@
                FontSize="13"
                VerticalAlignment="Center"/>
 
-    <!-- Yes (default, fires on Enter) / No (cancel, fires on Esc). The
-         "_Y" / "_N" mnemonics give Alt+Y / Alt+N keyboard access. -->
+    <!-- Yes is always the default action (Enter). The Esc / close-box
+         role belongs to the No button in 2-button mode and the Cancel
+         button in 3-button mode; the constructor toggles IsCancel
+         accordingly. Cancel is hidden in 2-button mode. -->
     <StackPanel Grid.Row="1"
                 Orientation="Horizontal"
                 HorizontalAlignment="Right"
                 Spacing="8"
                 Margin="0,16,0,0">
-      <Button Content="_Yes"
+      <Button x:Name="YesButton"
+              Content="_Yes"
               MinWidth="88"
               IsDefault="True"
               Click="OnYesClick"/>
-      <Button Content="_No"
+      <Button x:Name="NoButton"
+              Content="_No"
               MinWidth="88"
-              IsCancel="True"
               Click="OnNoClick"/>
+      <Button x:Name="CancelButton"
+              Content="_Cancel"
+              MinWidth="88"
+              IsVisible="False"
+              Click="OnCancelClick"/>
     </StackPanel>
 
   </Grid>

@@ -87,6 +87,12 @@ public sealed class GameStateEngine : IDisposable
                     _state.Room.RoomId = rid;
                 break;
 
+            // ── Guild (from `info` verb) ──────────────────────────────────
+            case GuildEvent guild:
+                _state.GuildName = guild.Guild;
+                _state.Guild     = MapGuild(guild.Guild);
+                break;
+
             // ── Compass exits ──────────────────────────────────────────────
             case CompassEvent compass:
                 _state.Room.CompassExits = compass.RawXml;
@@ -121,6 +127,26 @@ public sealed class GameStateEngine : IDisposable
                 break;
         }
     }
+
+    /// <summary>Map a raw guild display name (from the <c>info</c> verb) to the
+    /// <see cref="DrGuild"/> enum used by skill-gated mapper logic. Un-guilded
+    /// ("Commoner") and anything unrecognised map to <see cref="DrGuild.Unknown"/>.</summary>
+    private static DrGuild MapGuild(string raw)
+        => raw.Replace(" ", "").Replace("'", "").Trim().ToLowerInvariant() switch
+        {
+            "barbarian"   => DrGuild.Barbarian,
+            "bard"        => DrGuild.Bard,
+            "cleric"      => DrGuild.Cleric,
+            "empath"      => DrGuild.Empath,
+            "moonmage"    => DrGuild.MoonMage,
+            "paladin"     => DrGuild.Paladin,
+            "ranger"      => DrGuild.Ranger,
+            "thief"       => DrGuild.Thief,
+            "trader"      => DrGuild.Trader,
+            "warriormage" => DrGuild.WarriorMage,
+            "necromancer" => DrGuild.Necromancer,
+            _             => DrGuild.Unknown,
+        };
 
     // ── Component → Room state ────────────────────────────────────────────────
 

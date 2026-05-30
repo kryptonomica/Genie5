@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Genie 5 plugin API contract — a tiny, dependency-free assembly that
+       both the host (Genie.Core) and external plugin DLLs reference. Keeping it
+       separate means a plugin author pulls in only the interfaces, not all of
+       Genie.Core. This is the assembly whose API gets versioned/frozen for the
+       public plugin ecosystem. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Genie.Plugins</RootNamespace>
+    <AssemblyName>Genie.Plugins.Abstractions</AssemblyName>
+    <Version>1.0.0</Version>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The contract is documented at the type + non-obvious-member level;
+         don't force prose on self-evident getters (Health, Mana, Name, …). -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- No deps on purpose: plugins shouldn't transitively pull in Core/UI. -->
+  </PropertyGroup>
+
+</Project>
