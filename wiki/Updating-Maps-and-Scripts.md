@@ -1,0 +1,51 @@
+# Updating Maps and Scripts
+
+The DragonRealms community maintains shared zone maps (and a few helper walking scripts) in a public repository. Genie 5 can pull them directly — no separate download. This page covers updating from the official repo and importing maps from an existing Genie 4 install.
+
+## Where maps live
+
+Zone maps are XML files — one per zone — in your **Maps** folder (`Map1_Crossing.xml`, `Map60_Southern_Trade_Road.xml`, …), alongside a single `ZoneConnections.xml` that describes cross-zone transit links (boats, ferries, climb-walls). See [Application Folders](Application-Folders.md) for the path, and **File → Open Maps Folder** to jump there. Change the location with **File → Change Maps Directory…** (or `#config mapdir`).
+
+Genie 5 uses the **same Genie 4 XML map format**, so maps move between the two clients cleanly.
+
+## Updating from the official repo
+
+Choose **File → Update Maps from Official Repo…**. Genie 5 fetches the latest zone XML from the community Maps repository via [MapRepoUpdater](../src/Genie.Core/Mapper/MapRepoUpdater.cs) and reports progress in the main game window as `[mapper] …` lines.
+
+### How the merge works
+
+When an update finds a zone you already have, it doesn't blindly overwrite. It loads the upstream zone and carries your locally-collected data forward — most importantly the **`ServerRoomId`** values stamped on nodes as you played through (from `<nav rm="…"/>`). So:
+
+- **Upstream layout changes win** — new rooms, fixed exits, corrected connections come down.
+- **Your stamped room ids survive** — the work the mapper did learning your routes isn't lost.
+- **New upstream nodes** start without a server-room id and get stamped the first time you visit them.
+
+If a zone file ever gets corrupted by bad edits, delete it from the Maps folder and re-run the update to pull a fresh copy.
+
+### Auto-update on launch
+
+The `updatemapperscripts` setting (see `#config` / **Configuration…**) controls whether helper map scripts are refreshed as part of updates. Repo URLs are configurable via the `maprepo` and `scriptrepo` settings if you point Genie at a fork or mirror.
+
+## Importing maps from a Genie 4 install
+
+If you have a folder of Genie 4 `*.xml` zone files, import them once without going through the community repo:
+
+1. Use the mapper's **Import from Genie 4** path (the same migration covered for rules in [Importing Genie 4 Config](Importing-Genie4-Config.md), maps side).
+2. Point it at your Genie 4 `Maps` folder.
+3. Files are brought into your [Maps folder](Application-Folders.md).
+
+You can still run **Update Maps from Official Repo…** afterward to pull newer community versions; the merge preserves your stamped data where it can.
+
+## Cross-zone connections
+
+The transit graph the [multi-zone pathfinder](../docs/multi-zone-travel.md) uses lives in `ZoneConnections.xml` at the root of the Maps folder. On first launch Genie 5 seeds a documented starter template there. Edit it via **File → Cross-Zone Connections…** (a grid editor), or let the community Maps repo curate richer versions over time. If you delete the file deliberately, Genie 5 won't silently re-create it.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Every file shows `failed` during an update | No network, a proxy/firewall blocking the repo host, or a badly-skewed system clock (TLS handshakes fail). Local maps are never corrupted by a failed update — failed files are skipped; re-run later. |
+| Update seems to do nothing | Everything is already current — unchanged files aren't re-downloaded. |
+| A zone won't match your location | Walk through it with AutoMapper enabled so `ServerRoomId`s get stamped, or pull a fresh copy from the repo. |
+
+The updater uses the system's default network configuration, so OS-level proxy settings are honoured automatically.
