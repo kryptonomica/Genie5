@@ -32,8 +32,9 @@ The Genie 4 codebase is WinForms + Windows-only and hasn't kept pace with modern
 | Session Recorder for raw-XML capture | ✅ Working |
 | Lich 5 proxy mode (`ConnectionMode.LichProxy`) | ✅ Working |
 | Dev-replay mode (replay recorded sessions through the engine) | ✅ Working (via Console) |
-| LAMP 2.0 cross-platform updater | 🚧 Roadmap |
-| Plugin host + marketplace | 🚧 Roadmap |
+| ~~LAMP 2.0 cross-platform updater~~ | ❌ Canceled — superseded by the in-app updater below |
+| In-app updater (Velopack) — Core / Maps / Plugins update tabs, Help-menu badge, startup background check | ✅ Working (macOS/Linux Core packaging on the roadmap) |
+| Plugin host — `IGeniePlugin`/`IPluginHost` contract, per-plugin assembly-load-context (load/unload/reload), Plugins menu + `#plugin` command, first external plugin (`Plugin_EXPTrackerV5`) | ✅ Working (marketplace + plugin signing/trust on the roadmap) |
 | JavaScript script support (`.js` array scripts) | 🚧 Roadmap |
 | Visual trigger / flow designer | 🚧 Roadmap |
 | AI-assisted automation (advisor-only mode) | 🚧 Roadmap |
