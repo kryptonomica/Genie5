@@ -116,6 +116,29 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// Cross-platform via <c>UseShellExecute = true</c>; same pattern the parser
     /// uses for <c>&lt;a href&gt;</c> links from the game stream.</summary>
     public ReactiveCommand<Unit, Unit>                    OpenDiscordCommand       { get; }
+
+    // ── Help menu (external links) ──────────────────────────────────────────
+    // Ported from the Genie 4 Help menu (Forms/FormMain). Each opens a URL in
+    // the user's default browser via OpenUrl(). GitHub / Wiki / Latest Release
+    // point at the Genie 5 repo (GenieClient/Genie5); the Community Links are
+    // game/community resources carried over unchanged from Genie 4.
+    /// <summary>Opens the Genie 5 GitHub releases page (latest signed builds).</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenLatestReleaseCommand { get; }
+    /// <summary>Opens the Genie 5 source repository on GitHub.</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenGitHubCommand        { get; }
+    /// <summary>Opens the Genie 5 wiki.</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenWikiCommand          { get; }
+    /// <summary>Community Links → Play.net (Simutronics account/billing portal).</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenPlayNetCommand       { get; }
+    /// <summary>Community Links → Elanthipedia (the DragonRealms community wiki).</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenElanthipediaCommand  { get; }
+    /// <summary>Community Links → DR Service (drservice.info).</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenDrServiceCommand     { get; }
+    /// <summary>Community Links → Lich 5 community Discord.</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenLichDiscordCommand   { get; }
+    /// <summary>Community Links → Isharon's Genie Settings (elanthia.org/GenieSettings).</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenIsharonSettingsCommand { get; }
+
     /// <summary>True when a background check found at least one enabled feed with an update available.
     /// Drives the Help-menu badge ("Help ●") so users see availability without opening the dialog.</summary>
     [Reactive] public bool                                UpdatesAvailable         { get; private set; }
@@ -633,24 +656,19 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             _ = CheckForUpdatesInBackgroundAsync();
         });
 
-        OpenDiscordCommand = ReactiveCommand.Create(() =>
-        {
-            // Hand off to the OS shell so the user's default browser opens the
-            // invite. UseShellExecute=true is required by .NET for URL strings;
-            // the runtime won't launch them as raw filenames. Same pattern the
-            // parser uses for in-game <a href> link clicks (see Highlighting.
-            // DefaultHighlights.OnUrlClicked below).
-            const string discordInvite = "https://discord.gg/MtmzE2w";
-            try
-            {
-                System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo(discordInvite) { UseShellExecute = true });
-            }
-            catch (Exception ex)
-            {
-                GameText.AddSystemLine($"[help] could not open Discord ({ex.Message}). Visit {discordInvite} manually.");
-            }
-        });
+        // All Help-menu external links funnel through OpenUrl() (defined below),
+        // which hands the URL to the OS shell. Ported from the Genie 4 Help menu;
+        // the repo links target GenieClient/Genie5, the community links are the
+        // same game/community resources Genie 4 shipped.
+        OpenDiscordCommand         = ReactiveCommand.Create(() => OpenUrl("https://discord.gg/MtmzE2w",                     "Discord"));
+        OpenLatestReleaseCommand   = ReactiveCommand.Create(() => OpenUrl("https://github.com/GenieClient/Genie5/releases/latest", "the releases page"));
+        OpenGitHubCommand          = ReactiveCommand.Create(() => OpenUrl("https://github.com/GenieClient/Genie5",          "GitHub"));
+        OpenWikiCommand            = ReactiveCommand.Create(() => OpenUrl("https://github.com/GenieClient/Genie5/wiki",     "the wiki"));
+        OpenPlayNetCommand         = ReactiveCommand.Create(() => OpenUrl("https://www.play.net/dr",                        "Play.net"));
+        OpenElanthipediaCommand    = ReactiveCommand.Create(() => OpenUrl("https://elanthipedia.play.net",                 "Elanthipedia"));
+        OpenDrServiceCommand       = ReactiveCommand.Create(() => OpenUrl("https://drservice.info",                        "DR Service"));
+        OpenLichDiscordCommand     = ReactiveCommand.Create(() => OpenUrl("https://discord.gg/uxZWxuX",                     "the Lich Discord"));
+        OpenIsharonSettingsCommand = ReactiveCommand.Create(() => OpenUrl("https://www.elanthia.org/GenieSettings/",       "Isharon's Genie Settings"));
 
         // Fire-and-forget startup check so the Help-menu badge surfaces
         // any pending updates without the user having to open the dialog.
@@ -1224,6 +1242,28 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 System.Diagnostics.Process.Start("xdg-open", nativePath);
         }
         catch (Exception ex) { ErrorLog.Log(logTag, ex); }
+    }
+
+    /// <summary>
+    /// Opens <paramref name="url"/> in the user's default browser. Hand off to
+    /// the OS shell via <c>UseShellExecute = true</c> — required by .NET for URL
+    /// strings (the runtime won't launch them as raw filenames) and the same
+    /// cross-platform pattern the parser uses for in-game <c>&lt;a href&gt;</c>
+    /// link clicks. On failure we surface the URL in the game window so the user
+    /// can open it manually rather than failing silently. <paramref name="label"/>
+    /// is the human-readable name used in that fallback message.
+    /// </summary>
+    private void OpenUrl(string url, string label)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            GameText.AddSystemLine($"[help] could not open {label} ({ex.Message}). Visit {url} manually.");
+        }
     }
 
     private void OpenMapsFolder()

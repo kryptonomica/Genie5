@@ -273,14 +273,44 @@
       </MenuItem>
 
       <!-- ── Help menu (badge appears when UpdatesAvailable) ─────────────── -->
+      <!-- Link set mirrors the Genie 4 Help menu (Forms/FormMain). Repo links   -->
+      <!-- (Latest Release / GitHub / Wiki) point at GenieClient/Genie5; the      -->
+      <!-- Community Links submenu carries over Genie 4's game/community links.   -->
       <MenuItem Header="{Binding HelpMenuHeader}">
         <MenuItem Header="Check for _Updates…"
                   Command="{Binding ShowUpdatesCommand}"
                   ToolTip.Tip="Open the Updates dialog — Core / Maps / Plugins, with per-source enable, check, and update."/>
+        <MenuItem Header="_Latest Release Page"
+                  Command="{Binding OpenLatestReleaseCommand}"
+                  ToolTip.Tip="Open the Genie 5 releases page on GitHub — download the newest signed build for your platform."/>
         <Separator/>
         <MenuItem Header="Join _Discord"
                   Command="{Binding OpenDiscordCommand}"
                   ToolTip.Tip="Opens the Genie community Discord (shared with Genie 4) in your default browser. Drop in for alpha-tester chat, scripting help, mapper questions."/>
+        <MenuItem Header="_GitHub"
+                  Command="{Binding OpenGitHubCommand}"
+                  ToolTip.Tip="Open the Genie 5 source repository on GitHub."/>
+        <MenuItem Header="_Wiki"
+                  Command="{Binding OpenWikiCommand}"
+                  ToolTip.Tip="Open the Genie 5 wiki — setup guides, scripting reference, and FAQ."/>
+        <Separator/>
+        <MenuItem Header="_Community Links">
+          <MenuItem Header="_Play.net"
+                    Command="{Binding OpenPlayNetCommand}"
+                    ToolTip.Tip="Simutronics' Play.net portal for DragonRealms — account, billing, and game launch."/>
+          <MenuItem Header="_Elanthipedia"
+                    Command="{Binding OpenElanthipediaCommand}"
+                    ToolTip.Tip="Elanthipedia — the community DragonRealms wiki (lore, mechanics, item data)."/>
+          <MenuItem Header="_DR Service"
+                    Command="{Binding OpenDrServiceCommand}"
+                    ToolTip.Tip="DR Service (drservice.info) — community status and service tools for DragonRealms."/>
+          <MenuItem Header="_Lich Discord"
+                    Command="{Binding OpenLichDiscordCommand}"
+                    ToolTip.Tip="The Lich 5 community Discord — proxy scripts and Ruby automation support."/>
+          <MenuItem Header="_Isharon's Genie Settings"
+                    Command="{Binding OpenIsharonSettingsCommand}"
+                    ToolTip.Tip="Isharon's curated Genie settings collection (elanthia.org/GenieSettings) — highlights, names, presets, and more."/>
+        </MenuItem>
       </MenuItem>
     </Menu>
 
