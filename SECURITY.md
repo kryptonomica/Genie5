@@ -57,7 +57,7 @@ Genie 5 is a **desktop game client**, not a server-side service. Our threat mode
 
 - ✅ The user is the only person on the local machine (or the only person we're protecting)
 - ✅ The DR game server is mostly trusted (it's Simutronics' production server) but we don't trust it to send safe XML — the parser must remain robust to hostile input
-- ✅ The Anthropic API endpoint is trusted for the AI pipeline (TLS, signed cert)
+- ✅ The AI vendor API endpoint is trusted for the AI pipeline (TLS, signed cert)
 - ❌ We do **not** protect against an attacker with disk access (they can decrypt `profiles.json` if they know the machine name + read the source)
 - ❌ We do **not** protect against a malicious user-installed plugin (plugin host is a roadmap item; sandboxing comes with it)
 

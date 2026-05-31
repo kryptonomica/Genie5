@@ -33,14 +33,14 @@ namespace Genie.Core.AI;
 /// G1. <b>Default OFF.</b> AI pipeline must be feature-flagged off in any
 ///     build that ships to the public. Opt-in checkbox in Settings with a
 ///     one-page privacy disclosure explaining that game text is sent to
-///     Anthropic.
+///     the AI vendor.
 ///
 /// G2. <b>Strip other-player content before any external send.</b> The
 ///     raw XML buffer currently captures EVERYTHING — including
 ///     &lt;preset id="whisper"&gt;, &lt;preset id="speech"&gt;,
 ///     &lt;pushStream id='talk|whispers|thoughts|familiar'&gt; — i.e. other
 ///     players' utterances. Per Simu's ToS, public-area player content is
-///     licensed to Simu, not to us. <b>Shipping it to Anthropic without a
+///     licensed to Simu, not to us. <b>Shipping it to the AI vendor without a
 ///     filter is the single highest-risk byte in the whole Genie 5 design
 ///     surface.</b> Before any non-Parser-Analysis mode is enabled in a
 ///     public build, <see cref="SnapshotBuffer"/> (or a wrapper around it)
@@ -61,7 +61,7 @@ namespace Genie.Core.AI;
 ///
 /// G5. <b>Privacy notice in-app.</b> First-time AI enable must surface a
 ///     plain-language summary of what gets sent off-machine and that the
-///     user is also subject to Anthropic's data handling terms.
+///     user is also subject to the AI vendor's data handling terms.
 /// ────────────────────────────────────────────────────────────────────────────
 /// </summary>
 public sealed class AiContextBuffer : IDisposable

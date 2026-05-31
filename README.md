@@ -137,6 +137,22 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, feature requests, and PRs a
 - **Issues** — [GitHub Issues](https://github.com/GenieClient/Genie5/issues)
 - **Discussions** — [GitHub Discussions](https://github.com/GenieClient/Genie5/discussions) (TBD)
 
+## Code signing policy
+
+Free code signing for Windows release builds is provided by [SignPath.io](https://signpath.io/), with a free code signing certificate from the [SignPath Foundation](https://signpath.org/).
+
+Signed binaries are published on the [Releases](https://github.com/GenieClient/Genie5/releases) page. Every release is built from this repository's source via GitHub Actions and is manually approved before signing.
+
+### Roles
+
+- **Authors / Committers:** the maintainers of the [GenieClient](https://github.com/GenieClient) organization — *(list GitHub handles)*
+- **Reviewers:** *(list GitHub handles)*
+- **Approvers:** *(list GitHub handles)*
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. Genie 5 connects only to Simutronics' official DragonRealms authentication and game servers (`play.net` / `simutronics.net`) and, when the user configures it, to a local [Lich 5](https://github.com/elanthia-online/lich-5) proxy. Account credentials are stored locally, encrypted with AES-256-GCM, and are transmitted only to the official authentication servers. No data is collected by the Genie 5 maintainers.
+
 ## License
 
 [GPL-3.0](LICENSE). Same license as Lich 5, aligning Genie 5 with the broader DR-tooling ecosystem.
