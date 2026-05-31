@@ -57,6 +57,71 @@ jobs:
           path: publish/win-x64/Genie.exe
           if-no-files-found: error
 
+  velopack:
+    name: Velopack package + upload to Release
+    runs-on: windows-latest
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk
+
+      - name: Download unsigned artifact from publish job
+        uses: actions/download-artifact@v4
+        with:
+          name: genie-win-x64-unsigned
+          path: publish/win-x64
+
+      - name: Strip leading 'v' from tag name
+        id: ver
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download previous Velopack releases (for delta packages)
+        # First release will fail this step (no prior assets) — that's OK,
+        # the resulting full.nupkg is still valid. Subsequent releases get
+        # binary-diff deltas pulled from the most recent assets.
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          vpk download github `
+            --repoUrl https://github.com/GenieClient/Genie5 `
+            --outputDir velopack-releases `
+            --pre
+
+      - name: Velopack pack
+        shell: pwsh
+        run: |
+          vpk pack `
+            --packId Genie5 `
+            --packVersion ${{ steps.ver.outputs.version }} `
+            --packDir publish/win-x64 `
+            --mainExe Genie.exe `
+            --outputDir velopack-releases
+
+      - name: Attach Velopack assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          # Velopack produces: Setup.exe, *-full.nupkg, *-delta.nupkg (when
+          # prior versions exist), Portable.zip, RELEASES, releases.win.json,
+          # assets.win.json. Attach everything in the output dir.
+          files: velopack-releases/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false   # Notes are curated by hand
+
   sign:
     name: Sign with SignPath Foundation
     runs-on: ubuntu-latest
