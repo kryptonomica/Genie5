@@ -430,7 +430,7 @@ Both clients support a flexible dockable-panel layout, but the implementation te
 | Editable room Notes | ✅ | ✅ inline editor, saves to zone XML | 🚀 SHIP |
 | Stale-zone warning | ❌ | 🆕 "may be stale" badge after 30 days | 🆕 |
 | Auto-center on current room | ✅ via script | ✅ engine (just-shipped) | 🚀 SHIP |
-| Zone update from official repo | ✅ via LAMP | ✅ via File menu (`MapRepoUpdater`) | 🆕 |
+| Zone update from official repo | ✅ via LAMP | ✅ via File menu (`MapsUpdater` + `GithubContentsSource`) | 🆕 |
 | Multi-zone navigation (cross-zone pathing) | ✅ via script | ❌ | 🗓 BETA OK |
 | User-walk vs auto-walk vs drag modes | ✅ | ❌ (no auto-walk yet) | 🗓 BETA OK |
 | Per-class mapper script | ✅ AutoMapper Script Settings dialog | ❌ | 🗓 BETA OK |

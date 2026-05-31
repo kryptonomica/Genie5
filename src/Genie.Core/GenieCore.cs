@@ -103,8 +103,9 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// <summary>
     /// JSON load/save for <see cref="MapZone"/>. Exposed so the UI layer can
     /// list, load, save, and merge zones — including pulling refreshes from
-    /// the public GenieClient/Maps repo via a <see cref="MapRepoUpdater"/>
-    /// constructed against this repository and the user's chosen Maps dir.
+    /// the public GenieClient/Maps repo via a
+    /// <see cref="Update.Updaters.MapsUpdater"/> constructed against this
+    /// repository and the user's chosen Maps dir.
     /// </summary>
     public MapZoneRepository  ZoneRepository { get; } = new();
 

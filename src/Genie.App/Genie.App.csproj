@@ -44,6 +44,12 @@
     <PackageReference Include="Dock.Model.ReactiveUI" Version="11.3.6.4" />
     <PackageReference Include="ReactiveUI" Version="20.4.1" />
     <PackageReference Include="ReactiveUI.Fody" Version="19.5.41" />
+    <!-- Cross-platform install + auto-update framework. Used by
+         CoreAppUpdater (Phase 4 of the update system) — wraps the running-
+         EXE replace on Windows, the .app bundle swap on macOS, and the
+         AppImage replace on Linux. The publish-side step is `vpk pack`,
+         documented in docs/internal/UPDATE_SYSTEM.md. -->
+    <PackageReference Include="Velopack" Version="1.1.1" />
   </ItemGroup>
 
   <ItemGroup>

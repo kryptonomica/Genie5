@@ -141,6 +141,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                 ctx.SetOutput(System.Reactive.Unit.Default);
             }));
 
+            d(ViewModel!.ShowUpdatesDialog.RegisterHandler(async ctx =>
+            {
+                var dlg = new UpdatesDialog { DataContext = ctx.Input, ViewModel = ctx.Input };
+                await dlg.ShowDialog(this);
+                ctx.SetOutput(System.Reactive.Unit.Default);
+            }));
+
             d(ViewModel!.ShowLayoutSavePrompt.RegisterHandler(async ctx =>
             {
                 try

@@ -1,0 +1,72 @@
+namespace Genie.Core.Update;
+
+/// <summary>
+/// Common shape for every update target — Core App, Maps, individual plugins.
+/// Each implementation knows what "installed" and "latest" mean for its domain
+/// (SemVer for app/plugin builds, last-commit-sha for file-list sources like
+/// the maps repo) and how to apply a refresh in-place.
+///
+/// The split between <see cref="IUpdater"/> and <see cref="Sources.IFileListSource"/>
+/// is deliberate: Sources know how to TALK to a remote (GitHub Releases vs.
+/// GitHub Contents vs. an arbitrary HTTP manifest), Updaters know what to DO
+/// with what came back (drop a single asset, merge XML preserving local
+/// fingerprints, unload-then-replace a loaded plugin DLL).
+/// </summary>
+public interface IUpdater
+{
+    /// <summary>Display name surfaced in the Updates dialog (e.g. "Maps", "Plugin_EXPTrackerV5").</summary>
+    string Name { get; }
+
+    /// <summary>
+    /// What identifies the currently installed version on the user's machine —
+    /// a SemVer string for release-shaped updaters or a "tip@{sha}" / file count
+    /// for file-list updaters. Used to render the "Installed: …" line and to
+    /// compare against <see cref="UpdateCheckResult.LatestVersion"/>.
+    /// </summary>
+    string CurrentVersion { get; }
+
+    /// <summary>
+    /// Ask every configured source whether there's anything newer than the
+    /// currently installed state. Does NOT download payloads — meant to be
+    /// cheap enough for an auto-check-on-startup background call.
+    /// </summary>
+    Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Apply the latest available update. Progress callback is invoked as the
+    /// implementation discovers + processes work items so the GUI can show a
+    /// per-item line; the implementation is responsible for marshalling back
+    /// to the UI thread if needed.
+    /// </summary>
+    Task<UpdateApplyResult> ApplyAsync(
+        IProgress<UpdateProgress>? progress = null,
+        CancellationToken ct = default);
+}
+
+/// <summary>Result of a non-mutating availability check.</summary>
+/// <param name="UpdateAvailable">
+///   True if at least one source has new content. For file-list sources this
+///   means at least one file's sha differs; for release sources it means the
+///   latest version is strictly newer than the installed one.</param>
+/// <param name="LatestVersion">The latest version string (informational).</param>
+/// <param name="Notes">Optional human-readable release notes / change summary.</param>
+public sealed record UpdateCheckResult(
+    bool      UpdateAvailable,
+    string    LatestVersion,
+    string?   Notes);
+
+/// <summary>Result of an apply pass.</summary>
+/// <param name="Succeeded">True if the apply completed without any per-item failures.</param>
+/// <param name="Summary">One-line human-readable summary (e.g. "Updated 42 zones (3 new, 39 merged)").</param>
+/// <param name="Errors">Per-item errors collected during the pass; empty on success.</param>
+public sealed record UpdateApplyResult(
+    bool                  Succeeded,
+    string                Summary,
+    IReadOnlyList<string> Errors);
+
+/// <summary>One unit of work in an apply pass — file N of M, with a short status word.</summary>
+public sealed record UpdateProgress(
+    int    Current,
+    int    Total,
+    string Item,
+    string Status);

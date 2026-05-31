@@ -108,6 +108,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit>                    ManageLayoutsCommand     { get; }
     public Interaction<ManageLayoutsViewModel, Unit>      ShowManageLayoutsDialog  { get; } = new();
 
+    // ── Help menu (Updates) ─────────────────────────────────────────────────
+    public ReactiveCommand<Unit, Unit>                    ShowUpdatesCommand       { get; }
+    public Interaction<UpdatesDialogViewModel, Unit>      ShowUpdatesDialog        { get; } = new();
+    /// <summary>True when a background check found at least one enabled feed with an update available.
+    /// Drives the Help-menu badge ("Help ●") so users see availability without opening the dialog.</summary>
+    [Reactive] public bool                                UpdatesAvailable         { get; private set; }
+    /// <summary>Menu header bound by MainWindow.axaml — appends a bullet when <see cref="UpdatesAvailable"/>.</summary>
+    public string HelpMenuHeader => UpdatesAvailable ? "_Help ●" : "_Help";
+
     // ── Plugins menu ────────────────────────────────────────────────────────
     /// <summary>Loaded plugins shown in the Plugins menu (enable/disable).
     /// Rebuilt when the menu opens.</summary>
@@ -597,6 +606,36 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             RefreshSavedLayoutList();
         });
 
+        // ── Help → Check for Updates ────────────────────────────────────────
+        // Builds a fresh UpdatesDialogViewModel each open so it picks up
+        // any feed-config edits made via the #plugin add command bar verb.
+        // Maps directory + zone repo + plugin manager come from the live core
+        // when connected; pre-connect, the Maps tab works against the
+        // configured default directory but plugin install/update needs a
+        // running PluginManager to hot-swap (otherwise it just drops the DLL).
+        ShowUpdatesCommand = ReactiveCommand.CreateFromTask(async () =>
+        {
+            var store      = new Genie.Core.Update.FeedConfigStore(_configDir);
+            var mapsDir    = Paths?.MapsDirectory is { Length: > 0 } md
+                                 ? md
+                                 : Path.Combine(Path.GetDirectoryName(_configDir)!, "Maps");
+            var zoneRepo   = _core?.ZoneRepository ?? new Genie.Core.Mapper.MapZoneRepository();
+            var pluginMgr  = _core?.Plugins;
+            var vm = new UpdatesDialogViewModel(store, mapsDir, _pluginsDir, zoneRepo, pluginMgr);
+            await ShowUpdatesDialog.Handle(vm);
+            // Re-run a background check so the badge reflects post-dialog state
+            // (a successful update during the session should clear the dot).
+            _ = CheckForUpdatesInBackgroundAsync();
+        });
+
+        // Fire-and-forget startup check so the Help-menu badge surfaces
+        // any pending updates without the user having to open the dialog.
+        // Errors are swallowed — badge stays clear on network failure.
+        _ = CheckForUpdatesInBackgroundAsync();
+
+        this.WhenAnyValue(x => x.UpdatesAvailable)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(HelpMenuHeader)));
+
         // ── Plugins menu ────────────────────────────────────────────────────
         RefreshPluginListCommand = ReactiveCommand.Create(RefreshPluginList);
         OpenPluginsFolderCommand = ReactiveCommand.Create(OpenPluginsFolder);
@@ -812,6 +851,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     //   #plugin load    <file>        load a .dll from the Plugins folder
     //   #plugin reload                re-scan the folder, load all new
     //   #plugin folder                open the Plugins folder
+    //   #plugin sources               list configured plugin update feeds
+    //   #plugin add     <url>         add a plugin source (paste GitHub URL or owner/repo)
+    //   #plugin update                check + apply every enabled plugin feed
+    //   #plugin update  <id|name>     check + apply one plugin feed
     private void HandlePluginCommand(string args)
     {
         if (_core is null) { GameText.AddSystemLine("[plugin] connect first."); return; }
@@ -831,9 +874,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "load":    PluginCmdLoad(rest);             break;
             case "reload":  ReloadPluginsCommand.Execute().Subscribe(); RefreshPluginList(); break;
             case "folder":  OpenPluginsFolder();             break;
+            case "sources": PluginCmdSources();              break;
+            case "add":     PluginCmdAddSource(rest);        break;
+            case "update":  _ = PluginCmdUpdateAsync(rest);  break;
             default:
                 GameText.AddSystemLine(
-                    "[plugin] usage: #plugin [list | enable <id> | disable <id> | unload <id> | load <file> | reload | folder]");
+                    "[plugin] usage: #plugin [list | enable <id> | disable <id> | unload <id> | load <file> | reload | folder | sources | add <url> | update [<id>]]");
                 break;
         }
     }
@@ -944,6 +990,196 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     }
 
     private void OpenPluginsFolder() => OpenFolder(_pluginsDir, "OpenPluginsFolder");
+
+    // ── Help → Check for Updates: background check ─────────────────────────
+    //
+    // Runs cheap CheckAsync on every enabled feed in the background and sets
+    // UpdatesAvailable. Drives the Help-menu badge so the user sees there's
+    // something to update without having to open the dialog. Failures are
+    // silent — we'd rather a flaky network not produce a misleading badge.
+    private async Task CheckForUpdatesInBackgroundAsync()
+    {
+        try
+        {
+            var store   = new Genie.Core.Update.FeedConfigStore(_configDir);
+            var cfg     = store.Load();
+            var mapsDir = Paths?.MapsDirectory is { Length: > 0 } md
+                              ? md
+                              : Path.Combine(Path.GetDirectoryName(_configDir)!, "Maps");
+            var zoneRepo = _core?.ZoneRepository ?? new Genie.Core.Mapper.MapZoneRepository();
+            var pluginMgr = _core?.Plugins;
+            var channel   = string.IsNullOrWhiteSpace(cfg.Core.Channel) ? "stable" : cfg.Core.Channel;
+            var any       = false;
+
+            foreach (var feed in cfg.Maps.Where(f => f.Enabled))
+            {
+                try
+                {
+                    var src = new Genie.Core.Update.Sources.GithubContentsSource(
+                        feed.Owner, feed.Repo, feed.Path, feed.Extension);
+                    var u = new Genie.Core.Update.Updaters.MapsUpdater(
+                        zoneRepo, mapsDir, new[] { (Genie.Core.Update.Sources.IFileListSource)src });
+                    if ((await u.CheckAsync()).UpdateAvailable) any = true;
+                }
+                catch { /* silent — see method header */ }
+            }
+
+            foreach (var feed in cfg.Plugins.Where(f => f.Enabled))
+            {
+                try
+                {
+                    var src = new Genie.Core.Update.Sources.GithubReleasesSource(feed.Owner, feed.Repo);
+                    var u = new Genie.Core.Update.Updaters.PluginUpdater(
+                        feed, src, _pluginsDir, pluginMgr, channel);
+                    if ((await u.CheckAsync()).UpdateAvailable) any = true;
+                }
+                catch { /* silent — see method header */ }
+            }
+
+            // Core app — only meaningful when running from a Velopack install
+            // (CoreAppUpdater short-circuits with "(dev build)" otherwise, so
+            // there's no risk of spurious badges from dev runs).
+            try
+            {
+                var coreUrl = $"https://github.com/{cfg.Core.Owner}/{cfg.Core.Repo}";
+                var core    = new Services.CoreAppUpdater(coreUrl, channel);
+                if ((await core.CheckAsync()).UpdateAvailable) any = true;
+            }
+            catch { /* silent — see method header */ }
+
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => UpdatesAvailable = any);
+        }
+        catch { /* belt-and-braces */ }
+    }
+
+    // ── #plugin sources / add / update ─────────────────────────────────────
+    //
+    // Backend lives in Genie.Core.Update (see PluginUpdater + GithubReleasesSource +
+    // PluginSourceParser + FeedConfigStore). Phase 3 will surface the same operations
+    // through a proper Updates dialog; until then these command-line entry points let
+    // the user manage and exercise plugin feeds.
+
+    private Genie.Core.Update.FeedConfigStore PluginFeedStore()
+        => new(_configDir);
+
+    private void PluginCmdSources()
+    {
+        var cfg = PluginFeedStore().Load();
+        GameText.AddSystemLine("[plugin] sources:");
+        if (cfg.Plugins.Count == 0)
+        {
+            GameText.AddSystemLine("  (none configured) — try `#plugin add https://github.com/Owner/Repo`");
+            return;
+        }
+        foreach (var f in cfg.Plugins)
+        {
+            var enabled = f.Enabled ? "on " : "off";
+            var src     = string.IsNullOrEmpty(f.Owner) ? f.ManifestUrl : $"{f.Owner}/{f.Repo}";
+            GameText.AddSystemLine($"  [{enabled}] {f.Name}  ({f.Kind} · {src})  asset={f.AssetPattern}");
+        }
+    }
+
+    private void PluginCmdAddSource(string url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            GameText.AddSystemLine("[plugin] usage: #plugin add <github-url-or-owner/repo>");
+            return;
+        }
+
+        if (!Genie.Core.Update.PluginSourceParser.TryParse(url, out var entry, out var err))
+        {
+            GameText.AddSystemLine($"[plugin] {err}");
+            return;
+        }
+
+        var store = PluginFeedStore();
+        var cfg   = store.Load();
+        // Dedupe by id — re-adding overwrites the prior entry rather than duplicating.
+        var existing = cfg.Plugins.FirstOrDefault(p =>
+            p.Id.Equals(entry.Id, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            cfg.Plugins.Remove(existing);
+            GameText.AddSystemLine($"[plugin] (replacing existing entry for {entry.Id})");
+        }
+        cfg.Plugins.Add(entry);
+
+        if (store.Save(cfg))
+            GameText.AddSystemLine($"[plugin] added '{entry.Name}' ({entry.Owner}/{entry.Repo}, asset {entry.AssetPattern}). Run `#plugin update {entry.Name}` to install.");
+        else
+            GameText.AddSystemLine($"[plugin] failed to save {store.FilePath}");
+    }
+
+    private async Task PluginCmdUpdateAsync(string idOrName)
+    {
+        var cfg     = PluginFeedStore().Load();
+        var channel = cfg.Core.Channel;
+        var targets = string.IsNullOrWhiteSpace(idOrName)
+            ? cfg.Plugins.Where(p => p.Enabled).ToList()
+            : cfg.Plugins.Where(p =>
+                  p.Enabled &&
+                  (p.Id.Equals(idOrName,   StringComparison.OrdinalIgnoreCase) ||
+                   p.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        if (targets.Count == 0)
+        {
+            GameText.AddSystemLine(string.IsNullOrWhiteSpace(idOrName)
+                ? "[plugin] no enabled plugin sources to update."
+                : $"[plugin] no enabled source matches '{idOrName}'. Try `#plugin sources`.");
+            return;
+        }
+
+        foreach (var feed in targets)
+        {
+            await PluginCmdUpdateOneAsync(feed, channel);
+        }
+    }
+
+    private async Task PluginCmdUpdateOneAsync(Genie.Core.Update.FeedEntry feed, string channel)
+    {
+        Genie.Core.Update.Sources.IReleaseSource source;
+        switch (feed.Kind.ToLowerInvariant())
+        {
+            case "github-releases":
+                source = new Genie.Core.Update.Sources.GithubReleasesSource(feed.Owner, feed.Repo);
+                break;
+            default:
+                GameText.AddSystemLine($"[plugin] source kind '{feed.Kind}' not supported yet (entry: {feed.Name}).");
+                return;
+        }
+
+        var updater = new Genie.Core.Update.Updaters.PluginUpdater(
+            feed:       feed,
+            source:     source,
+            pluginsDir: _pluginsDir,
+            manager:    _core!.Plugins,
+            channel:    channel);
+
+        var progress = new Progress<Genie.Core.Update.UpdateProgress>(p =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                GameText.AddSystemLine($"[plugin:{feed.Name}] {p.Item} — {p.Status}")));
+
+        try
+        {
+            var check = await updater.CheckAsync();
+            if (!check.UpdateAvailable)
+            {
+                GameText.AddSystemLine($"[plugin:{feed.Name}] up to date ({check.LatestVersion}).");
+                return;
+            }
+
+            GameText.AddSystemLine($"[plugin:{feed.Name}] update available: {updater.CurrentVersion} → {check.LatestVersion}");
+            var result = await updater.ApplyAsync(progress);
+            GameText.AddSystemLine($"[plugin:{feed.Name}] {result.Summary}");
+            foreach (var e in result.Errors) GameText.AddSystemLine($"[plugin:{feed.Name}] ERROR: {e}");
+            RefreshPluginList();
+        }
+        catch (Exception ex)
+        {
+            GameText.AddSystemLine($"[plugin:{feed.Name}] FAILED: {ex.Message}");
+        }
+    }
 
     /// <summary>Open a folder in the OS file browser, creating it if missing.
     /// Cross-platform (explorer / open / xdg-open).</summary>

@@ -10,7 +10,7 @@ Genie 5 uses the **same Genie 4 XML map format**, so maps move between the two c
 
 ## Updating from the official repo
 
-Choose **File → Update Maps from Official Repo…**. Genie 5 fetches the latest zone XML from the community Maps repository via [MapRepoUpdater](../src/Genie.Core/Mapper/MapRepoUpdater.cs) and reports progress in the main game window as `[mapper] …` lines.
+Choose **File → Update Maps from Official Repo…**. Genie 5 fetches the latest zone XML from the community Maps repository via [MapsUpdater](../src/Genie.Core/Update/Updaters/MapsUpdater.cs) (built on the shared [GithubContentsSource](../src/Genie.Core/Update/Sources/GithubContentsSource.cs)) and reports progress in the main game window as `[mapper] …` lines.
 
 ### How the merge works
 

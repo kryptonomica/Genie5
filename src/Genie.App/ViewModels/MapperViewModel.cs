@@ -8,6 +8,9 @@ using Genie.App.Settings;
 using Genie.Core;
 using Genie.Core.Commanding;
 using Genie.Core.Mapper;
+using Genie.Core.Update;
+using Genie.Core.Update.Sources;
+using Genie.Core.Update.Updaters;
 using ReactiveUI;
 using ReactiveUI.Fody.Helpers;
 
@@ -978,21 +981,25 @@ public class MapperViewModel : ReactiveObject
 
         try
         {
-            var updater = new MapRepoUpdater(_zoneRepo, MapsDirectory);
+            // Phase 1 of the update system: hardwire the default GenieClient/Maps
+            // source here so this menu entry keeps working unchanged. The Updates
+            // dialog (Phase 3) will load enabled feeds from update-feeds.json and
+            // pass them all in; at that point this method becomes a thin shortcut
+            // to the same dialog's Maps tab.
+            var source  = new GithubContentsSource(
+                owner:     "GenieClient",
+                repo:      "Maps",
+                extension: ".xml");
+            var updater = new MapsUpdater(_zoneRepo, MapsDirectory, new[] { source });
 
-            // Progress callback fires on the HTTP worker thread; marshal text
+            // Progress reports fire on the HTTP worker thread; marshal text
             // updates back to the UI thread so the binding update is safe.
-            void OnProgress(int current, int total, string filename, string status)
-            {
+            var progress = new Progress<UpdateProgress>(p =>
                 Dispatcher.UIThread.Post(() =>
-                    UpdateStatus = $"[{current}/{total}] {filename} — {status}");
-            }
+                    UpdateStatus = $"[{p.Current}/{p.Total}] {p.Item} — {p.Status}"));
 
-            var result = await updater.UpdateAllAsync(OnProgress);
-
-            UpdateSummary = result.Failures.Count == 0
-                ? $"Updated {result.TotalFiles} zones ({result.New} new, {result.Merged} merged)."
-                : $"Updated {result.TotalFiles} zones ({result.New} new, {result.Merged} merged, {result.Failures.Count} failed).";
+            var result = await updater.ApplyAsync(progress);
+            UpdateSummary = result.Summary;
 
             // Bump room-count display in case the active zone's JSON was
             // refreshed on disk — the engine will pick up the new data the

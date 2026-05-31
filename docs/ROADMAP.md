@@ -44,6 +44,18 @@ These work today, in the v5.0.0-alpha.1 build.
 - **Vitals strip** with health / mana / stamina / spirit / concentration
 - **Per-character profiles** with AES-256-GCM password encryption (machine-
   bound key)
+- **Plugin system** — `Genie.Plugins.Abstractions` library (`IGeniePlugin`,
+  `IPluginHost`, `IGameStateView`), `PluginManager` with per-plugin
+  assembly-load-context isolation, `#plugin` command for load / unload,
+  and `Plugin_EXPTrackerV5` as the first external plugin
+- **LAMP 2.0 update system** — Updates dialog with Core / Maps / Plugins
+  tabs and Help-menu badge; `CoreAppUpdater` via Velopack; pluggable
+  `IFileListSource` / `IReleaseSource` (GitHub Contents + Releases);
+  `MapsUpdater` (pulls from the community Maps repo) and `PluginUpdater`
+  (pulls plugin DLLs from configured release feeds)
+- **Code-signing pipeline** — SignPath Foundation tag-triggered release
+  workflow that signs the Windows build and attaches the signed binary
+  to the GitHub Release
 
 ## In flight — 🚧
 
@@ -58,33 +70,19 @@ These work today, in the v5.0.0-alpha.1 build.
 These are scoped well enough that someone could pick one up and ship it
 without a deep architecture discussion first.
 
-### LAMP 2.0 — cross-platform updater
+### macOS / Linux update channels
 
-Genie 4's LAMP updater is Windows-only. LAMP 2.0 needs to handle three
-platforms' app-data conventions:
+LAMP 2.0 shipped on Windows via Velopack. The macOS and Linux update
+channels are scoped but not yet wired:
 
-- Windows: `%APPDATA%/Genie5/`
 - macOS: `~/Library/Application Support/Genie5/`
 - Linux: XDG `$XDG_DATA_HOME/Genie5/` or `~/.local/share/Genie5/`
 
-`Genie.Core.Runtime.AppPaths` already handles per-platform paths. LAMP 2.0
-needs:
-- App update channel (signed binaries; semver tracking)
-- Maps update channel (pulls from the community Maps repo)
-- Plugin update channel (once the plugin host lands)
-
-### Plugin host
-
-Genie 4 supports plugin DLLs implementing a documented C# interface.
-Genie 5 currently has **no** plugin host — that's a real gap for users
-who depend on community plugins.
-
-Design constraints:
-- Plugins are C# DLLs (or eventually `.js` array scripts — separate item)
-- Plugins must run in a sandbox that can't violate the DR policy gates
-  (no headless mode, no ProcessInput from AI, etc.)
-- Plugin discovery from a `Plugins/` folder under the app data root
-- API surface should be Genie-4-compatible where possible to ease porting
+`Genie.Core.Runtime.AppPaths` already handles per-platform paths and the
+`IUpdater` abstraction is platform-neutral — what's missing is a packaging
+target for each OS (a `.app` bundle on macOS, an AppImage or similar on
+Linux) and an `IReleaseSource` that knows how to pull the right artifact
+for each platform.
 
 ### JavaScript `.js` array script support
 
@@ -107,12 +105,12 @@ the work is mostly designing the light palette and audited contrast levels.
 Pattern-and-action editor for `#trigger` rules that doesn't require typing
 regexes by hand. Lower priority but a real onboarding helper.
 
-### `.github/workflows/` CI maturity
+### `.github/workflows/` CI maturity — multi-platform release artifacts
 
-Currently has the `build.yml` workflow that runs `dotnet build` on push +
-PR. Planned: release workflow that builds self-contained binaries for
-win-x64, osx-arm64, osx-x64, linux-x64 and attaches them to GitHub
-releases.
+`build.yml` runs `dotnet build` on push + PR; `release.yml` builds and
+signs the Windows artifact via SignPath on tag push. Still planned: build
++ attach binaries for osx-arm64, osx-x64, and linux-x64 to the same
+GitHub Release.
 
 ## Considering — 💭
 

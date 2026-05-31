@@ -15,6 +15,24 @@ internal static class Program
         // ones responsible for "app ends without notice" exits.
         InstallCrashLogger();
 
+        // ── Velopack startup hook ────────────────────────────────────────────
+        // MUST be called before any other startup work. Velopack's installer
+        // pipeline spawns the running Genie.exe with --veloapp-* arguments
+        // during install / uninstall / first-run / update; VelopackApp.Run()
+        // intercepts those and exits cleanly without ever booting Avalonia.
+        // On a normal launch it's a no-op that returns immediately.
+        try
+        {
+            Velopack.VelopackApp.Build().Run();
+        }
+        catch (Exception ex)
+        {
+            // Velopack failures must not block the app launching — log and
+            // continue. The Updates dialog will surface the install state
+            // via CoreAppUpdater.IsInstalled.
+            WriteCrash("VelopackApp.Run", ex);
+        }
+
         try
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);

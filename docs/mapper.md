@@ -104,7 +104,7 @@ For a cross-zone hop with a known wait window (boats, ferries), `AutoWalkService
 ## Zone files, import, and updates
 
 - **Import from Genie 4** — **File → Import from Genie 4…** brings `.cfg` rules across; map XML is imported via the mapper. See the [Importing Genie4 Config](../wiki/Importing-Genie4-Config.md) wiki page.
-- **Update Maps from Official Repo** — **File → Update Maps from Official Repo…** pulls fresh zone XML (and optionally helper scripts) from the community [GenieClient/Maps](https://github.com/GenieClient) repo via [MapRepoUpdater](../src/Genie.Core/Mapper/MapRepoUpdater.cs), merging upstream layout changes while preserving your stamped `ServerRoomId`s. See [Updating Maps and Scripts](../wiki/Updating-Maps-and-Scripts.md).
+- **Update Maps from Official Repo** — **File → Update Maps from Official Repo…** pulls fresh zone XML from the community [GenieClient/Maps](https://github.com/GenieClient) repo via [MapsUpdater](../src/Genie.Core/Update/Updaters/MapsUpdater.cs) (built on the shared updates framework's [GithubContentsSource](../src/Genie.Core/Update/Sources/GithubContentsSource.cs)), merging upstream layout changes while preserving your stamped `ServerRoomId`s. See [Updating Maps and Scripts](../wiki/Updating-Maps-and-Scripts.md).
 - **Maps directory** — **File → Open Maps Folder** / **Change Maps Directory…**. Configurable via `#config mapdir`.
 
 ## Code references
@@ -112,6 +112,6 @@ For a cross-zone hop with a known wait window (boats, ferries), `AutoWalkService
 - **[AutoMapperEngine.cs](../src/Genie.Core/Mapper/AutoMapperEngine.cs)** — node resolution ladder, `FindPath`, learning, `RoomNotFoundInZone`.
 - **[MapperGameStateAdapter.cs](../src/Genie.Core/Mapper/MapperGameStateAdapter.cs)** / **[IMapperGameState.cs](../src/Genie.Core/Mapper/IMapperGameState.cs)** — the state bridge.
 - **[MapZone.cs](../src/Genie.Core/Mapper/MapZone.cs)**, **[MapNode.cs](../src/Genie.Core/Mapper/MapNode.cs)**, **[MapExit.cs](../src/Genie.Core/Mapper/MapExit.cs)** — data model.
-- **[MapZoneRepository.cs](../src/Genie.Core/Mapper/MapZoneRepository.cs)**, **[Genie4MapImporter.cs](../src/Genie.Core/Mapper/Genie4MapImporter.cs)**, **[MapRepoUpdater.cs](../src/Genie.Core/Mapper/MapRepoUpdater.cs)** — persistence, import, updates.
+- **[MapZoneRepository.cs](../src/Genie.Core/Mapper/MapZoneRepository.cs)**, **[Genie4MapImporter.cs](../src/Genie.Core/Mapper/Genie4MapImporter.cs)** — persistence + import. Updates from the official repo now go through the shared updates framework: **[MapsUpdater.cs](../src/Genie.Core/Update/Updaters/MapsUpdater.cs)** + **[GithubContentsSource.cs](../src/Genie.Core/Update/Sources/GithubContentsSource.cs)**.
 - **[MapFingerprint.cs](../src/Genie.Core/Mapper/MapFingerprint.cs)**, **[ExitRequirement.cs](../src/Genie.Core/Mapper/ExitRequirement.cs)** — disambiguation and skill gating.
 - **[AutoWalkService.cs](../src/Genie.App/Services/AutoWalkService.cs)**, **[AutoWalkSession.cs](../src/Genie.App/Services/AutoWalkSession.cs)**, **[MapperViewModel.cs](../src/Genie.App/ViewModels/MapperViewModel.cs)**, **[MapCanvas.cs](../src/Genie.App/Controls/MapCanvas.cs)** — UI walker + render.

@@ -271,6 +271,13 @@
           </MenuItem.Styles>
         </MenuItem>
       </MenuItem>
+
+      <!-- ── Help menu (badge appears when UpdatesAvailable) ─────────────── -->
+      <MenuItem Header="{Binding HelpMenuHeader}">
+        <MenuItem Header="Check for _Updates…"
+                  Command="{Binding ShowUpdatesCommand}"
+                  ToolTip.Tip="Open the Updates dialog — Core / Maps / Plugins, with per-source enable, check, and update."/>
+      </MenuItem>
     </Menu>
 
     <!-- ── Hands / prepared-spell strip (Wrayth-style) ──────────────────── -->
