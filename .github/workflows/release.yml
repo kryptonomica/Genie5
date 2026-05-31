@@ -110,6 +110,18 @@ jobs:
             --mainExe Genie.exe `
             --outputDir velopack-releases
 
+      - name: Rename Windows installers (numbered prefix for clarity in Release page)
+        shell: pwsh
+        # User-facing installers get a numbered prefix so the Release page asset
+        # list shows them in a predictable order (Windows first since most
+        # testers are on Windows). Velopack feed files (.nupkg, RELEASES,
+        # *.json) MUST keep their existing names — the in-app updater fetches
+        # them at fixed URL patterns and would break if renamed.
+        run: |
+          cd velopack-releases
+          if (Test-Path Genie5-win-Setup.exe)     { Move-Item Genie5-win-Setup.exe     "01-Windows-Genie5-Setup.exe" }
+          if (Test-Path Genie5-win-Portable.zip)  { Move-Item Genie5-win-Portable.zip  "01-Windows-Genie5-Portable.zip" }
+
       - name: Attach Velopack assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -165,6 +177,15 @@ jobs:
             --packDir publish/linux-x64 \
             --mainExe Genie \
             --outputDir velopack-releases
+
+      - name: Rename Linux installers (numbered prefix for clarity)
+        # See the Windows job's rename step for the rationale: user-facing
+        # installers get a numbered prefix; Velopack feed files (.nupkg,
+        # RELEASES, *.json) keep their existing names because the in-app
+        # updater fetches them at fixed URLs.
+        run: |
+          cd velopack-releases
+          [ -f Genie5.AppImage ] && mv Genie5.AppImage "04-Linux-Genie5.AppImage" || true
 
       - name: Attach Velopack Linux assets to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -224,6 +245,13 @@ jobs:
             --bundleId com.genieclient.genie5 \
             --outputDir velopack-releases
 
+      - name: Rename macOS arm64 installers (numbered prefix for clarity)
+        # See the Windows job's rename step for the rationale.
+        run: |
+          cd velopack-releases
+          [ -f Genie5-osx-Setup.pkg    ] && mv Genie5-osx-Setup.pkg    "02-macOS-Apple-Silicon-Genie5-Setup.pkg" || true
+          [ -f Genie5-osx-Portable.zip ] && mv Genie5-osx-Portable.zip "02-macOS-Apple-Silicon-Genie5-Portable.zip" || true
+
       - name: Attach Velopack macOS arm64 assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -282,6 +310,13 @@ jobs:
             --bundleId com.genieclient.genie5 \
             --channel osx-x64 \
             --outputDir velopack-releases
+
+      - name: Rename macOS Intel installers (numbered prefix for clarity)
+        # See the Windows job's rename step for the rationale.
+        run: |
+          cd velopack-releases
+          [ -f Genie5-osx-x64-Setup.pkg    ] && mv Genie5-osx-x64-Setup.pkg    "03-macOS-Intel-Genie5-Setup.pkg" || true
+          [ -f Genie5-osx-x64-Portable.zip ] && mv Genie5-osx-x64-Portable.zip "03-macOS-Intel-Genie5-Portable.zip" || true
 
       - name: Attach Velopack macOS x64 assets to GitHub Release
         uses: softprops/action-gh-release@v2
