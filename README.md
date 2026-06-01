@@ -146,7 +146,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, feature requests, and PRs a
 
 Free code signing for Windows release builds is provided by [SignPath.io](https://signpath.io/), with a free code signing certificate from the [SignPath Foundation](https://signpath.org/).
 
-Signed Windows binaries will be published on the [Releases](https://github.com/GenieClient/Genie5/releases) page once SignPath Foundation approval is granted — signing activates with the first signed build, **v5.0.0-alpha.4**. Every release is built from this repository's source via GitHub Actions and is manually approved before signing.
+Signed Windows binaries will be published on the [Releases](https://github.com/GenieClient/Genie5/releases) page once SignPath Foundation approval is granted — code-signing activates in an upcoming release. Every release is built from this repository's source via GitHub Actions and is manually approved before signing.
 
 ### Roles
 

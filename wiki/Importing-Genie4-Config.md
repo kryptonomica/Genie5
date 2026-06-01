@@ -41,7 +41,7 @@ Look for a folder containing `aliases.cfg`, `triggers.cfg`, etc. — that's your
 4. **Target** — choose where the rules land:
    - **Current character's profile** — imports into the connected character's `Profiles/<Char>-<Account>/` set.
    - **Global / shared config** — imports into the shared `Config/` baseline.
-   (See [Application Folders](Application-Folders.md) for the difference.)
+   (See [Application Folders](Application-Folders) for the difference.)
 5. **Mode**:
    - **Merge** — keep existing rules; incoming rules with a matching key overwrite. Good default.
    - **Add only** — append everything without overwriting.
@@ -52,8 +52,8 @@ When it finishes, the result line reports per-category counts (imported / skippe
 
 ## What's NOT imported
 
-- **Scripts (`*.cmd`)** — these aren't `.cfg`; they're plain text in Genie 4's `Scripts` folder. Copy them straight into Genie 5's [Scripts folder](Application-Folders.md) and run them as `.scriptname`.
-- **Maps (`*.xml`)** — imported through the mapper, not this dialog. See [Updating Maps and Scripts](Updating-Maps-and-Scripts.md). (Genie 5 uses the same Genie 4 XML map format, so maps largely carry over directly.)
+- **Scripts (`*.cmd`)** — these aren't `.cfg`; they're plain text in Genie 4's `Scripts` folder. Copy them straight into Genie 5's [Scripts folder](Application-Folders) and run them as `.scriptname`.
+- **Maps (`*.xml`)** — imported through the mapper, not this dialog. See [Updating Maps and Scripts](Updating-Maps-and-Scripts). (Genie 5 uses the same Genie 4 XML map format, so maps largely carry over directly.)
 - **Account passwords** — for security, Genie 5 never reads Genie 4's stored credentials. Re-enter once via **File → Connect…** and save as a Genie 5 profile (encrypted AES-256-GCM).
 - **Window layouts** — Genie 5's docking model differs from Genie 4's MDI. Re-arrange via the **Window** menu and save via **Layout → Save Layout As…**.
 

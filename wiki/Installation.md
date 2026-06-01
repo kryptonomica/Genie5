@@ -1,15 +1,87 @@
 # Installation
 
-Genie 5 is in **alpha**. Pre-built downloads aren't published yet, so installation currently means building from source — which is a two-command process once you have the .NET 8 SDK. This page covers all three platforms, plus what to expect from the eventual pre-built artifacts.
+Genie 5 is in **alpha**, but you no longer have to build it yourself — **pre-built downloads ship for Windows, macOS, and Linux** on the [Releases](https://github.com/GenieClient/Genie5/releases/latest) page. Grab the one for your platform, or [build from source](#build-from-source) if you're contributing. See [Releases & Changelog](Releases) for what's in the latest build.
 
-> **Coming from Genie 4?** Install fresh first, then jump to [Importing Genie 4 Config](Importing-Genie4-Config.md) to bring your aliases, triggers, highlights, etc. across.
+> **Coming from Genie 4?** Install fresh first, then jump to [Importing from Genie 4](Importing-Genie4-Config) to bring your aliases, triggers, highlights, etc. across.
 
-## Prerequisites
+> ⚠️ **Alpha builds are unsigned.** Windows and macOS will show a first-launch warning (SmartScreen / Gatekeeper). That's the missing code-signing certificate, not a problem with the file — see [Platform first-launch notes](#platform-first-launch-notes). Signed Windows builds are expected from an upcoming release.
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) — Windows, macOS, and Linux builds are all supported by Microsoft.
-- [Git](https://git-scm.com/) to clone the repository.
+## Download a pre-built build (recommended)
 
-## Build and run (all platforms)
+From the [latest release](https://github.com/GenieClient/Genie5/releases/latest), pick the download for your platform:
+
+### 🪟 Windows
+
+| Download | When to pick it |
+| --- | --- |
+| **`Genie5-win-Setup.exe`** *(recommended)* | Normal install. Registers the app for **in-app auto-updates**, so future releases arrive via **Help → Check for Updates**. |
+| `Genie5-win-Portable.zip` | No-install / portable. Extract anywhere and run `Genie.exe`. No auto-update — you re-download each release by hand. |
+
+### 🐧 Linux
+
+| Download | When to pick it |
+| --- | --- |
+| **`Genie5.AppImage`** | A single-file executable that runs on Ubuntu / Fedora / Debian / Arch / etc. Mark it executable and run it (below). Subsequent releases can update in-app. |
+
+```bash
+chmod +x Genie5.AppImage
+./Genie5.AppImage
+```
+
+If you hit a **"FUSE not installed"** error, install FUSE (Debian/Ubuntu: `sudo apt install libfuse2`; Fedora generally works out of the box). On very minimal distros you may also need `fontconfig` for correct text rendering. For a desktop-menu entry, see [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher).
+
+### 🍎 macOS
+
+Pick by your Mac's chip — **Apple Silicon** (M1/M2/M3 or newer) or **Intel** (pre-2020):
+
+| Your Mac | Download | When to pick it |
+| --- | --- | --- |
+| Apple Silicon | **`Genie5-osx-Setup.pkg`** *(recommended)* | Standard `.pkg` installer. |
+| Apple Silicon | `Genie5-osx-Portable.zip` | Drag the app into **Applications** yourself. |
+| Intel | **`Genie5-osx-x64-Setup.pkg`** *(recommended)* | Standard `.pkg` installer (x86_64). |
+| Intel | `Genie5-osx-x64-Portable.zip` | Drag-to-Applications portable bundle (x86_64). |
+
+> **Not sure which Mac you have?**  → menu → **About This Mac**. "Apple M1/M2/M3…" = Apple Silicon; "Intel Core…" = Intel.
+
+### What *not* to download
+
+The other release assets — the `*.nupkg` packages, `RELEASES*`, and `releases.*.json` / `assets.*.json` files — are the **Velopack update-feed manifests** the in-app updater reads. You don't download those directly.
+
+## Platform first-launch notes
+
+Because alpha builds aren't code-signed yet, your OS may warn the first time you run one:
+
+### macOS — Gatekeeper
+
+An unsigned build trips Gatekeeper ("developer cannot be verified" or "damaged"). Two ways past it:
+
+- **Right-click the app → Open → Open** (instead of double-clicking). macOS remembers the choice and stops asking.
+- Or clear the download quarantine in Terminal (substitute the real path):
+  ```bash
+  xattr -d com.apple.quarantine /Applications/Genie5.app
+  ```
+
+### Windows — SmartScreen
+
+An unsigned `.exe` shows a blue "Windows protected your PC" panel: click **More info → Run anyway**. SmartScreen remembers it for that exact file.
+
+### Linux
+
+The AppImage just needs execute permission (`chmod +x`); see the [Linux download notes](#-linux) above for FUSE/fontconfig.
+
+## First launch
+
+On first run Genie 5 creates its per-user data folder (`~/Library/Application Support/Genie5` on macOS, `%APPDATA%\Genie5` on Windows, `~/.local/share/Genie5` on Linux) with `Config/`, `Scripts/`, `Maps/`, and `Logs/` subfolders. See [Application Folders](Application-Folders) for the full layout.
+
+Then head to [Quick Start](Quick-Start) to connect and play.
+
+## Staying up to date
+
+If you installed via **`Genie5-win-Setup.exe`** (Windows) or the **`.pkg`** / **AppImage** (macOS / Linux), future releases arrive through the in-app updater — **Help → Check for Updates**, which shows a badge when something's available. Portable `.zip` builds don't auto-update; re-download to upgrade. Full details: [Keeping Up to Date](Updates).
+
+## Build from source
+
+For contributors, or to run the bleeding edge. You need the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [Git](https://git-scm.com/):
 
 ```bash
 git clone https://github.com/GenieClient/Genie5.git
@@ -17,18 +89,14 @@ cd Genie5
 dotnet run --project src/Genie.App
 ```
 
-That's it — Avalonia is a tier-1 cross-platform UI toolkit, so the same command launches the GUI on Windows, macOS, and Linux.
-
-For a faster-starting build you can compile in Release first:
+Avalonia is a tier-1 cross-platform UI toolkit, so that same command launches the GUI on Windows, macOS, and Linux. For a faster-starting build, compile Release first:
 
 ```bash
 dotnet build -c Release
 dotnet run -c Release --project src/Genie.App
 ```
 
-## Producing a standalone executable
-
-To get a single self-contained file you can copy and double-click (no .NET install needed on the target), publish for your platform's runtime identifier:
+Running from source via `dotnet run` also sidesteps the Gatekeeper/SmartScreen warnings entirely. To produce your own self-contained single-file executable for a platform:
 
 ```bash
 # Windows x64
@@ -41,42 +109,12 @@ dotnet publish src/Genie.App -c Release -r osx-x64   -o publish/osx-x64
 dotnet publish src/Genie.App -c Release -r linux-x64 -o publish/linux-x64
 ```
 
-The output is a single `Genie` / `Genie.exe`. See [docs/build-and-release.md](../docs/build-and-release.md) for the full publish detail and platform packaging notes.
-
-## Platform first-launch notes
-
-Because alpha builds aren't code-signed, your OS may warn the first time you run a published executable:
-
-### macOS — Gatekeeper
-
-A published `osx-*` build is ad-hoc signed at most, so macOS may refuse the first launch ("developer cannot be verified") or report the app as "damaged":
-
-- **First launch:** in Finder, **right-click** the app → **Open** → **Open**. macOS remembers the choice.
-- **"Damaged" error:** a browser download set a quarantine attribute. Strip it:
-  ```bash
-  xattr -cr /path/to/Genie.app
-  ```
-
-(Running via `dotnet run` from source sidesteps Gatekeeper entirely.)
-
-### Windows — SmartScreen
-
-Running an unsigned `.exe` shows a blue "Windows protected your PC" panel: click **More info → Run anyway**. SmartScreen remembers it for that exact file.
-
-### Linux
-
-`dotnet run` works out of the box. A published `linux-x64` binary runs directly; mark it executable if needed (`chmod +x Genie`).
-
-## First launch
-
-On first run Genie 5 creates its per-user data folder (`~/Library/Application Support/Genie5` on macOS, `%APPDATA%\Genie5` on Windows, `~/.local/share/Genie5` on Linux) with `Config/`, `Scripts/`, `Maps/`, and `Logs/` subfolders. See [Application Folders](Application-Folders.md) for the full layout.
-
-## Pre-built artifacts (planned)
-
-Once the release pipeline lands, look for `Genie5-…-{win-x64, osx-arm64, osx-x64, linux-x64}` archives on the [Releases](https://github.com/GenieClient/Genie5/releases) page. Until then, build from source as above.
+See [docs/build-and-release.md](https://github.com/GenieClient/Genie5/blob/main/docs/build-and-release.md) for full publish/packaging detail, and [Building from Source](Building-from-Source) for the project layout and dev test harness.
 
 ## After installation
 
-- [Application Folders](Application-Folders.md) — where your data lives on disk.
-- [Importing Genie 4 Config](Importing-Genie4-Config.md) — migrate from Genie 4.
-- [Updating Maps and Scripts](Updating-Maps-and-Scripts.md) — get the latest community maps.
+- [Quick Start](Quick-Start) — connect, play, save a profile, run a script.
+- [Application Folders](Application-Folders) — where your data lives on disk.
+- [Importing Genie 4 Config](Importing-Genie4-Config) — migrate from Genie 4.
+- [Updating Maps and Scripts](Updating-Maps-and-Scripts) — get the latest community maps.
+- [Releases & Changelog](Releases) — what shipped in each build.

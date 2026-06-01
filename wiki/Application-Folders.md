@@ -4,7 +4,7 @@ Genie 5 keeps all of your personal data — scripts, maps, logs, settings, per-c
 
 ## Where Genie 5 lives
 
-The location is resolved by [AppPaths.Discover](../src/Genie.Core/Runtime/AppPaths.cs):
+The location is resolved by [AppPaths.Discover](https://github.com/GenieClient/Genie5/blob/main/src/Genie.Core/Runtime/AppPaths.cs):
 
 ### macOS
 
