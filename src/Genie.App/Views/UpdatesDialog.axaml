@@ -52,7 +52,7 @@
 
       <!-- ── Core ──────────────────────────────────────────────────────── -->
       <TabItem Header="Core">
-        <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*">
+        <Grid Margin="12" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*">
           <TextBlock Grid.Row="0" Text="Core Game"
                      FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
 
@@ -61,7 +61,17 @@
             <TextBlock Grid.Column="1" Text="{Binding CoreInstalledVersion}" FontWeight="SemiBold"/>
           </Grid>
 
-          <Grid Grid.Row="2" ColumnDefinitions="120,Auto" Margin="0,4">
+          <!-- Platform channel — the RELEASES-{x} file Velopack is configured
+               to read from this install. Useful for confirming a Mac/Linux
+               install routes to the right per-platform RELEASES file. -->
+          <Grid Grid.Row="2" ColumnDefinitions="120,*" Margin="0,4">
+            <TextBlock Grid.Column="0" Text="Platform:" Foreground="#aab"/>
+            <TextBlock Grid.Column="1" Text="{Binding CorePlatformChannel}"
+                       Foreground="#9cb"
+                       ToolTip.Tip="Velopack platform channel for this install — drives which RELEASES file is read on GitHub. Windows uses the default (empty) channel."/>
+          </Grid>
+
+          <Grid Grid.Row="3" ColumnDefinitions="120,Auto" Margin="0,4">
             <TextBlock Grid.Column="0" Text="Channel:" Foreground="#aab" VerticalAlignment="Center"/>
             <ComboBox  Grid.Column="1"
                        ItemsSource="{Binding AvailableChannels}"
@@ -70,7 +80,7 @@
                        ToolTip.Tip="Stable: latest non-prerelease GitHub release. Beta: includes prereleases."/>
           </Grid>
 
-          <Grid Grid.Row="3" ColumnDefinitions="120,*" Margin="0,12,0,4">
+          <Grid Grid.Row="4" ColumnDefinitions="120,*" Margin="0,12,0,4">
             <TextBlock Grid.Column="0" Text="Status:" Foreground="#aab"/>
             <TextBlock Grid.Column="1" Text="{Binding CoreLatestVersion}"
                        Foreground="#9c9" TextWrapping="Wrap"/>
@@ -79,7 +89,7 @@
           <!-- Action buttons. Check is always available (cheap GitHub poll).
                Update is gated on CoreCanUpdate (running from a Velopack install)
                AND CoreUpdateAvailable (last Check found something newer). -->
-          <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+          <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
             <Button Content="Check"  Command="{Binding CheckCoreCommand}"  MinWidth="80"/>
             <Button Content="Update and Restart" Command="{Binding UpdateCoreCommand}" MinWidth="160"
                     ToolTip.Tip="Download the new version, then restart Genie 5 in place."/>
@@ -88,7 +98,7 @@
           <!-- Dev-build advisory: shows only when CoreCanUpdate is false.
                That means UpdateManager.IsInstalled returned false → we're
                running from `dotnet run` or a raw publish/, not a vpk install. -->
-          <Border Grid.Row="5"
+          <Border Grid.Row="6"
                   IsVisible="{Binding !CoreCanUpdate}"
                   BorderBrush="#5a4a2a" BorderThickness="1"
                   Background="#2a2418" CornerRadius="3"
@@ -97,7 +107,7 @@
                        Text="Running from a development build (not a Velopack-built install). Check still works for version awareness, but Update is disabled — to enable in-app updates, install Genie 5 from the Velopack installer artifact."/>
           </Border>
 
-          <TextBlock Grid.Row="6" Margin="0,16,0,0" Foreground="#9aa" FontSize="11" TextWrapping="Wrap"
+          <TextBlock Grid.Row="7" Margin="0,16,0,0" Foreground="#9aa" FontSize="11" TextWrapping="Wrap"
                      Text="Updates are delivered via the Velopack framework: it downloads the delta package and pivots a helper process to replace the running binaries while preserving your settings."/>
         </Grid>
       </TabItem>

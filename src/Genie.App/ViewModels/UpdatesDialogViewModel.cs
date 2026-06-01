@@ -69,6 +69,14 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> CheckCoreCommand  { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> UpdateCoreCommand { get; private set; } = null!;
 
+    /// <summary>
+    ///   The Velopack platform channel resolved at construction time
+    ///   (e.g. "linux", "osx", "osx-x64", or "(default / win)" on Windows).
+    ///   Surfaces on the Core tab so the user / Jason can confirm at a
+    ///   glance that a Mac/Linux install is reading the right RELEASES file.
+    /// </summary>
+    [Reactive] public string CorePlatformChannel { get; private set; } = "(default / win)";
+
     private CoreAppUpdater _coreUpdater = null!;
 
     // ── Maps + Plugins tabs ────────────────────────────────────────────────
@@ -155,8 +163,9 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
     private void RebuildCoreUpdater()
     {
         var url = $"https://github.com/{_config.Core.Owner}/{_config.Core.Repo}";
-        _coreUpdater  = new CoreAppUpdater(url, _config.Core.Channel);
-        CoreCanUpdate = _coreUpdater.IsInstalled;
+        _coreUpdater        = new CoreAppUpdater(url, _config.Core.Channel);
+        CoreCanUpdate       = _coreUpdater.IsInstalled;
+        CorePlatformChannel = _coreUpdater.PlatformChannel;
     }
 
     private async Task CheckCoreAsync()

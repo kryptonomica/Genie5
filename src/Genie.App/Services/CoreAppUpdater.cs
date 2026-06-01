@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Genie.Core.Update;
 using Velopack;
 using Velopack.Sources;
@@ -28,11 +29,27 @@ namespace Genie.App.Services;
 /// never observably "returns" in success — the process is gone by then.
 /// We report success in the result for paper completeness; the caller
 /// should expect the app to vanish shortly after.</para>
+///
+/// <para><b>Platform channel.</b> Velopack supports per-platform "channels"
+/// — separate RELEASES files per OS/arch so a single GitHub release can
+/// host Windows + Linux + macOS payloads side-by-side. Our
+/// <c>release.yml</c> emits <c>RELEASES</c> (Windows, default channel),
+/// <c>RELEASES-linux</c>, <c>RELEASES-osx</c> (arm64), and
+/// <c>RELEASES-osx-x64</c>. Velopack normally auto-detects the channel
+/// from the installed package's manifest, but we set
+/// <see cref="UpdateOptions.ExplicitChannel"/> at runtime as
+/// belt-and-suspenders — it makes the routing explicit in code,
+/// survives any future Velopack default-detection change, and gives the
+/// Updates dialog a stable string to display. The mapping is in
+/// <see cref="ResolvePlatformChannel"/> and MUST stay in sync with the
+/// channel suffixes used by the velopack* jobs in
+/// <c>.github/workflows/release.yml</c>.</para>
 /// </summary>
 public sealed class CoreAppUpdater : IUpdater
 {
     private readonly UpdateManager _mgr;
     private readonly string        _channel;
+    private readonly string?       _platformChannel;
     private          UpdateInfo?   _pendingUpdate;
 
     public string Name => "Genie 5";
@@ -51,12 +68,53 @@ public sealed class CoreAppUpdater : IUpdater
     /// <summary>True when launched from a Velopack-built install — gate for the Apply path.</summary>
     public bool IsInstalled => _mgr.IsInstalled;
 
+    /// <summary>
+    ///   The Velopack platform channel this updater is configured for —
+    ///   <c>null</c> on Windows (default channel, no RELEASES suffix),
+    ///   <c>"linux"</c>, <c>"osx"</c>, or <c>"osx-x64"</c> elsewhere.
+    ///   Useful for diagnostic display in the Updates dialog.
+    /// </summary>
+    public string PlatformChannel => _platformChannel ?? "(default / win)";
+
     public CoreAppUpdater(string repoUrl, string channel = "stable")
     {
         _channel = string.IsNullOrWhiteSpace(channel) ? "stable" : channel;
         var prerelease = string.Equals(_channel, "beta", StringComparison.OrdinalIgnoreCase);
-        var source     = new GithubSource(repoUrl, accessToken: null, prerelease: prerelease);
-        _mgr           = new UpdateManager(source);
+        _platformChannel = ResolvePlatformChannel();
+
+        var source  = new GithubSource(repoUrl, accessToken: null, prerelease: prerelease);
+        var options = new UpdateOptions { ExplicitChannel = _platformChannel };
+        _mgr        = new UpdateManager(source, options);
+    }
+
+    /// <summary>
+    /// Maps the current runtime platform + arch to the Velopack channel
+    /// name used when packing for that platform in
+    /// <c>.github/workflows/release.yml</c>. Returning <c>null</c> means
+    /// "use Velopack's default channel" — which on Windows is the empty
+    /// channel that produces a plain <c>RELEASES</c> file without a
+    /// suffix. Add new cases here whenever a new velopack job appears in
+    /// the workflow (e.g. a future <c>linux-arm64</c> build).
+    /// </summary>
+    private static string? ResolvePlatformChannel()
+    {
+        if (OperatingSystem.IsWindows())
+            return null;                       // Windows  → RELEASES  (no suffix)
+
+        if (OperatingSystem.IsLinux())
+            return "linux";                    // Linux    → RELEASES-linux
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return RuntimeInformation.OSArchitecture switch
+            {
+                Architecture.Arm64 => "osx",       // Apple Silicon → RELEASES-osx
+                Architecture.X64   => "osx-x64",   // Intel         → RELEASES-osx-x64
+                _                  => null,         // future archs → let Velopack fall back
+            };
+        }
+
+        return null;                           // Unknown OS — best-effort default
     }
 
     public async Task<UpdateCheckResult> CheckAsync(CancellationToken ct = default)
