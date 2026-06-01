@@ -48,14 +48,17 @@ These work today, in the v5.0.0-alpha.1 build.
   `IPluginHost`, `IGameStateView`), `PluginManager` with per-plugin
   assembly-load-context isolation, `#plugin` command for load / unload,
   and `Plugin_EXPTrackerV5` as the first external plugin
-- **LAMP 2.0 update system** — Updates dialog with Core / Maps / Plugins
-  tabs and Help-menu badge; `CoreAppUpdater` via Velopack; pluggable
-  `IFileListSource` / `IReleaseSource` (GitHub Contents + Releases);
-  `MapsUpdater` (pulls from the community Maps repo) and `PluginUpdater`
-  (pulls plugin DLLs from configured release feeds)
-- **Code-signing pipeline** — SignPath Foundation tag-triggered release
-  workflow that signs the Windows build and attaches the signed binary
-  to the GitHub Release
+- **Integrated updater** — in-process update system (architecturally
+  distinct from Genie 4's external `Lamp.exe`). Updates dialog with
+  Core / Maps / Plugins tabs and Help-menu badge; `CoreAppUpdater` via
+  Velopack; pluggable `IFileListSource` / `IReleaseSource` (GitHub
+  Contents + Releases); `MapsUpdater` (pulls from the community Maps
+  repo) and `PluginUpdater` (pulls plugin DLLs from configured release
+  feeds)
+- **Code-signing pipeline (wired)** — the SignPath Foundation
+  tag-triggered release workflow is in place, but signing isn't live
+  yet: Foundation approval and the first signed Windows build are still
+  pending (tracked in #33)
 
 ## In flight — 🚧
 
@@ -72,8 +75,8 @@ without a deep architecture discussion first.
 
 ### macOS / Linux update channels
 
-LAMP 2.0 shipped on Windows via Velopack. The macOS and Linux update
-channels are scoped but not yet wired:
+The integrated updater shipped on Windows via Velopack. The macOS and
+Linux update channels are scoped but not yet wired:
 
 - macOS: `~/Library/Application Support/Genie5/`
 - Linux: XDG `$XDG_DATA_HOME/Genie5/` or `~/.local/share/Genie5/`

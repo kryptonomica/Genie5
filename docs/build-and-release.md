@@ -102,7 +102,7 @@ Ad-hoc signing is not notarisation. Users still need the right-click → **Open*
 
 ### Windows — SmartScreen
 
-The published `.exe` is unsigned, so SmartScreen shows a "Windows protected your PC" prompt on first run (**More info → Run anyway**). An Authenticode certificate would remove this; an MSI installer ([WiX](https://wixtoolset.org/), now cross-platform) is the path if a real installer is wanted later. Neither is in scope for the current alpha — the recommended distribution is a zip of the publish folder.
+The published `.exe` is unsigned, so SmartScreen shows a "Windows protected your PC" prompt on first run (**More info → Run anyway**). An Authenticode certificate removes this — which is what the SignPath Foundation pipeline provides: the tag-triggered `release.yml` workflow signs Windows builds from **v5.0.0-alpha.4** onward. (An MSI installer via [WiX](https://wixtoolset.org/) remains a possible later addition if a richer installer is wanted.)
 
 ### Linux
 
