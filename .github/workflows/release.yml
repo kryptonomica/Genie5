@@ -343,8 +343,12 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
           signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY }}
-          # Must match the artifact configuration you create in the SignPath UI:
-          artifact-configuration-slug: genie-win-x64
+          # Must match the artifact configuration's SLUG in the SignPath UI.
+          # SignPath auto-creates the default config with slug "initial" during
+          # project setup; we kept that slug (its display Name is "genie-win-x64")
+          # rather than renaming the slug on an already-validated config. The API
+          # matches on the slug — the Name is cosmetic.
+          artifact-configuration-slug: initial
           github-artifact-id: ${{ needs.publish.outputs.unsigned-artifact-id }}
           wait-for-completion: true      # block until a Reviewer/Approver signs it
           output-artifact-directory: signed
