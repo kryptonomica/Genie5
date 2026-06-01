@@ -557,6 +557,22 @@
       </ScrollViewer>
     </DataTemplate>
 
+    <!-- ── Plugin-created windows (generic) ───────────────────────────────── -->
+    <!-- One template serves EVERY plugin window. A plugin calls               -->
+    <!-- IPluginHost.SetWindow("My Panel", text) and the dock factory spins up -->
+    <!-- a PluginWindowTool bound here. Monospaced for column-aligned plugin   -->
+    <!-- output (inventory trees, tables).                                      -->
+    <DataTemplate DataType="docking:PluginWindowTool">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollBarVisibility="Auto">
+        <SelectableTextBlock Text="{Binding ViewModel.Content}"
+                             FontFamily="{Binding ToolFontFamily}"
+                             FontSize="{Binding ToolFontSize}"
+                             Margin="8"
+                             Foreground="{DynamicResource GameBrush}"/>
+      </ScrollViewer>
+    </DataTemplate>
+
   </Application.DataTemplates>
 
 </Application>

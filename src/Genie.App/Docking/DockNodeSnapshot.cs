@@ -34,5 +34,12 @@ public sealed class DockNodeSnapshot
     /// <summary>Id of the active child dockable (selected tab), if any.</summary>
     public string? ActiveId { get; set; }
 
+    /// <summary>Display title — only persisted for plugin-window leaves
+    /// (<see cref="Id"/> starting <c>pluginwin:</c>). Lets a saved layout
+    /// recreate the panel with its caption before the plugin has run again,
+    /// so the tab isn't blank on restore. Null for built-in tools (their title
+    /// comes from the factory / WindowSettings).</summary>
+    public string? Title { get; set; }
+
     public List<DockNodeSnapshot> Children { get; set; } = new();
 }

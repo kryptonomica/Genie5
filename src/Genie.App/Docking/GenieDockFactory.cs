@@ -32,6 +32,33 @@ public class GenieDockFactory : Factory
     /// </summary>
     private IRootDock? _root;
 
+    // ── Plugin-created windows ───────────────────────────────────────────────
+    // Plugins surface their own panels by writing to a named window
+    // (IPluginHost.SetWindow / EchoToWindow). We key each by a canonical
+    // "pluginwin:<lowercased-name>" id and keep the VM alive for the whole
+    // session — even if the user closes the tab — so content keeps accumulating
+    // and re-opening shows the latest. The tools dict mirrors it for re-adding
+    // to the live tree after a layout rebuild.
+    public const string PluginWindowPrefix = "pluginwin:";
+
+    private readonly Dictionary<string, PluginWindowViewModel> _pluginWindowVms =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PluginWindowTool> _pluginWindowTools =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The ToolDock plugin windows dock into (beside Backpack/Experience
+    /// in the right column). Matches the <c>backpack-dock</c> id built in
+    /// <see cref="CreateLayout"/>.</summary>
+    private const string PluginWindowParentId = "backpack-dock";
+
+    /// <summary>Canonical dock id for a plugin window of the given display name.</summary>
+    public static string PluginWindowId(string name) =>
+        PluginWindowPrefix + (name ?? "").Trim().ToLowerInvariant();
+
+    /// <summary>True if an id is a plugin-window id (vs a built-in tool).</summary>
+    public static bool IsPluginWindowId(string? id) =>
+        id is not null && id.StartsWith(PluginWindowPrefix, StringComparison.OrdinalIgnoreCase);
+
     public GenieDockFactory(MainWindowViewModel vm)
     {
         _vm = vm;
@@ -208,6 +235,13 @@ public class GenieDockFactory : Factory
         // beside the Backpack via Window → Experience. The plugin fills it.
         _tools[experience.Id] = (experience, backpackDock.Id);
 
+        // Re-register any plugin windows created earlier this session so their
+        // Window-menu toggles still resolve after a default-layout rebuild
+        // (Reset / legacy load). They're registered (not force-shown) — the user
+        // re-opens via Window → Plugin Windows, same as Vitals/Experience.
+        foreach (var (id, tool) in _pluginWindowTools)
+            _tools[id] = (tool, backpackDock.Id);
+
         return root;
     }
 
@@ -259,8 +293,15 @@ public class GenieDockFactory : Factory
             Children   = CaptureChildren(td.VisibleDockables),
         },
 
-        // Any other dockable is a leaf tool/document — store by id.
-        { } leaf => new DockNodeSnapshot { Kind = "leaf", Id = leaf.Id },
+        // Any other dockable is a leaf tool/document — store by id. For plugin
+        // windows also persist the Title so the panel restores with its caption
+        // before the plugin runs again.
+        { } leaf => new DockNodeSnapshot
+        {
+            Kind  = "leaf",
+            Id    = leaf.Id,
+            Title = IsPluginWindowId(leaf.Id) ? leaf.Title : null,
+        },
     };
 
     private static List<DockNodeSnapshot> CaptureChildren(IList<IDockable>? children)
@@ -353,9 +394,15 @@ public class GenieDockFactory : Factory
             case "splitter":
                 return new ProportionalDockSplitter();
             case "leaf":
-                return n.Id is not null && _tools.TryGetValue(n.Id, out var entry)
-                    ? entry.Dockable
-                    : null;   // unregistered id — skip
+                if (n.Id is null) return null;
+                if (_tools.TryGetValue(n.Id, out var entry)) return entry.Dockable;
+                // A plugin window from a saved layout whose plugin hasn't pushed
+                // content yet this session — recreate the panel from the snapshot
+                // (with its persisted title) so the arrangement restores; the
+                // plugin repopulates it on its next SetWindow.
+                if (IsPluginWindowId(n.Id))
+                    return CreatePluginWindowTool(n.Id, n.Title);
+                return null;   // unregistered id — skip
             default:
                 return null;
         }
@@ -468,6 +515,67 @@ public class GenieDockFactory : Factory
 
     /// <summary>Dockable ids known to the factory — exposed so the VM can iterate the registry.</summary>
     public IReadOnlyCollection<string> ToolIds => _tools.Keys;
+
+    // ── Plugin-window API ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Get the view-model backing a plugin window by its display name, creating
+    /// the dock panel the first time. This is the single entry point the host
+    /// uses to honour <c>IPluginHost.SetWindow</c> / <c>EchoToWindow</c> for
+    /// non-built-in window names.
+    ///
+    /// <para><paramref name="show"/> controls visibility on <i>this</i> call.
+    /// A newly-created window is always shown (you can't see a window that was
+    /// never opened). For an existing window: <c>SetWindow</c> passes
+    /// <c>show: true</c> — a deliberate full render should re-surface the panel
+    /// if the user had closed it (e.g. <c>/iv open</c> after closing the tab).
+    /// <c>EchoToWindow</c> passes <c>show: false</c> — a passive appended line
+    /// must not yank a closed log panel back open on every line.</para>
+    /// </summary>
+    public PluginWindowViewModel GetOrCreatePluginWindow(string name, bool show = true)
+    {
+        var id = PluginWindowId(name);
+        if (!_pluginWindowVms.TryGetValue(id, out var vm))
+        {
+            var tool = CreatePluginWindowTool(id, name);
+            vm = _pluginWindowVms[tool.Id];
+            show = true;   // first sight: always open so it's actually visible
+        }
+
+        // SetToolVisibility resolves the parent dock live by id and no-ops if
+        // the panel is already in the tree.
+        if (show && !IsToolVisible(id))
+            SetToolVisibility(id, true);
+
+        return vm;
+    }
+
+    /// <summary>Create + register a plugin-window VM/Tool for an id (no show).
+    /// Shared by the runtime path and snapshot restore.</summary>
+    private PluginWindowTool CreatePluginWindowTool(string id, string? name)
+    {
+        var title = string.IsNullOrWhiteSpace(name)
+            ? id.Substring(PluginWindowPrefix.Length)
+            : name.Trim();
+
+        var vm   = new PluginWindowViewModel(title);
+        var tool = new PluginWindowTool(vm, id, title);
+
+        _pluginWindowVms[id]   = vm;
+        _pluginWindowTools[id] = tool;
+        _tools[id]             = (tool, PluginWindowParentId);
+        return tool;
+    }
+
+    /// <summary>All plugin windows created this session, as (id, title, visible)
+    /// — drives the Window → Plugin Windows submenu.</summary>
+    public IReadOnlyList<(string Id, string Title, bool Visible)> PluginWindows()
+    {
+        var list = new List<(string, string, bool)>();
+        foreach (var (id, tool) in _pluginWindowTools)
+            list.Add((id, tool.Title, IsToolVisible(id)));
+        return list;
+    }
 
     // FactoryBase already exposes DockableClosed / DockableAdded events; the
     // VM subscribes to those directly in its constructor so the Window-menu

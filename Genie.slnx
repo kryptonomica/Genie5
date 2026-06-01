@@ -4,5 +4,6 @@
     <Project Path="src/Genie.Core/Genie.Core.csproj" />
     <Project Path="src/Genie.Plugins.Abstractions/Genie.Plugins.Abstractions.csproj" />
     <Project Path="src/Plugin_EXPTrackerV5/Plugin_EXPTrackerV5.csproj" />
+    <Project Path="src/Plugin_InventoryViewV5/Plugin_InventoryViewV5.csproj" />
   </Folder>
 </Solution>
