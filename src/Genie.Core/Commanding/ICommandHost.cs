@@ -33,6 +33,22 @@ public interface ICommandHost
     void StopAllScripts();
 
     /// <summary>
+    /// Pause every running script (sets <c>UserPaused</c>). Mirrors Genie 4's
+    /// Scripts → Pause All Scripts menu. Used by <c>#pauseall</c>.
+    /// </summary>
+    void PauseAllScripts();
+
+    /// <summary>Resume every paused script. Used by <c>#resumeall</c>.</summary>
+    void ResumeAllScripts();
+
+    /// <summary>
+    /// Apply a debug / tracing level to every running script. Mirrors Genie 4's
+    /// Scripts → Trace All Scripts menu. Level 0 = no traces; higher values
+    /// surface more script-internal echoes. Used by <c>#traceall &lt;level&gt;</c>.
+    /// </summary>
+    void SetTraceLevelAll(int level);
+
+    /// <summary>
     /// Names of currently running scripts. Used by <c>#scripts</c> to list
     /// them at the command bar.
     /// </summary>

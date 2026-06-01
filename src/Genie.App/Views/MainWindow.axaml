@@ -216,6 +216,24 @@
                   Command="{Binding ToggleExperienceCommand}"
                   ToolTip.Tip="Skill ranks and learning rates, tracked by the Experience plugin. Train a skill or type 'exp' to populate it."/>
 
+        <!-- ── Plugin-created windows (dynamic) ─────────────────────────── -->
+        <!-- Populated at runtime from the dock factory whenever a plugin     -->
+        <!-- writes to a named window (IPluginHost.SetWindow/EchoToWindow).   -->
+        <!-- Each child is a checkbox toggling that panel's visibility.       -->
+        <MenuItem Header="Plugin _Windows"
+                  Classes="plugin-windows-host"
+                  ItemsSource="{Binding PluginWindowMenuItems}"
+                  ToolTip.Tip="Windows created by plugins (e.g. Inventory View). Each plugin that opens its own panel appears here — toggle to show/hide. Empty until a plugin opens a window.">
+          <MenuItem.Styles>
+            <Style Selector="MenuItem:not(.plugin-windows-host)">
+              <Setter Property="Header"     Value="{Binding Title}"/>
+              <Setter Property="ToggleType" Value="CheckBox"/>
+              <Setter Property="IsChecked"  Value="{Binding IsVisible, Mode=OneWay}"/>
+              <Setter Property="Command"    Value="{Binding ToggleCommand}"/>
+            </Style>
+          </MenuItem.Styles>
+        </MenuItem>
+
         <Separator/>
 
         <MenuItem Header="Reset _Layout"
@@ -270,6 +288,47 @@
             </Style>
           </MenuItem.Styles>
         </MenuItem>
+      </MenuItem>
+
+      <!-- ── Scripts menu (Genie 4 parity) ────────────────────────────────── -->
+      <!-- Mirrors Genie 4's Scripts menu (Forms/FormMain.cs Abort/Pause/      -->
+      <!-- Resume/List/Trace All Scripts). Command-bar equivalents:             -->
+      <!--   #scripts, #stopall, #pauseall, #resumeall, #traceall N              -->
+      <!-- For per-script operations (Run, Edit, Stop one), use the Script Bar  -->
+      <!-- (auto-shown at the bottom when any script is running) or the         -->
+      <!-- dockable Scripts panel (toggle via Window menu).                     -->
+      <MenuItem Header="_Scripts">
+        <MenuItem Header="_List Running Scripts"
+                  Command="{Binding ListRunningScriptsCommand}"
+                  ToolTip.Tip="Echo the names of currently running scripts to the Game window. Same as #scripts."/>
+        <Separator/>
+        <MenuItem Header="_Pause All Scripts"
+                  Command="{Binding PauseAllScriptsCommand}"
+                  ToolTip.Tip="Pause every running script. State is preserved; resume with the entry below. Same as #pauseall."/>
+        <MenuItem Header="_Resume All Scripts"
+                  Command="{Binding ResumeAllScriptsCommand}"
+                  ToolTip.Tip="Clear UserPaused on every script. Same as #resumeall."/>
+        <MenuItem Header="_Abort All Scripts"
+                  Command="{Binding AbortAllScriptsCommand}"
+                  ToolTip.Tip="Stop every running script. Same as #stopall."/>
+        <Separator/>
+        <MenuItem Header="_Trace All Scripts"
+                  ToolTip.Tip="Apply a debug / tracing level to every running script. 0 disables; higher values surface more script-internal echoes. Same as #traceall N.">
+          <MenuItem Header="_Off (no traces)"
+                    Command="{Binding TraceAllScriptsCommand}" CommandParameter="0"/>
+          <MenuItem Header="_1 — minimal"
+                    Command="{Binding TraceAllScriptsCommand}" CommandParameter="1"/>
+          <MenuItem Header="_3 — moderate"
+                    Command="{Binding TraceAllScriptsCommand}" CommandParameter="3"/>
+          <MenuItem Header="_5 — verbose"
+                    Command="{Binding TraceAllScriptsCommand}" CommandParameter="5"/>
+          <MenuItem Header="_10 — maximum"
+                    Command="{Binding TraceAllScriptsCommand}" CommandParameter="10"/>
+        </MenuItem>
+        <Separator/>
+        <MenuItem Header="_Open Scripts Folder"
+                  Command="{Binding OpenScriptsFolderCommand}"
+                  ToolTip.Tip="Open the per-character Scripts directory in your OS file browser (the folder where .cmd scripts are loaded from)."/>
       </MenuItem>
 
       <!-- ── Help menu (badge appears when UpdatesAvailable) ─────────────── -->

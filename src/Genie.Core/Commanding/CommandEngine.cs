@@ -154,6 +154,32 @@ public sealed class CommandEngine
             case "killall":
                 _host.StopAllScripts();
                 break;
+            case "pauseall":
+                // #pauseall — pause every running script. Matches Genie 4's
+                // Scripts → Pause All Scripts menu entry. Pause is non-
+                // destructive (state preserved); use #resumeall to continue.
+                _host.PauseAllScripts();
+                _host.Echo("[script] all scripts paused");
+                break;
+            case "resumeall":
+                // #resumeall — clear UserPaused on every running script.
+                _host.ResumeAllScripts();
+                _host.Echo("[script] all scripts resumed");
+                break;
+            case "traceall":
+            {
+                // #traceall <0-10> — apply a debug / tracing level to every
+                // running script. Matches Genie 4's Scripts → Trace All
+                // Scripts menu entry. 0 disables tracing; higher values
+                // surface progressively more script-internal echoes.
+                int level = 0;
+                if (parts.Count > 1) int.TryParse(parts[1], out level);
+                _host.SetTraceLevelAll(level);
+                _host.Echo(level <= 0
+                    ? "[script] trace disabled on all scripts"
+                    : $"[script] trace level {level} applied to all scripts");
+                break;
+            }
             case "scripts":
             {
                 // List currently-running scripts.

@@ -438,6 +438,19 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
     void ICommandHost.StopAllScripts() => Scripts.StopAll();
 
+    void ICommandHost.PauseAllScripts() => Scripts.PauseAll();
+
+    void ICommandHost.ResumeAllScripts() => Scripts.ResumeAll();
+
+    void ICommandHost.SetTraceLevelAll(int level)
+    {
+        // Clamp to the same 0-10 range the engine recognises elsewhere; -1 turns it off.
+        if (level < 0) level = 0;
+        if (level > 10) level = 10;
+        foreach (var inst in Scripts.Instances)
+            inst.DebugLevel = level;
+    }
+
     IReadOnlyList<string> ICommandHost.RunningScripts()
         => Scripts.Instances.Where(i => i.Running).Select(i => i.Name).ToList();
 

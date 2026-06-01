@@ -117,6 +117,17 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// uses for <c>&lt;a href&gt;</c> links from the game stream.</summary>
     public ReactiveCommand<Unit, Unit>                    OpenDiscordCommand       { get; }
 
+    // ── Scripts menu (Genie 4 parity) ───────────────────────────────────────
+    // Routes through ICommandHost methods on the live core. None of these
+    // commands take parameters; the parameterised one (TraceAllScripts)
+    // takes an integer-as-string from the menu CommandParameter.
+    public ReactiveCommand<Unit, Unit>                    ListRunningScriptsCommand { get; }
+    public ReactiveCommand<Unit, Unit>                    PauseAllScriptsCommand    { get; }
+    public ReactiveCommand<Unit, Unit>                    ResumeAllScriptsCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    AbortAllScriptsCommand    { get; }
+    public ReactiveCommand<string, Unit>                  TraceAllScriptsCommand    { get; }
+    public ReactiveCommand<Unit, Unit>                    OpenScriptsFolderCommand  { get; }
+
     // ── Help menu (external links) ──────────────────────────────────────────
     // Ported from the Genie 4 Help menu (Forms/FormMain). Each opens a URL in
     // the user's default browser via OpenUrl(). GitHub / Wiki / Latest Release
@@ -151,6 +162,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public System.Collections.ObjectModel.ObservableCollection<PluginMenuItem> PluginMenuItems { get; } = new();
     /// <summary>Unloaded plugin DLLs in the Plugins folder (Plugins → Load).</summary>
     public System.Collections.ObjectModel.ObservableCollection<PluginFileItem> AvailablePluginFiles { get; } = new();
+    /// <summary>Plugin-created dock windows (Window → Plugin Windows). A plugin
+    /// surfaces a panel by writing to a named window via the host's SetWindow /
+    /// EchoToWindow seam; this list lets the user show/hide each. Rebuilt when
+    /// the Window menu opens.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<PluginWindowMenuItem> PluginWindowMenuItems { get; } = new();
     public ReactiveCommand<Unit, Unit> OpenPluginsFolderCommand { get; }
     public ReactiveCommand<Unit, Unit> ReloadPluginsCommand     { get; }
     public ReactiveCommand<Unit, Unit> RefreshPluginListCommand { get; }
@@ -669,6 +685,43 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         OpenDrServiceCommand       = ReactiveCommand.Create(() => OpenUrl("https://drservice.info",                        "DR Service"));
         OpenLichDiscordCommand     = ReactiveCommand.Create(() => OpenUrl("https://discord.gg/uxZWxuX",                     "the Lich Discord"));
         OpenIsharonSettingsCommand = ReactiveCommand.Create(() => OpenUrl("https://www.elanthia.org/GenieSettings/",       "Isharon's Genie Settings"));
+
+        // ── Scripts menu (Genie 4 parity) ───────────────────────────────────
+        // All routes through #-verbs the CommandEngine already handles via
+        // ICommandHost. Going through ProcessInput keeps the audit trail
+        // identical to a typed command, which matters for the alias / trigger
+        // pipeline and the Game-window echo.
+        ListRunningScriptsCommand = ReactiveCommand.Create(() => _core?.Commands.ProcessInput("#scripts"));
+        PauseAllScriptsCommand    = ReactiveCommand.Create(() => _core?.Commands.ProcessInput("#pauseall"));
+        ResumeAllScriptsCommand   = ReactiveCommand.Create(() => _core?.Commands.ProcessInput("#resumeall"));
+        AbortAllScriptsCommand    = ReactiveCommand.Create(() => _core?.Commands.ProcessInput("#stopall"));
+        TraceAllScriptsCommand    = ReactiveCommand.Create<string>(level => _core?.Commands.ProcessInput($"#traceall {level ?? "0"}"));
+
+        OpenScriptsFolderCommand = ReactiveCommand.Create(() =>
+        {
+            // The Scripts directory is the per-character profile's Scripts
+            // sub-folder when a character is connected; pre-connect it's the
+            // shared root (Genie 5 migrates Genie 4's Scripts there on first
+            // launch). Fall back to the configured ProfileDirectory if a
+            // character profile is loaded; otherwise the shared root next to
+            // the config dir.
+            var scriptsDir = _core?.ProfileDirectory is { Length: > 0 } pd
+                                 ? Path.Combine(pd, "Scripts")
+                                 : Path.Combine(Path.GetDirectoryName(_configDir)!, "Scripts");
+            try
+            {
+                if (!Directory.Exists(scriptsDir)) Directory.CreateDirectory(scriptsDir);
+                // Cross-platform folder open: ShellExecute on Windows, `open`
+                // on macOS, `xdg-open` on Linux. Same approach as the Maps
+                // folder open under File → Maps.
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(scriptsDir) { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                GameText.AddSystemLine($"[scripts] could not open {scriptsDir} ({ex.Message})");
+            }
+        });
 
         // Fire-and-forget startup check so the Help-menu badge surfaces
         // any pending updates without the user having to open the dialog.
@@ -1382,6 +1435,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     {
         if (DockFactory is not GenieDockFactory factory) return;
 
+        RefreshPluginWindowList();   // Window menu just opened — refresh dynamic list too
+
         SetVisibilityBool("game-text", factory.IsToolVisible("game-text"));
         SetVisibilityBool("vitals",    factory.IsToolVisible("vitals"));
         SetVisibilityBool("room",      factory.IsToolVisible("room"));
@@ -1393,6 +1448,81 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("whispers",  factory.IsToolVisible("whispers"));
         SetVisibilityBool("thoughts",  factory.IsToolVisible("thoughts"));
         SetVisibilityBool("combat",    factory.IsToolVisible("combat"));
+    }
+
+    // ── Plugin-created windows ───────────────────────────────────────────────
+    //
+    // Plugins surface their own dock panels purely through the named-window seam
+    // — IPluginHost.SetWindow(name, content) (replace) and EchoToWindow(name,
+    // text) (append). The App owns no per-plugin UI; the dock factory spins up a
+    // generic PluginWindowTool the first time a plugin writes to a new name, and
+    // the panel then behaves like any built-in tool (dockable, floatable,
+    // closable, layout-persisted). "Experience" stays special-cased to its own
+    // bespoke panel; everything else is dynamic.
+
+    /// <summary>Window names that must NOT be turned into generic plugin panels:
+    /// the Experience panel (its own VM) plus the built-in dock tools / streams,
+    /// so a stray <c>#echo &gt;combat</c> or a plugin reusing a built-in name
+    /// doesn't spawn a confusing duplicate.</summary>
+    private static readonly HashSet<string> ReservedWindowNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "experience", "main", "game", "game-text", "room", "vitals",
+            "backpack", "mapper", "scripts",
+            "logons", "talk", "whispers", "thoughts", "combat",
+        };
+
+    private static bool IsReservedWindow(string? name)
+        => string.IsNullOrWhiteSpace(name) || ReservedWindowNames.Contains(name.Trim());
+
+    /// <summary>Wire the host's plugin-window seam to the dock factory. Both
+    /// callbacks marshal to the UI thread — they fire from parser/plugin threads
+    /// and mutate the dock tree.</summary>
+    private void AttachPluginWindows(GenieCore core)
+    {
+        // SetWindow(name, content) → replace the panel's contents (snapshot
+        // style — how the Experience/Inventory plugins re-render).
+        core.SetPluginWindow += (window, content) =>
+        {
+            if (IsReservedWindow(window)) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (DockFactory is GenieDockFactory f)
+                    f.GetOrCreatePluginWindow(window).SetContent(content);
+            });
+        };
+
+        // EchoToWindow(text, name, color) → append a line (log style). Also
+        // covers script `#echo >name …`, which previously had no subscriber.
+        // show:false — appended lines create the panel on first sight but must
+        // not re-open it on every line if the user closed it.
+        core.EchoToWindow += (text, window, _) =>
+        {
+            if (IsReservedWindow(window)) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (DockFactory is GenieDockFactory f)
+                    f.GetOrCreatePluginWindow(window!, show: false).AppendLine(text);
+            });
+        };
+    }
+
+    /// <summary>Rebuild the Window → Plugin Windows submenu from the factory's
+    /// live set of plugin panels. Called when the Window menu opens.</summary>
+    private void RefreshPluginWindowList()
+    {
+        PluginWindowMenuItems.Clear();
+        if (DockFactory is not GenieDockFactory factory) return;
+
+        foreach (var (id, title, visible) in factory.PluginWindows())
+        {
+            var wid = id;   // capture per-iteration for the toggle closure
+            PluginWindowMenuItems.Add(new PluginWindowMenuItem(title, visible, () =>
+            {
+                if (DockFactory is GenieDockFactory f)
+                    f.SetToolVisibility(wid, !f.IsToolVisible(wid));
+            }));
+        }
     }
 
     /// <summary>
@@ -1642,6 +1772,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Mapper.Attach(_core);
         StreamTabs.Attach(_core);
         Experience.Attach(_core);
+        AttachPluginWindows(_core);
 
         // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin
         // Experience plugin is already registered in GenieCore's ctor), then
