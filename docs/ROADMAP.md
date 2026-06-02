@@ -15,7 +15,7 @@ end up with two parallel PRs.
 
 ## Alpha 1 — shipped
 
-These work today, in the v5.0.0-alpha.1 build.
+These work today, in the v5.0.0-alpha.3 build.
 
 - **Connection layer** — SGE direct auth, Lich 5 proxy, dev-replay from
   recorded XML sessions

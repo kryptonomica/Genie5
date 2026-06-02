@@ -55,7 +55,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// <summary>Plugin-API contract version (bumped only on a breaking change
     /// to <see cref="Genie.Plugins.IGeniePlugin"/> / <see cref="Genie.Plugins.IPluginHost"/>).</summary>
     public const int PluginInterfaceVersion = 1;
-    private const string HostVersionString  = "5.0.0-alpha.1";
+    private const string HostVersionString  = "5.0.0-alpha.3";
 
     // ── Network / parser layer ─────────────────────────────────────────────────
     private readonly GameConnection    _connection;

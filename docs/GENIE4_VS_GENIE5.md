@@ -1,7 +1,7 @@
 # Genie 4 vs Genie 5 — Comprehensive Side-by-Side Comparison
 
 **Prepared:** 2026-05-26
-**Genie 5 version:** v5.0.0-alpha.1 (commit `5c422e3`)
+**Genie 5 version:** v5.0.0-alpha.3
 **Genie 4 reference:** local clone at `_refs/Genie4/` (143 source files, WinForms + .NET 6, GenieClient/Genie4 upstream)
 **Purpose:** Audit feature parity before the alpha ships to select testers. Identify what must change, what should change, and what's safely deferred.
 

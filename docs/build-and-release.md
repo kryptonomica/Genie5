@@ -71,10 +71,10 @@ Because these live in the csproj, the `dotnet publish -r <rid>` command above is
 Version metadata is set in [Genie.App.csproj](../src/Genie.App/Genie.App.csproj):
 
 ```xml
-<Version>5.0.0-alpha.1</Version>
+<Version>5.0.0-alpha.3</Version>
 <AssemblyVersion>5.0.0.0</AssemblyVersion>
 <FileVersion>5.0.0.0</FileVersion>
-<InformationalVersion>5.0.0-alpha.1</InformationalVersion>
+<InformationalVersion>5.0.0-alpha.3</InformationalVersion>
 ```
 
 To stamp a different version at publish time, override on the CLI:
