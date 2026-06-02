@@ -182,6 +182,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit>                    HandsBarToTopCommand     { get; }
     /// <summary>Window → Hands Strip Position → Bottom. Snaps it back to the Genie 4 position (above vitals).</summary>
     public ReactiveCommand<Unit, Unit>                    HandsBarToBottomCommand  { get; }
+    /// <summary>Window → Enhanced Hands Strip. Toggles the dylb0t-derived icon widgets (compass / body / status icons) into / out of the strip.</summary>
+    public ReactiveCommand<Unit, Unit>                    ToggleEnhancedHandsStripCommand { get; }
     /// <summary>Window → Roundtime Position → Command Bar. Keeps the "⏱ N.Ns" badge inline with the input row.</summary>
     public ReactiveCommand<Unit, Unit>                    RoundTimeToCommandBarCommand { get; }
     /// <summary>Window → Roundtime Position → Hands Strip. Moves the RT badge onto the L/R/S row.</summary>
@@ -769,6 +771,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         HandsBarToBottomCommand = ReactiveCommand.Create(() =>
         {
             Display.HandsAtBottom = true;
+            Display.Save(_displayPath);
+        });
+
+        ToggleEnhancedHandsStripCommand = ReactiveCommand.Create(() =>
+        {
+            Display.UseEnhancedHandsStrip = !Display.UseEnhancedHandsStrip;
             Display.Save(_displayPath);
         });
 

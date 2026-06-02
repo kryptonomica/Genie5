@@ -89,6 +89,31 @@ public sealed class DisplaySettings : ReactiveObject
     [JsonIgnore] public bool ShowHandsBottom => ShowHandsBar &&  HandsAtBottom;
 
     /// <summary>
+    /// Toggles between two visual styles for the hands / status strip.
+    /// <para>
+    /// <c>false</c> (default) — the original Genie 5 "classic" strip: text
+    /// L/R hand labels, six-badge text stance row, and an inline RT badge.
+    /// </para>
+    /// <para>
+    /// <c>true</c> — the "enhanced" strip derived from dylb0t's Genie 5
+    /// fork (icon set donated under GPL-3.0, see CREDITS.md). Adds the
+    /// pixel-art compass rose, the posture sprite, and the status-effect
+    /// icon strip alongside the existing hand / spell / stance widgets.
+    /// </para>
+    /// Toggled via <c>Window → Enhanced Hands Strip</c>. Persists per-user.
+    /// </summary>
+    [Reactive] public bool   UseEnhancedHandsStrip { get; set; }
+
+    /// <summary>True iff the hands strip is visible at the top AND classic style.</summary>
+    [JsonIgnore] public bool ShowHandsTopClassic     => ShowHandsTop    && !UseEnhancedHandsStrip;
+    /// <summary>True iff the hands strip is visible at the top AND enhanced style.</summary>
+    [JsonIgnore] public bool ShowHandsTopEnhanced    => ShowHandsTop    &&  UseEnhancedHandsStrip;
+    /// <summary>True iff the hands strip is visible at the bottom AND classic style.</summary>
+    [JsonIgnore] public bool ShowHandsBottomClassic  => ShowHandsBottom && !UseEnhancedHandsStrip;
+    /// <summary>True iff the hands strip is visible at the bottom AND enhanced style.</summary>
+    [JsonIgnore] public bool ShowHandsBottomEnhanced => ShowHandsBottom &&  UseEnhancedHandsStrip;
+
+    /// <summary>
     /// When the character is in roundtime, where should the "⏱ N.Ns" badge
     /// render? <c>false</c> (default) = inline with the command bar at the
     /// bottom of the window, matching Genie 4's input row. <c>true</c> = as
@@ -160,12 +185,16 @@ public sealed class DisplaySettings : ReactiveObject
         // [Reactive] only fires PropertyChanged for the underlying field, so the
         // derived getters won't refresh their bindings on their own. Re-raise
         // PropertyChanged for the derivatives whenever either underlying flips.
-        this.WhenAnyValue(x => x.ShowHandsBar, x => x.HandsAtBottom)
+        this.WhenAnyValue(x => x.ShowHandsBar, x => x.HandsAtBottom, x => x.UseEnhancedHandsStrip)
             .Subscribe(_ =>
             {
                 this.RaisePropertyChanged(nameof(HandsAtTop));
                 this.RaisePropertyChanged(nameof(ShowHandsTop));
                 this.RaisePropertyChanged(nameof(ShowHandsBottom));
+                this.RaisePropertyChanged(nameof(ShowHandsTopClassic));
+                this.RaisePropertyChanged(nameof(ShowHandsTopEnhanced));
+                this.RaisePropertyChanged(nameof(ShowHandsBottomClassic));
+                this.RaisePropertyChanged(nameof(ShowHandsBottomEnhanced));
             });
 
         // RoundTimeOnCommandBar is JsonIgnore + derived, so it doesn't fire on

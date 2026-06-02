@@ -51,6 +51,16 @@ public class VitalsViewModel : ReactiveObject
     [Reactive] public string LeftHand      { get; private set; } = "Empty";
     [Reactive] public string RightHand     { get; private set; } = "Empty";
 
+    // ── Compass exits ─────────────────────────────────────────────────────
+    // Mirrors GameState.Room.CompassExits as a HashSet so the enhanced hands
+    // strip's CompassView control can check Contains("n") / Contains("ne") /
+    // etc. in O(1). Populated from CompassEvent — the parser already splits
+    // the <compass><dir value="X"/></compass> payload into space-separated
+    // direction tokens, we just lift them into a set. The classic hands
+    // strip doesn't use this; only the enhanced one does.
+    [Reactive] public HashSet<string> CompassExits { get; private set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     // ── Status indicators ─────────────────────────────────────────────────
     // Each flips on/off as the server emits <indicator id="IconX" visible="y|n"/>.
     // Standing is the default — no badge for it, the absence of any posture
@@ -194,6 +204,27 @@ public class VitalsViewModel : ReactiveObject
             {
                 if (e.Hand == Hand.Left)  LeftHand  = string.IsNullOrEmpty(e.Noun) ? "Empty" : e.Noun;
                 if (e.Hand == Hand.Right) RightHand = string.IsNullOrEmpty(e.Noun) ? "Empty" : e.Noun;
+            });
+
+        // ── Compass exits ─────────────────────────────────────────────────
+        // The parser emits CompassEvent.Exits as a single space-separated
+        // string ("n s e nw" etc.). Split + drop into a fresh HashSet so the
+        // CompassView control can do O(1) Contains checks. Allocating a new
+        // set rather than mutating in place ensures the [Reactive] field
+        // fires PropertyChanged — Avalonia + the control's subscription
+        // depend on reference inequality to detect the change.
+        core.GameEvents.OfType<CompassEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e =>
+            {
+                // Field is named RawXml on the record but the parser already
+                // collapses the <compass><dir value="…"/></compass> payload
+                // into a single space-separated direction list ("n s e nw").
+                // Split on whitespace and lift into a set for CompassView.
+                var tokens = string.IsNullOrWhiteSpace(e.RawXml)
+                    ? Array.Empty<string>()
+                    : e.RawXml.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                CompassExits = new HashSet<string>(tokens, StringComparer.OrdinalIgnoreCase);
             });
 
         // ── Status indicators ────────────────────────────────────────────
