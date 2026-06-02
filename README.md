@@ -64,7 +64,7 @@ On first launch Genie 5 will:
 
 ### Pre-built artefacts
 
-Once the release pipeline lands, look for `Genie5-v5.0.0-alpha.3-{win-x64, osx-arm64, osx-x64, linux-x64}` on the [Releases](https://github.com/GenieClient/Genie5/releases) page.
+Once the release pipeline lands, look for `Genie5-v5.0.0-alpha.3.2-{win-x64, osx-arm64, osx-x64, linux-x64}` on the [Releases](https://github.com/GenieClient/Genie5/releases) page.
 
 ## Quick start
 

@@ -10,7 +10,7 @@ namespace Genie.Plugins;
 /// </summary>
 public interface IPluginHost
 {
-    /// <summary>Host (Genie 5) app version string, e.g. "5.0.0-alpha.3".</summary>
+    /// <summary>Host (Genie 5) app version string, e.g. "5.0.0-alpha.3.2".</summary>
     string HostVersion { get; }
 
     /// <summary>
