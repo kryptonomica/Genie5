@@ -35,11 +35,13 @@ public class StreamTool : Tool
     private void ApplySettings(WindowSettings s)
     {
         Title          = string.IsNullOrEmpty(s.DisplayTitle) ? s.DefaultTitle : s.DisplayTitle;
-        ToolFontFamily = new FontFamily(s.FontFamily);
-        ToolFontSize   = s.FontSize;
-        ToolForeground = ColorPickerHelpers.ParseBrush(s.Foreground)
-                         ?? Application.Current?.Resources["GameBrush"] as IBrush
-                         ?? Brushes.LightGray;
-        ToolBackground = ColorPickerHelpers.ParseBrush(s.Background);
+        // Resolve per-window sentinels (empty FontFamily / non-positive
+        // FontSize / "Default" Foreground) against the global DisplaySettings
+        // values pushed to Application.Resources by DisplaySettings.Apply().
+        // Option A: per-window overrides global only when explicitly set.
+        ToolFontFamily = WindowSettingsResolver.ResolveFontFamily(s.FontFamily);
+        ToolFontSize   = WindowSettingsResolver.ResolveFontSize(s.FontSize);
+        ToolForeground = WindowSettingsResolver.ResolveForeground(s.Foreground);
+        ToolBackground = WindowSettingsResolver.ResolveBackground(s.Background);
     }
 }

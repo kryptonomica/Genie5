@@ -178,7 +178,24 @@ public sealed class DisplaySettings : ReactiveObject
                 x => x.EchoItalic,
                 x => x.FontFamily,
                 x => x.FontSize)
-            .Subscribe(_ => PushAll());
+            .Subscribe(_ =>
+            {
+                PushAll();
+                // Force already-rendered lines to repaint with the new
+                // values. Each TextLine bakes its brushes into Avalonia
+                // `Run` inlines at tokenization time, so a change to
+                // GameBrush / GameFontFamily / GameFontSize doesn't
+                // retroactively recolour existing inlines. Re-running
+                // tokenization rebuilds every line with fresh brushes /
+                // fonts derived from the new resources.
+                //
+                // Piggybacks on the highlight pipeline's existing
+                // notification — GameTextViewModel already subscribes to
+                // UserHighlights.RulesChanged → RetokenizeAllLines.
+                // Reusing that path avoids a parallel event bus for
+                // settings-driven repaints.
+                Highlighting.UserHighlights.NotifyRulesChanged();
+            });
 
         // The hands-strip visibility/position bools are computed properties
         // (JsonIgnore — derived from ShowHandsBar + HandsAtBottom). ReactiveUI's

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Genie.App.Controls;
 using Genie.Core.Layout;
 
@@ -22,7 +23,31 @@ public partial class LayoutPanel : UserControl
     private const string IfClosedDefaultLabel  = "(default)";
     private const string IfClosedDisabledLabel = "(disabled)";
 
-    public LayoutPanel() => InitializeComponent();
+    public LayoutPanel()
+    {
+        InitializeComponent();
+        PopulateFontFamilies();
+    }
+
+    /// <summary>
+    /// Fill the Font family AutoCompleteBox with every system-installed font,
+    /// sorted alphabetically. AutoCompleteBox lets the user pick from the
+    /// suggestion list OR type a fallback chain
+    /// (<c>"Cascadia Mono,Consolas,Courier New,monospace"</c>) — picking is the
+    /// friendly path; typing remains the power-user path. (Avalonia's ComboBox
+    /// is selection-only; AutoCompleteBox is the pick-or-type equivalent of
+    /// WPF's editable ComboBox.)
+    /// </summary>
+    private void PopulateFontFamilies()
+    {
+        var names = FontManager.Current.SystemFonts
+            .Select(f => f.Name)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .Distinct()
+            .OrderBy(n => n, System.StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        FontFamilyCombo.ItemsSource = names;
+    }
 
     public void Initialize(WindowSettingsStore store, Action? onChanged = null)
     {
@@ -61,8 +86,15 @@ public partial class LayoutPanel : UserControl
     private void LoadForm(WindowSettings s)
     {
         TitleBox.Text       = s.DisplayTitle;
-        FontFamilyBox.Text  = s.FontFamily;
-        FontSizeBox.Text    = s.FontSize.ToString("G");
+
+        // Font family / size: empty / 0 are sentinels meaning "use the
+        // global default" — toggle the per-field "Use default" checkbox
+        // on and clear the input so the user sees the sentinel state
+        // explicitly. WindowSettingsResolver handles fallback at render
+        // time.
+        LoadFontFamily(s.FontFamily);
+        WindowSettingsResolver.LoadDouble(FontSizeBox, FontSizeDefaultCheck, s.FontSize, 0d);
+
         ColorPickerHelpers.LoadColor(FgColorPicker, FgDefaultCheck, s.Foreground, "Default");
         ColorPickerHelpers.LoadColor(BgColorPicker, BgNoneCheck,    s.Background, "");
         TimestampCheck.IsChecked = s.Timestamp;
@@ -73,19 +105,27 @@ public partial class LayoutPanel : UserControl
     {
         if (_current is null) { StatusText.Text = "Select a window first."; return; }
 
-        var title      = TitleBox.Text?.Trim()      ?? string.Empty;
-        var fontFamily = FontFamilyBox.Text?.Trim() ?? string.Empty;
-        var fontSzText = FontSizeBox.Text?.Trim()   ?? string.Empty;
+        var title    = TitleBox.Text?.Trim() ?? string.Empty;
 
-        if (!double.TryParse(fontSzText, out var fontSize) || fontSize < 6 || fontSize > 72)
+        // Font family / size: read via WindowSettingsResolver so sentinels
+        // ("Use default" checked) are persisted as empty / 0 — the
+        // resolution to a live FontFamily / size happens at render time
+        // against the global DisplaySettings.
+        var fontFamily = ReadFontFamily();
+        var fontSize   = WindowSettingsResolver.ReadDouble(FontSizeBox, FontSizeDefaultCheck, 0d,
+                                                           parseFallback: _current.FontSize);
+
+        // Validate font size only when not using the default sentinel. The
+        // 6–72 bounds match Genie 4's UCWindows sanity check.
+        if (FontSizeDefaultCheck.IsChecked != true && (fontSize < 6 || fontSize > 72))
         {
-            StatusText.Text = "Font size must be a number between 6 and 72.";
+            StatusText.Text = "Font size must be a number between 6 and 72, or check Use default.";
             return;
         }
 
-        _current.DisplayTitle = string.IsNullOrEmpty(title)      ? _current.DefaultTitle : title;
-        _current.FontFamily   = string.IsNullOrEmpty(fontFamily) ? _current.FontFamily   : fontFamily;
-        _current.FontSize     = fontSize;
+        _current.DisplayTitle = string.IsNullOrEmpty(title) ? _current.DefaultTitle : title;
+        _current.FontFamily   = fontFamily;     // empty = sentinel = use global
+        _current.FontSize     = fontSize;       // 0 = sentinel = use global
         _current.Foreground   = ColorPickerHelpers.ReadColor(FgColorPicker, FgDefaultCheck, "Default");
         _current.Background   = ColorPickerHelpers.ReadColor(BgColorPicker, BgNoneCheck,    "");
         _current.Timestamp    = TimestampCheck.IsChecked == true;
@@ -118,6 +158,53 @@ public partial class LayoutPanel : UserControl
         Refresh();
         _onChanged?.Invoke();
         StatusText.Text = "Reset to defaults.";
+    }
+
+    // ── Font-family ComboBox load / read (uses ComboBox.SelectedItem when
+    //    the user picked from the dropdown, otherwise SelectionBoxItem/text
+    //    so a typed fallback chain like "Cascadia Mono,Consolas,..." is
+    //    preserved verbatim). ─────────────────────────────────────────────
+    private void LoadFontFamily(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            FontFamilyDefaultCheck.IsChecked = true;
+            FontFamilyCombo.SelectedItem     = null;
+            FontFamilyCombo.Text             = string.Empty;
+            return;
+        }
+
+        FontFamilyDefaultCheck.IsChecked = false;
+        // For a comma-separated fallback chain, no single suggestion will
+        // match — leave SelectedItem null and let Text hold the chain
+        // verbatim. For a single-font name that's in the system list, also
+        // mark SelectedItem so the dropdown displays the highlight.
+        FontFamilyCombo.Text = raw;
+        FontFamilyCombo.SelectedItem = null;
+        if (FontFamilyCombo.ItemsSource is System.Collections.IEnumerable items)
+        {
+            foreach (var item in items)
+            {
+                if (string.Equals(item as string, raw, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    FontFamilyCombo.SelectedItem = item;
+                    return;
+                }
+            }
+        }
+    }
+
+    private string ReadFontFamily()
+    {
+        if (FontFamilyDefaultCheck.IsChecked == true) return string.Empty;
+
+        // If the user picked from the suggestion list, SelectedItem is the
+        // canonical name. Otherwise honour whatever they typed (allows
+        // comma-separated fallback chains).
+        if (FontFamilyCombo.SelectedItem is string picked && !string.IsNullOrWhiteSpace(picked))
+            return picked;
+
+        return FontFamilyCombo.Text?.Trim() ?? string.Empty;
     }
 
     // ── IfClosed value / label mapping ───────────────────────────────────────

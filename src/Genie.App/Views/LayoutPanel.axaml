@@ -10,49 +10,72 @@
              Margin="0,0,0,6"
              SelectionChanged="OnWindowSelected"/>
 
-    <!-- Bottom: settings form, multi-column for compactness -->
+    <!-- Bottom: settings form. Two-column "label + control" layout — the
+         previous 4-column variant put Font family + Font size on the same
+         row and the trailing "Use default" checkbox overlapped the
+         neighbouring label. Splitting Font into two rows fixes the overlap
+         and gives each field plenty of horizontal room. Foreground +
+         Background stay paired on one row because their inputs are narrow
+         (small ColorPicker + checkbox). -->
     <Grid Grid.Row="1"
           ColumnDefinitions="Auto,*,Auto,*"
-          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
           Margin="0,4,0,0">
 
       <TextBlock Grid.Row="0" Grid.Column="0" Text="Title:" VerticalAlignment="Center" Margin="0,0,8,4"/>
       <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3"
                  Name="TitleBox" Margin="0,0,0,4"/>
 
+      <!-- Font family — own row so the picker has room to breathe.
+           AutoCompleteBox is Avalonia's "pick or type" control — gives a
+           dropdown of installed fonts AND accepts free text for comma-
+           separated fallback chains. -->
       <TextBlock Grid.Row="1" Grid.Column="0" Text="Font family:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-      <TextBox   Grid.Row="1" Grid.Column="1" Name="FontFamilyBox" Margin="0,0,8,4"
-                 Watermark="e.g. Cascadia Mono,Consolas"/>
-      <TextBlock Grid.Row="1" Grid.Column="2" Text="Font size:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-      <TextBox   Grid.Row="1" Grid.Column="3" Name="FontSizeBox" Margin="0,0,0,4"
-                 HorizontalAlignment="Left" Width="80"/>
+      <AutoCompleteBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+                       Name="FontFamilyCombo"
+                       Margin="0,0,8,4"
+                       HorizontalAlignment="Stretch"
+                       FilterMode="ContainsOrdinalCaseSensitive"
+                       Watermark="Pick a font or type a fallback chain"
+                       ToolTip.Tip="Pick an installed font, or type a comma-separated fallback chain (e.g. 'Cascadia Mono,Consolas,Courier New,monospace'). The first installed family from the chain wins."/>
+      <CheckBox  Grid.Row="1" Grid.Column="3"
+                 Name="FontFamilyDefaultCheck" Content="Use default" VerticalAlignment="Center" Margin="0,0,0,4"
+                 ToolTip.Tip="When checked, this window inherits the global font family from Display Settings."/>
 
-      <TextBlock Grid.Row="2" Grid.Column="0" Text="Foreground:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-      <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,8,4">
+      <!-- Font size — own row. -->
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Font size:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="2" Grid.Column="1"
+                 Name="FontSizeBox" Margin="0,0,8,4" HorizontalAlignment="Left" Width="80"/>
+      <CheckBox  Grid.Row="2" Grid.Column="3"
+                 Name="FontSizeDefaultCheck" Content="Use default" VerticalAlignment="Center" Margin="0,0,0,4"
+                 ToolTip.Tip="When checked, this window inherits the global font size from Display Settings."/>
+
+      <TextBlock Grid.Row="3" Grid.Column="0" Text="Foreground:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,8,4">
         <ColorPicker Name="FgColorPicker" IsAlphaEnabled="False"/>
         <CheckBox    Name="FgDefaultCheck" Content="Use default" VerticalAlignment="Center"/>
       </StackPanel>
-      <TextBlock Grid.Row="2" Grid.Column="2" Text="Background:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-      <StackPanel Grid.Row="2" Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+      <TextBlock Grid.Row="3" Grid.Column="2" Text="Background:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <StackPanel Grid.Row="3" Grid.Column="3" Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
         <ColorPicker Name="BgColorPicker" IsAlphaEnabled="False"/>
         <CheckBox    Name="BgNoneCheck" Content="None" VerticalAlignment="Center"/>
       </StackPanel>
 
-      <TextBlock Grid.Row="3" Grid.Column="0" Text="Redirect if closed:" VerticalAlignment="Center" Margin="0,0,8,4"
+      <TextBlock Grid.Row="4" Grid.Column="0" Text="Redirect if closed:" VerticalAlignment="Center" Margin="0,0,8,4"
                  ToolTip.Tip="When this window's panel is closed, output is redirected here. (default) falls through to the main game window; (disabled) discards output entirely."/>
-      <ComboBox  Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3"
+      <ComboBox  Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3"
                  Name="IfClosedBox" Margin="0,0,0,4" HorizontalAlignment="Stretch"/>
 
-      <CheckBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="3"
+      <CheckBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3"
                 Name="TimestampCheck" Content="Prepend timestamp to each line" Margin="0,2,0,4"/>
 
-      <StackPanel Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3"
+      <StackPanel Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3"
                   Orientation="Horizontal" Spacing="4" Margin="0,2,0,4">
         <Button Content="Apply" Click="OnApply"/>
         <Button Content="Reset" Click="OnReset"/>
       </StackPanel>
 
-      <TextBlock Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3"
+      <TextBlock Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3"
                  Name="StatusText" Margin="0,6,0,0"
                  Foreground="Gray" FontStyle="Italic"/>
 

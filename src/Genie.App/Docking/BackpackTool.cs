@@ -33,10 +33,12 @@ public class BackpackTool : Tool
     private void ApplySettings(WindowSettings s)
     {
         Title          = string.IsNullOrEmpty(s.DisplayTitle) ? s.DefaultTitle : s.DisplayTitle;
-        ToolFontFamily = new FontFamily(s.FontFamily);
-        ToolFontSize   = s.FontSize;
-        ToolForeground = ColorPickerHelpers.ParseBrush(s.Foreground)
-                         ?? new SolidColorBrush(Color.FromRgb(0xCC, 0xDD, 0xDD));   // matches old #cdd
-        ToolBackground = ColorPickerHelpers.ParseBrush(s.Background);
+        // Resolve per-window sentinels against global DisplaySettings — see
+        // WindowSettingsResolver for the full table. Option A: per-window
+        // overrides global only when explicitly set.
+        ToolFontFamily = WindowSettingsResolver.ResolveFontFamily(s.FontFamily);
+        ToolFontSize   = WindowSettingsResolver.ResolveFontSize(s.FontSize);
+        ToolForeground = WindowSettingsResolver.ResolveForeground(s.Foreground);
+        ToolBackground = WindowSettingsResolver.ResolveBackground(s.Background);
     }
 }

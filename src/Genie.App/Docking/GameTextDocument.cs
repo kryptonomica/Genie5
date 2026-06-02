@@ -45,16 +45,14 @@ public class GameTextDocument : Document
     private void ApplySettings(WindowSettings s)
     {
         Title          = string.IsNullOrEmpty(s.DisplayTitle) ? s.DefaultTitle : s.DisplayTitle;
-        ToolFontFamily = new FontFamily(s.FontFamily);
-        ToolFontSize   = s.FontSize;
-
-        // "Default" / "" sentinel → fall through to whatever DisplaySettings
-        // currently has in Application.Resources, so the global font/color
-        // settings still apply when the user hasn't overridden per-window.
-        ToolForeground = ColorPickerHelpers.ParseBrush(s.Foreground)
-                         ?? Application.Current?.Resources["GameBrush"] as IBrush
-                         ?? Brushes.LightGray;
-
-        ToolBackground = ColorPickerHelpers.ParseBrush(s.Background); // null = transparent
+        // Resolve per-window sentinels (empty FontFamily / non-positive
+        // FontSize / "Default" Foreground) against the global DisplaySettings
+        // values pushed to Application.Resources. Option A: per-window
+        // overrides global only when explicitly set. See
+        // WindowSettingsResolver for the full sentinel table.
+        ToolFontFamily = WindowSettingsResolver.ResolveFontFamily(s.FontFamily);
+        ToolFontSize   = WindowSettingsResolver.ResolveFontSize(s.FontSize);
+        ToolForeground = WindowSettingsResolver.ResolveForeground(s.Foreground);
+        ToolBackground = WindowSettingsResolver.ResolveBackground(s.Background); // null = transparent
     }
 }

@@ -474,6 +474,35 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("mapper",    "Mapper");
         WindowSettings.Register("experience", "Experience");
 
+        // ── Global → per-window propagation ─────────────────────────────
+        // When the user changes DisplaySettings (color, font, etc.), the
+        // updated values get pushed into Application.Resources by
+        // Display.Apply()'s internal subscription. But each tool's
+        // ApplySettings() resolves its per-window foreground/font ONCE at
+        // construct + on per-window WindowSettings.Changed — it doesn't
+        // see global resource changes on its own.
+        //
+        // For windows using the "Use default" sentinel
+        // (Foreground="Default" / FontFamily=""/ FontSize=0), we want a
+        // global change to ripple through. Solution: fire NotifyChanged()
+        // on every registered WindowSettings whenever the relevant Display
+        // property changes — that re-runs ApplySettings, which re-runs
+        // WindowSettingsResolver.* against the freshly-pushed resources.
+        //
+        // Skip(1) suppresses the initial-value fire (Display.Apply() already
+        // pushed the seeded values; nothing to repaint yet at construct).
+        Display.WhenAnyValue(
+                x => x.GameColorHex,
+                x => x.EchoColorHex,
+                x => x.FontFamily,
+                x => x.FontSize)
+            .Skip(1)
+            .Subscribe(_ =>
+            {
+                foreach (var s in WindowSettings.All.Values)
+                    s.NotifyChanged();
+            });
+
         Command = new CommandViewModel(SendCommand);
 
         var factory = new GenieDockFactory(this);

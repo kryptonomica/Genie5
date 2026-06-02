@@ -47,11 +47,19 @@ public sealed class WindowSettingsStore
     {
         if (!_settings.TryGetValue(m.Id, out var s)) return;
         s.DisplayTitle = string.IsNullOrEmpty(m.DisplayTitle) ? s.DefaultTitle : m.DisplayTitle;
-        s.FontFamily   = string.IsNullOrEmpty(m.FontFamily)   ? s.FontFamily   : m.FontFamily;
-        s.FontSize     = m.FontSize > 0 ? m.FontSize : s.FontSize;
-        s.Foreground   = string.IsNullOrEmpty(m.Foreground)   ? s.Foreground   : m.Foreground;
-        s.Background   = m.Background;
-        s.Timestamp    = m.Timestamp;
+
+        // Accept sentinel values verbatim — empty string for FontFamily and
+        // non-positive for FontSize both mean "use the global default" per
+        // the Option A architecture. The previous behaviour of substituting
+        // the per-window default for empty meant explicitly checking
+        // "Use default" in the Configuration → Layout panel was a no-op
+        // (the sentinel got overwritten on every load with the hardcoded
+        // default). See WindowSettings.cs for the full sentinel table.
+        s.FontFamily = m.FontFamily   ?? string.Empty;
+        s.FontSize   = m.FontSize;
+        s.Foreground = string.IsNullOrEmpty(m.Foreground) ? s.Foreground : m.Foreground;
+        s.Background = m.Background;
+        s.Timestamp  = m.Timestamp;
         if (m.HasIfClosed) s.IfClosed = m.IfClosed;
     }
 }
