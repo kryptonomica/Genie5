@@ -108,6 +108,7 @@ jobs:
             --packVersion ${{ steps.ver.outputs.version }} `
             --packDir publish/win-x64 `
             --mainExe Genie.exe `
+            --icon src/Genie.App/Assets/app.ico `
             --outputDir velopack-releases
 
       - name: Rename Windows installers (numbered prefix for clarity in Release page)
@@ -176,6 +177,7 @@ jobs:
             --packVersion ${{ steps.ver.outputs.version }} \
             --packDir publish/linux-x64 \
             --mainExe Genie \
+            --icon src/Genie.App/Assets/app.png \
             --outputDir velopack-releases
 
       - name: Rename Linux installers (numbered prefix for clarity)
@@ -243,6 +245,7 @@ jobs:
             --packDir publish/osx-arm64 \
             --mainExe Genie \
             --bundleId com.genieclient.genie5 \
+            --icon src/Genie.App/Assets/app.icns \
             --outputDir velopack-releases
 
       - name: Build drag-install .dmg from the packed .app
@@ -335,6 +338,7 @@ jobs:
             --mainExe Genie \
             --bundleId com.genieclient.genie5 \
             --channel osx-x64 \
+            --icon src/Genie.App/Assets/app.icns \
             --outputDir velopack-releases
 
       - name: Build drag-install .dmg from the packed .app
