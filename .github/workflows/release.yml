@@ -108,6 +108,7 @@ jobs:
             --packVersion ${{ steps.ver.outputs.version }} `
             --packDir publish/win-x64 `
             --mainExe Genie.exe `
+            --icon src/Genie.App/Assets/app.ico `
             --outputDir velopack-releases
 
       - name: Rename Windows installers (numbered prefix for clarity in Release page)
@@ -176,6 +177,7 @@ jobs:
             --packVersion ${{ steps.ver.outputs.version }} \
             --packDir publish/linux-x64 \
             --mainExe Genie \
+            --icon src/Genie.App/Assets/app.png \
             --outputDir velopack-releases
 
       - name: Rename Linux installers (numbered prefix for clarity)
@@ -243,7 +245,34 @@ jobs:
             --packDir publish/osx-arm64 \
             --mainExe Genie \
             --bundleId com.genieclient.genie5 \
+            --icon src/Genie.App/Assets/app.icns \
             --outputDir velopack-releases
+
+      - name: Build drag-install .dmg from the packed .app
+        # Velopack ships macOS as a .pkg installer + a Portable .zip (a zipped
+        # .app); it does not emit a .dmg. Wrap that same .app in a drag-install
+        # .dmg so Mac users get the familiar "drag to Applications" flow. Runs
+        # before the rename step so the Velopack Portable .zip still has its
+        # deterministic `vpk pack` name. The numbered .dmg is then picked up by
+        # the existing `velopack-releases/*` attach glob.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd velopack-releases
+          zip="Genie5-osx-Portable.zip"
+          [ -f "$zip" ] || { echo "::error::expected $zip from vpk pack"; exit 1; }
+          work="$(mktemp -d)"; stage="$(mktemp -d)"; tmp="$(mktemp -d)"
+          unzip -q "$zip" -d "$work"
+          app="$(find "$work" -maxdepth 2 -name '*.app' | head -1)"
+          [ -n "$app" ] || { echo "::error::no .app inside $zip"; exit 1; }
+          cp -R "$app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          # Two-step UDRO -> UDZO: direct UDZO creation intermittently fails
+          # ("No space left on device") reading a freshly built bundle; the
+          # convert path is reliable and yields an identical compressed image.
+          hdiutil create -volname "Genie5" -srcfolder "$stage" -ov -format UDRO "$tmp/udro.dmg"
+          hdiutil convert "$tmp/udro.dmg" -format UDZO -o "02-macOS-Apple-Silicon-Genie5.dmg"
+          echo "Built $(pwd)/02-macOS-Apple-Silicon-Genie5.dmg"
 
       - name: Rename macOS arm64 installers (numbered prefix for clarity)
         # See the Windows job's rename step for the rationale.
@@ -309,7 +338,28 @@ jobs:
             --mainExe Genie \
             --bundleId com.genieclient.genie5 \
             --channel osx-x64 \
+            --icon src/Genie.App/Assets/app.icns \
             --outputDir velopack-releases
+
+      - name: Build drag-install .dmg from the packed .app
+        # See the arm64 job for rationale. Intel channel uses the
+        # `-x64` Portable .zip name produced by `--channel osx-x64`.
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd velopack-releases
+          zip="Genie5-osx-x64-Portable.zip"
+          [ -f "$zip" ] || { echo "::error::expected $zip from vpk pack"; exit 1; }
+          work="$(mktemp -d)"; stage="$(mktemp -d)"; tmp="$(mktemp -d)"
+          unzip -q "$zip" -d "$work"
+          app="$(find "$work" -maxdepth 2 -name '*.app' | head -1)"
+          [ -n "$app" ] || { echo "::error::no .app inside $zip"; exit 1; }
+          cp -R "$app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          # Two-step UDRO -> UDZO (see arm64 job comment).
+          hdiutil create -volname "Genie5" -srcfolder "$stage" -ov -format UDRO "$tmp/udro.dmg"
+          hdiutil convert "$tmp/udro.dmg" -format UDZO -o "03-macOS-Intel-Genie5.dmg"
+          echo "Built $(pwd)/03-macOS-Intel-Genie5.dmg"
 
       - name: Rename macOS Intel installers (numbered prefix for clarity)
         # See the Windows job's rename step for the rationale.
