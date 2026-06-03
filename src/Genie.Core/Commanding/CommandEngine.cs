@@ -234,6 +234,17 @@ public sealed class CommandEngine
                 // for the bare-verb form.
                 _host.ConfigCommand(string.Join(" ", parts.Skip(1)));
                 break;
+            case "goto":
+            case "go2":
+                // #goto <room> — start a mapper walk to a room identified by
+                // numeric map id, note label, or title text. Forwarded whole
+                // (minus the verb) so multi-word labels survive. Genie 4
+                // parity; the App resolves + drives the attended walk.
+                if (parts.Count > 1)
+                    _host.MapperGoto(string.Join(" ", parts.Skip(1)));
+                else
+                    _host.Echo("Usage: #goto <room id | label | title>");
+                break;
             case "class":
             case "classes":
                 HandleClass(parts);

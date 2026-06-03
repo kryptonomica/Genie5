@@ -20,8 +20,11 @@ namespace Genie.App.Services;
 /// <list type="bullet">
 ///   <item>User presses Esc — wired in <c>MainWindow.KeyDown</c></item>
 ///   <item>User types any non-meta command — wired in <c>MainWindowViewModel.HandleCommandLine</c></item>
-///   <item>App window has been unfocused for &gt; 60s — service starts a
-///         timer on deactivate, fires <see cref="Pause"/> when it expires</item>
+///   <item>App window has been unfocused past the configured window — only
+///         when the user has opted in via
+///         <c>GenieConfig.AutoWalkPauseOnUnfocus</c> (default OFF); the
+///         service starts a timer on deactivate and fires <see cref="Pause"/>
+///         when it expires</item>
 ///   <item>Connection drops — service subscribes to <c>core.StateStream</c>
 ///         and cancels on Disconnected</item>
 ///   <item>Player walks into an unexpected room (off-plan) — heuristic
@@ -30,13 +33,15 @@ namespace Genie.App.Services;
 /// </para>
 ///
 /// <para>
-/// Compliance posture (per <c>policy_compliance_review.md</c>):
-/// — Attended-mode by construction: the service refuses to send a step
-///   while paused, and pause fires automatically on long unfocus.
+/// Compliance posture: a click (or #goto) is direct user intent and the
+/// walker is *responsive* to it (RT-gated stepping, not a command burst).
+/// The unfocus auto-pause below is an OPTIONAL idle backstop, OFF by default
+/// — DR policy asks for responsiveness, not window focus.
+/// — The service refuses to send a step while paused.
 /// — Never auto-resumes across disconnects: a fresh session must be
 ///   started from a fresh user click.
 /// — The visible indicator + Esc cancel + typed-command-cancel are the
-///   user-controls that keep this on the responsive side of DR policy.
+///   always-available user controls.
 /// </para>
 /// </summary>
 public sealed class AutoWalkService : ReactiveObject
@@ -45,10 +50,13 @@ public sealed class AutoWalkService : ReactiveObject
     private readonly AutoMapperEngine _mapEngine;
 
     /// <summary>
-    /// Number of seconds of window-unfocus before the service auto-pauses
-    /// the current walk. Per the compliance review's 60-second budget.
+    /// Fallback unfocus-pause window (seconds) used only if config somehow
+    /// reports a sub-minimum value. The live value comes from
+    /// <see cref="GenieConfig.AutoWalkUnfocusSeconds"/>, and the whole
+    /// behavior is gated OFF by default behind
+    /// <see cref="GenieConfig.AutoWalkPauseOnUnfocus"/>.
     /// </summary>
-    private const int UnfocusPauseSeconds = 60;
+    private const int DefaultUnfocusPauseSeconds = 60;
 
     /// <summary>
     /// The current session, or null when no walk is in progress. Bindable
@@ -234,18 +242,27 @@ public sealed class AutoWalkService : ReactiveObject
     }
 
     /// <summary>
-    /// Called when MainWindow loses focus. Starts the 60-second unfocus
-    /// timer; if it expires while the walk is still active, we Pause.
+    /// Called when MainWindow loses focus. Opt-in only: does nothing unless
+    /// the user has enabled <see cref="GenieConfig.AutoWalkPauseOnUnfocus"/>.
+    /// When on, starts the configured unfocus timer; if it expires while the
+    /// walk is still active, we Pause (the user clicks Resume to continue).
     /// </summary>
     public void OnWindowDeactivated()
     {
         if (Current is null || Current.State != AutoWalkState.Active) return;
+
+        // Default OFF. DR's Scripting Policy is about being responsive to the
+        // game, not about keeping the window focused — so this safeguard only
+        // arms when the user has explicitly opted in.
+        if (!_core.Config.AutoWalkPauseOnUnfocus) return;
+
+        var seconds = Math.Max(DefaultUnfocusPauseSeconds, _core.Config.AutoWalkUnfocusSeconds);
         StopUnfocusTimer();
-        _unfocusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(UnfocusPauseSeconds) };
+        _unfocusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
         _unfocusTimer.Tick += (_, _) =>
         {
             StopUnfocusTimer();
-            Pause($"window unfocused {UnfocusPauseSeconds}s");
+            Pause($"window unfocused {seconds}s");
         };
         _unfocusTimer.Start();
     }

@@ -89,4 +89,13 @@ public sealed record ConnectionConfig
     /// to match Genie 4 behavior; flip to <c>STORM</c> to experiment.
     /// </summary>
     public string FrontEndId    { get; init; } = "GENIE";
+
+    /// <summary>
+    /// Optional per-profile data root. When non-empty, <see cref="GenieCore"/>
+    /// points all of its data folders (Config, Scripts, Maps, Plugins, Logs,
+    /// Profiles) under this path instead of the default per-user / portable
+    /// location. Carries <c>ConnectionProfile.DataDirectory</c> into the core.
+    /// Empty = default root.
+    /// </summary>
+    public string DataDirectoryOverride { get; init; } = string.Empty;
 }

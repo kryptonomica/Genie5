@@ -25,12 +25,12 @@ Walking goes through the normal command path (the same one your typing uses), so
 
 ### Attended-mode rules (why it's safe)
 
-The walker is deliberately conservative so Genie stays within DragonRealms' Allowed Software policy — it assists an attentive player, it doesn't play while you're away:
+The walker is deliberately conservative — it assists an attentive player and is responsive to your intent (a click or `#goto`), stepping under roundtime gating rather than firing a burst of commands:
 
-- **Pauses** automatically after ~60 seconds of the Genie window being unfocused; you click **Resume** to continue.
 - **Cancels** on **Esc**, on any command you type, on disconnect, or if you walk off the planned path.
 - **Never auto-resumes** across a disconnect — a fresh walk needs a fresh click.
 - A visible strip shows progress and a Cancel/Resume control.
+- **Optional:** an idle pause can suspend a walk after the window has been unfocused for a configurable interval. It's **off by default** (DR policy is about responsiveness, not window focus); turn it on if you want the extra backstop, then click **Resume** to continue.
 
 See [Policy Compliance](Policy-Compliance) for the full reasoning.
 

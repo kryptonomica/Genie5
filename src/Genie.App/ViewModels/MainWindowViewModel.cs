@@ -347,8 +347,17 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// </summary>
     public PathSettings Paths { get; private set; } = new();
 
-    public MainWindowViewModel()
+    /// <summary>Launch flags parsed from the command line (null in the
+    /// design-time / parameterless path). Consumed once by
+    /// <see cref="RunStartupConnectAsync"/> after the window is shown.</summary>
+    public StartupOptions? Startup { get; }
+
+    public MainWindowViewModel() : this(null) { }
+
+    public MainWindowViewModel(StartupOptions? startup)
     {
+        Startup = startup;
+
         // ── Storage locations ─────────────────────────────────────────────
         // LocalDirectoryService honors portable mode (Config\ next to the exe)
         // and XDG / AppSupport paths on Linux / macOS.
@@ -730,14 +739,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
 
         OpenScriptsFolderCommand = ReactiveCommand.Create(() =>
         {
-            // The Scripts directory is the per-character profile's Scripts
-            // sub-folder when a character is connected; pre-connect it's the
-            // shared root (Genie 5 migrates Genie 4's Scripts there on first
-            // launch). Fall back to the configured ProfileDirectory if a
-            // character profile is loaded; otherwise the shared root next to
-            // the config dir.
-            var scriptsDir = _core?.ProfileDirectory is { Length: > 0 } pd
-                                 ? Path.Combine(pd, "Scripts")
+            // Open the SAME folder the script engine actually loads from —
+            // Core's resolved ScriptDir — so the menu and the engine never
+            // disagree (issue #37). This also honors a per-profile data root
+            // and portable mode automatically, since Core's ScriptDir tracks
+            // the active data root. Pre-connect, fall back to the shared root
+            // next to the config dir.
+            var scriptsDir = _core is not null
+                                 ? _core.Config.ScriptDir
                                  : Path.Combine(Path.GetDirectoryName(_configDir)!, "Scripts");
             try
             {
@@ -1570,7 +1579,16 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public string GetProfileConfigDir(ConnectionProfile? profile)
     {
         if (profile is null) return _configDir;
-        var dir = Path.Combine(_configDir, "Profiles", profile.Id.ToString("N"));
+
+        // Honor a per-profile data root: when the profile points at its own
+        // folder, its config (rules, layouts) lives under {DataDirectory}/Config
+        // so it stays consistent with Core, which also repoints there. Empty =
+        // the default global Config dir.
+        var baseConfigDir = profile.DataDirectory is { Length: > 0 } dd
+            ? Path.Combine(Path.GetFullPath(dd), "Config")
+            : _configDir;
+
+        var dir = Path.Combine(baseConfigDir, "Profiles", profile.Id.ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
     }
@@ -1647,11 +1665,24 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             }
         });
 
-        SafeLoad(dir, "macros.json", path =>
+        var macrosPath = Path.Combine(dir, "macros.json");
+        if (File.Exists(macrosPath))
         {
-            foreach (var m in p.LoadMacros(path))
-                core.Macros.Add(m.Key, m.Action);
-        });
+            SafeLoad(dir, "macros.json", path =>
+            {
+                foreach (var m in p.LoadMacros(path))
+                    core.Macros.Add(m.Key, m.Action);
+            });
+        }
+        else
+        {
+            // First run for this profile: seed Genie 4's classic numpad
+            // movement pad so 10-key travel works out of the box. Persisted
+            // so it appears in the Macros panel and the user can edit/remove
+            // any of it freely.
+            SeedDefaultMovementMacros(core.Macros);
+            try { p.SaveMacros(macrosPath, core.Macros.Rules); } catch { /* best-effort seed */ }
+        }
 
         SafeLoad(dir, "variables.json", path =>
         {
@@ -1672,6 +1703,34 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         var path = Path.Combine(dir, fileName);
         if (!File.Exists(path)) return;
         try { load(path); } catch { /* corrupt JSON shouldn't block connect */ }
+    }
+
+    /// <summary>
+    /// Genie 4's classic numpad ("10-key") movement pad. Seeded on first run
+    /// for a profile so directional travel works out of the box; the user can
+    /// rebind or delete any of these from the Macros panel. Requires NumLock
+    /// on (so the OS reports NumPadN rather than the navigation keys).
+    /// <code>
+    ///   7 nw   8 n    9 ne
+    ///   4 w    5 out  6 e
+    ///   1 sw   2 s    3 se
+    ///   0 down
+    /// </code>
+    /// </summary>
+    private static void SeedDefaultMovementMacros(Genie.Core.Macros.MacroEngine macros)
+    {
+        // Only fill keys that aren't already bound, so this never clobbers a
+        // binding loaded earlier in the connect sequence.
+        void Bind(string key, string action)
+        {
+            if (macros.Get(key) is null) macros.Add(key, action);
+        }
+
+        Bind("num8", "n");  Bind("num2", "s");
+        Bind("num6", "e");  Bind("num4", "w");
+        Bind("num9", "ne"); Bind("num7", "nw");
+        Bind("num3", "se"); Bind("num1", "sw");
+        Bind("num5", "out"); Bind("num0", "down");
     }
 
     /// <summary>
@@ -1734,6 +1793,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     {
         if (_core is not null)
             await _core.DisposeAsync();
+
+        // Per-profile data root: if the chosen profile points at its own folder,
+        // carry that into the core so its data resolves there instead of the
+        // default (AppData / portable) root.
+        if (profile is { DataDirectory.Length: > 0 })
+            cfg = cfg with { DataDirectoryOverride = profile.DataDirectory };
 
         _core                = new GenieCore(cfg, loggerFactory: null);
         ConnectedProfile     = profile;   // null if user typed credentials without picking a saved profile
@@ -1843,6 +1908,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         _core.ConfigCommandRequested  += args =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => HandleConfigCommand(args));
 
+        // #goto / #go2 … from the command bar or a script — resolve the room
+        // against the active zone and start an attended walk. UI-thread-bound
+        // because it touches the mapper VM + AutoWalk timer state.
+        _core.MapperGotoRequested     += args =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => Mapper.GotoByName(args));
+
         // Mapper Edit-Exit requests — user right-clicks a map node, picks
         // "Edit Exit ▶ {verb}". MapperViewModel raises the event, we open
         // the dialog, and on save we ask the mapper to persist the zone.
@@ -1900,6 +1971,124 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
 
         await _core.ConnectAsync();
     }
+
+    // ── Command-line startup connect ──────────────────────────────────────────
+
+    private bool _startupConnectDone;
+
+    /// <summary>
+    /// Acts on <see cref="Startup"/> exactly once: resolves the launch flags
+    /// (and/or named profile) into a <see cref="ConnectionConfig"/> and connects
+    /// without showing the dialog. Called from the view after the window is
+    /// shown. A no-op when there's nothing to connect to, or if an unknown
+    /// profile name was supplied (surfaced via the title bar / error log).
+    /// </summary>
+    public async Task RunStartupConnectAsync()
+    {
+        if (_startupConnectDone) return;
+        _startupConnectDone = true;
+
+        if (Startup is null || !Startup.HasConnectIntent) return;
+
+        try
+        {
+            var (cfg, profile) = ResolveStartupConfig(Startup);
+            if (cfg is null) return;
+            await ConnectAsync(cfg, profile);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("RunStartupConnectAsync", ex);
+        }
+    }
+
+    /// <summary>
+    /// Turns launch flags into a connection. A named profile (if found) supplies
+    /// the base config; explicit <c>--host</c>/<c>--port</c> override it. With no
+    /// profile and no explicit mode, a bare host/port is treated as a Lich proxy
+    /// (direct SGE needs a password we never take from the command line).
+    /// </summary>
+    private (ConnectionConfig? cfg, ConnectionProfile? profile) ResolveStartupConfig(StartupOptions o)
+    {
+        ConnectionProfile? profile = null;
+        ConnectionConfig?  cfg     = null;
+
+        if (!string.IsNullOrWhiteSpace(o.Profile))
+        {
+            profile = Profiles.Profiles.FirstOrDefault(p =>
+                string.Equals(p.Name, o.Profile, StringComparison.OrdinalIgnoreCase));
+            if (profile is null)
+            {
+                ConnectionStatus = $"Startup: no profile named '{o.Profile}'";
+                ErrorLog.Log("ResolveStartupConfig",
+                    new InvalidOperationException($"No profile named '{o.Profile}'"));
+                // Fall through: an explicit --host can still drive the connect.
+            }
+            else
+            {
+                cfg = ConfigFromProfile(profile);
+            }
+        }
+
+        // Determine the effective mode: explicit flag > profile's mode > Lich
+        // (the only credential-free option valid for a CLI-supplied endpoint).
+        var mode = o.Mode ?? cfg?.Mode ?? ConnectionMode.LichProxy;
+
+        // No profile resolved but a host was given → build a fresh config.
+        if (cfg is null)
+        {
+            if (string.IsNullOrWhiteSpace(o.Host) && o.Port is null) return (null, null);
+            cfg = new ConnectionConfig { Mode = mode };
+        }
+
+        // Apply host/port overrides. For Lich these are the proxy endpoint; for
+        // direct SGE they override the eaccess host/port (rarely needed, but
+        // honored for symmetry).
+        if (cfg.Mode == ConnectionMode.LichProxy || mode == ConnectionMode.LichProxy)
+        {
+            cfg = cfg with
+            {
+                Mode          = ConnectionMode.LichProxy,
+                LichProxyHost = string.IsNullOrWhiteSpace(o.Host) ? cfg.LichProxyHost : o.Host!,
+                LichProxyPort = o.Port ?? cfg.LichProxyPort,
+            };
+        }
+        else
+        {
+            cfg = cfg with
+            {
+                SgeHost = string.IsNullOrWhiteSpace(o.Host) ? cfg.SgeHost : o.Host!,
+                SgePort = o.Port ?? cfg.SgePort,
+            };
+        }
+
+        return (cfg, profile);
+    }
+
+    /// <summary>Builds a ready-to-connect <see cref="ConnectionConfig"/> from a
+    /// saved profile, decrypting the stored password for the SGE path.</summary>
+    private ConnectionConfig ConfigFromProfile(ConnectionProfile p) =>
+        p.Mode == ConnectionMode.LichProxy
+            ? new ConnectionConfig
+              {
+                  Mode          = ConnectionMode.LichProxy,
+                  LichProxyHost = string.IsNullOrWhiteSpace(p.Host) ? "127.0.0.1" : p.Host,
+                  LichProxyPort = p.Port > 0 ? p.Port : 8000,
+                  CharacterName = p.CharacterName,
+                  GameCode      = string.IsNullOrWhiteSpace(p.GameCode) ? "DR" : p.GameCode,
+                  FrontEndId    = p.FrontEndId,
+              }
+            : new ConnectionConfig
+              {
+                  Mode            = ConnectionMode.DirectSGE,
+                  SgeHost         = "eaccess.play.net",
+                  SgePort         = 7900,
+                  AccountName     = p.AccountName,
+                  AccountPassword = Profiles.GetPassword(p),
+                  CharacterName   = p.CharacterName,
+                  GameCode        = string.IsNullOrWhiteSpace(p.GameCode) ? "DR" : p.GameCode,
+                  FrontEndId      = p.FrontEndId,
+              };
 
     private async Task DisconnectAsync()
     {

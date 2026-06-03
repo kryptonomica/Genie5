@@ -969,6 +969,57 @@ public class MapperViewModel : ReactiveObject
         }
     }
 
+    /// <summary>
+    /// Resolve a <c>#goto</c> argument to a room in the active zone and start
+    /// an attended walk — the typed/scripted equivalent of clicking a room.
+    /// Accepts a numeric map id (Genie 4 <c>#goto 232</c>), a note label
+    /// (notes are <c>|</c>-separated, Genie 4 parity), or room-title text
+    /// (exact match preferred, else a single unambiguous substring match).
+    /// </summary>
+    public void GotoByName(string arg)
+    {
+        if (_engine is null) { LoadStatus = "Mapper not ready — load a zone first."; return; }
+        arg = arg?.Trim() ?? "";
+        if (arg.Length == 0) { LoadStatus = "Usage: #goto <room id | label | title>"; return; }
+
+        var target = ResolveNode(arg);
+        if (target is null)
+        {
+            LoadStatus = $"#goto: no room matching '{arg}' in zone '{_engine.ActiveZone.Name}'.";
+            return;
+        }
+        GotoNode(target);
+    }
+
+    /// <summary>Resolve a #goto token to a node: id → label → title.</summary>
+    private MapNode? ResolveNode(string arg)
+    {
+        var zone = _engine!.ActiveZone;
+
+        // 1) Numeric map id (Genie 4 `#goto 232`).
+        if (int.TryParse(arg, out var id) && zone.Nodes.TryGetValue(id, out var byId))
+            return byId;
+
+        // 2) Note label — notes hold '|'-separated labels.
+        foreach (var n in zone.Nodes.Values)
+        {
+            if (string.IsNullOrEmpty(n.Notes)) continue;
+            foreach (var label in n.Notes.Split('|'))
+                if (label.Trim().Equals(arg, StringComparison.OrdinalIgnoreCase))
+                    return n;
+        }
+
+        // 3) Title — exact match first, then a single unambiguous contains.
+        var exact = zone.Nodes.Values.FirstOrDefault(
+            n => n.Title.Equals(arg, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null) return exact;
+
+        var partial = zone.Nodes.Values
+            .Where(n => n.Title.IndexOf(arg, StringComparison.OrdinalIgnoreCase) >= 0)
+            .ToList();
+        return partial.Count == 1 ? partial[0] : null;
+    }
+
     // ── UpdateMaps implementation ─────────────────────────────────────────
     private async Task UpdateMapsAsync()
     {

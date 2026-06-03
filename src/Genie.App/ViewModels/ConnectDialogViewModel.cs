@@ -18,6 +18,15 @@ public sealed record GameInstance(string GameCode, string DisplayName)
     public override string ToString() => DisplayName;
 }
 
+/// <summary>
+/// A selectable connection method for the dialog's mode dropdown. Wraps a
+/// <see cref="ConnectionMode"/> with a human-readable label.
+/// </summary>
+public sealed record ConnectionModeOption(ConnectionMode Mode, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
 public class ConnectDialogViewModel : ReactiveObject
 {
     private readonly ProfileStore? _store;
@@ -32,6 +41,13 @@ public class ConnectDialogViewModel : ReactiveObject
         new("DRT", "DragonRealms Test"),
     ];
 
+    /// <summary>The connection methods offered by the mode dropdown.</summary>
+    public static readonly ConnectionModeOption[] ConnectionModes =
+    [
+        new(ConnectionMode.DirectSGE, "Direct (SGE login)"),
+        new(ConnectionMode.LichProxy, "Lich proxy (local)"),
+    ];
+
     // ── Profile picker ────────────────────────────────────────────────────────
 
     public ObservableCollection<ConnectionProfile> Profiles { get; } = [];
@@ -40,6 +56,22 @@ public class ConnectDialogViewModel : ReactiveObject
 
     public ReactiveCommand<Unit, Unit> SaveProfileCommand   { get; }
     public ReactiveCommand<Unit, Unit> DeleteProfileCommand { get; }
+
+    /// <summary>
+    /// Optional per-profile data folder. Empty = use the default root (AppData,
+    /// or beside the exe in portable mode). When set, this profile's data lives
+    /// under this folder. See <see cref="ConnectionProfile.DataDirectory"/>.
+    /// </summary>
+    [Reactive] public string DataDirectory { get; set; } = "";
+
+    /// <summary>Opens the OS folder picker for <see cref="DataDirectory"/>.
+    /// The command raises <see cref="BrowseDataDirRequested"/>; the view does
+    /// the actual pick (it needs a TopLevel) and calls
+    /// <see cref="SetDataDirectoryFromBrowse"/>.</summary>
+    public ReactiveCommand<Unit, Unit> BrowseDataDirCommand { get; }
+
+    /// <summary>Raised when the Browse button next to the data folder is clicked.</summary>
+    public event Action? BrowseDataDirRequested;
 
     // ── Editable fields ───────────────────────────────────────────────────────
 
@@ -51,6 +83,26 @@ public class ConnectDialogViewModel : ReactiveObject
     /// <summary>The preferred character to log in as. May be edited freely;
     /// also bound as the <see cref="ComboBox.SelectedItem"/> of the dropdown.</summary>
     [Reactive] public string        Character   { get; set; } = "";
+
+    // ── Connection mode ───────────────────────────────────────────────────────
+
+    /// <summary>The selected connection method (Direct SGE vs Lich proxy).</summary>
+    [Reactive] public ConnectionModeOption SelectedMode { get; set; } = ConnectionModes[0];
+
+    /// <summary>Lich proxy host — the address the local Lich 5 process listens on.
+    /// Defaults to loopback; Lich almost always runs on the same machine.</summary>
+    [Reactive] public string        LichHost    { get; set; } = "127.0.0.1";
+
+    /// <summary>Lich proxy port (string-bound so the TextBox stays simple; parsed
+    /// on connect). Lich prints the actual port in its launch window — it is not
+    /// fixed, so this must be editable rather than a baked-in constant.</summary>
+    [Reactive] public string        LichPort    { get; set; } = "8000";
+
+    /// <summary>True when the Direct (SGE) fields should be shown / required.</summary>
+    public extern bool IsDirectMode { [ObservableAsProperty] get; }
+
+    /// <summary>True when the Lich proxy host/port fields should be shown / required.</summary>
+    public extern bool IsLichMode   { [ObservableAsProperty] get; }
 
     // UseStormFrontEnd was removed May 25, 2026 after A/B testing showed no
     // observable difference between FE:GENIE and FE:STORM for the info-verb
@@ -115,19 +167,34 @@ public class ConnectDialogViewModel : ReactiveObject
             .Where(p => p is not null)
             .Subscribe(p => PopulateFrom(p!));
 
+        // ── Mode-driven visibility flags ───────────────────────────────────
+        this.WhenAnyValue(x => x.SelectedMode)
+            .Select(m => m.Mode == ConnectionMode.DirectSGE)
+            .ToPropertyEx(this, x => x.IsDirectMode);
+        this.WhenAnyValue(x => x.SelectedMode)
+            .Select(m => m.Mode == ConnectionMode.LichProxy)
+            .ToPropertyEx(this, x => x.IsLichMode);
+
         // ── Field validity gate for OK / Save / Fetch ──────────────────────
+        // Lich mode only needs a host + a valid port (Lich has already
+        // authenticated, so no account/password/character are required).
+        // Direct mode keeps the full credential requirement.
         var canOk = this.WhenAnyValue(
-            x => x.Account, x => x.Password, x => x.Character,
-            (a, p, c) => !string.IsNullOrWhiteSpace(a)
-                      && !string.IsNullOrWhiteSpace(p)
-                      && !string.IsNullOrWhiteSpace(c));
+            x => x.SelectedMode, x => x.Account, x => x.Password, x => x.Character,
+            x => x.LichHost, x => x.LichPort,
+            (mode, a, p, c, host, port) => mode.Mode == ConnectionMode.LichProxy
+                ? !string.IsNullOrWhiteSpace(host) && IsValidPort(port)
+                : !string.IsNullOrWhiteSpace(a)
+                  && !string.IsNullOrWhiteSpace(p)
+                  && !string.IsNullOrWhiteSpace(c));
 
         var canSave = this.WhenAnyValue(
-            x => x.ProfileName, x => x.Account, x => x.Character,
-            (n, a, c) => _store is not null
+            x => x.ProfileName, x => x.SelectedMode, x => x.Account, x => x.Character, x => x.LichHost,
+            (n, mode, a, c, host) => _store is not null
                       && !string.IsNullOrWhiteSpace(n)
-                      && !string.IsNullOrWhiteSpace(a)
-                      && !string.IsNullOrWhiteSpace(c));
+                      && (mode.Mode == ConnectionMode.LichProxy
+                            ? !string.IsNullOrWhiteSpace(host)
+                            : !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(c)));
 
         var canDelete = this.WhenAnyValue(x => x.SelectedProfile)
             .Select(p => _store is not null && p is not null);
@@ -153,6 +220,7 @@ public class ConnectDialogViewModel : ReactiveObject
             () => (ConnectResult?)new ConnectResult(BuildConfig(), SelectedProfile), canOk);
         CancelCommand = ReactiveCommand.Create(() => (ConnectResult?)null);
         SaveProfileCommand     = ReactiveCommand.Create(SaveProfile,   canSave);
+        BrowseDataDirCommand   = ReactiveCommand.Create(() => BrowseDataDirRequested?.Invoke());
         DeleteProfileCommand   = ReactiveCommand.Create(DeleteProfile, canDelete);
         FetchCharactersCommand = ReactiveCommand.CreateFromTask(FetchCharactersAsync, canFetch);
 
@@ -166,6 +234,13 @@ public class ConnectDialogViewModel : ReactiveObject
         // 2. Else if there's exactly one saved profile (fresh app start,
         //    no prior connection this session): auto-select it.
         if (lastConnection is not null
+            && lastConnection.Mode == ConnectionMode.LichProxy)
+        {
+            // Lich connects carry no account name, so they never match a saved
+            // SGE profile field-for-field — just restore the host/port directly.
+            PopulateFromConfig(lastConnection);
+        }
+        else if (lastConnection is not null
             && !string.IsNullOrWhiteSpace(lastConnection.AccountName))
         {
             var match = _store is null ? null : Profiles.FirstOrDefault(p =>
@@ -189,28 +264,42 @@ public class ConnectDialogViewModel : ReactiveObject
     /// by definition, not associated with a saved profile.</summary>
     private void PopulateFromConfig(ConnectionConfig cfg)
     {
-        ProfileName = "";
-        Instance    = Instances.FirstOrDefault(i =>
+        ProfileName  = "";
+        SelectedMode = ModeOptionFor(cfg.Mode);
+        Instance     = Instances.FirstOrDefault(i =>
             string.Equals(i.GameCode, cfg.GameCode, StringComparison.OrdinalIgnoreCase))
             ?? Instances[0];
-        Account     = cfg.AccountName;
-        Password    = cfg.AccountPassword;
+        Account      = cfg.AccountName;
+        Password     = cfg.AccountPassword;
+        LichHost     = cfg.LichProxyHost;
+        LichPort     = cfg.LichProxyPort.ToString();
 
         AvailableCharacters.Clear();
         if (!string.IsNullOrEmpty(cfg.CharacterName))
             AvailableCharacters.Add(cfg.CharacterName);
         Character   = cfg.CharacterName;
+        DataDirectory = "";
         FetchStatus = "";
     }
 
     private void PopulateFrom(ConnectionProfile p)
     {
-        ProfileName = p.Name;
-        Instance    = Instances.FirstOrDefault(i =>
+        ProfileName  = p.Name;
+        SelectedMode = ModeOptionFor(p.Mode);
+        Instance     = Instances.FirstOrDefault(i =>
             string.Equals(i.GameCode, p.GameCode, StringComparison.OrdinalIgnoreCase))
             ?? Instances[0];
-        Account     = p.AccountName;
-        Password    = _store?.GetPassword(p) ?? "";
+        Account      = p.AccountName;
+        Password     = _store?.GetPassword(p) ?? "";
+
+        // For Lich profiles the stored Host/Port are the proxy endpoint. For
+        // SGE profiles Host/Port are eaccess values we don't surface, so only
+        // adopt them when the profile is actually a Lich profile.
+        if (p.Mode == ConnectionMode.LichProxy)
+        {
+            LichHost = string.IsNullOrWhiteSpace(p.Host) ? "127.0.0.1" : p.Host;
+            LichPort = p.Port > 0 ? p.Port.ToString() : "8000";
+        }
 
         // Switching profiles must drop the previous account's character list — it
         // belonged to a different account and showing it here is both confusing and
@@ -220,22 +309,47 @@ public class ConnectDialogViewModel : ReactiveObject
         if (!string.IsNullOrEmpty(p.CharacterName))
             AvailableCharacters.Add(p.CharacterName);
         Character        = p.CharacterName;
+        DataDirectory    = p.DataDirectory;
         FetchStatus      = "";
     }
 
-    private ConnectionConfig BuildConfig() => new()
-    {
-        SgeHost         = "eaccess.play.net",
-        SgePort         = 7900,
-        AccountName     = Account,
-        AccountPassword = Password,
-        CharacterName   = Character,
-        GameCode        = Instance.GameCode,
-        Mode            = ConnectionMode.DirectSGE,
-        // FrontEndId left at default "GENIE" — A/B testing showed no FE
-        // difference for our probed surfaces; ConnectionConfig's default
-        // is "GENIE" so we don't need to set it explicitly here.
-    };
+    /// <summary>Set the data folder from the view's folder picker.</summary>
+    public void SetDataDirectoryFromBrowse(string path) => DataDirectory = path ?? "";
+
+    /// <summary>Maps a raw <see cref="ConnectionMode"/> back to its dropdown
+    /// option, falling back to Direct if the mode isn't offered (e.g. a
+    /// DevReplay config never reaches this dialog).</summary>
+    private static ConnectionModeOption ModeOptionFor(ConnectionMode mode)
+        => ConnectionModes.FirstOrDefault(m => m.Mode == mode) ?? ConnectionModes[0];
+
+    /// <summary>True for a parseable TCP port in the legal 1–65535 range.</summary>
+    private static bool IsValidPort(string? port)
+        => int.TryParse(port, out var p) && p is > 0 and <= 65535;
+
+    private ConnectionConfig BuildConfig() => SelectedMode.Mode == ConnectionMode.LichProxy
+        ? new ConnectionConfig
+          {
+              Mode          = ConnectionMode.LichProxy,
+              LichProxyHost = string.IsNullOrWhiteSpace(LichHost) ? "127.0.0.1" : LichHost.Trim(),
+              LichProxyPort = int.TryParse(LichPort, out var lp) ? lp : 8000,
+              // Carried only for title-bar / profile labeling — Lich selects the
+              // character itself; the server's pc-name push fills this in live too.
+              CharacterName = Character,
+              GameCode      = Instance.GameCode,
+          }
+        : new ConnectionConfig
+          {
+              SgeHost         = "eaccess.play.net",
+              SgePort         = 7900,
+              AccountName     = Account,
+              AccountPassword = Password,
+              CharacterName   = Character,
+              GameCode        = Instance.GameCode,
+              Mode            = ConnectionMode.DirectSGE,
+              // FrontEndId left at default "GENIE" — A/B testing showed no FE
+              // difference for our probed surfaces; ConnectionConfig's default
+              // is "GENIE" so we don't need to set it explicitly here.
+          };
 
     private async Task FetchCharactersAsync()
     {
@@ -276,28 +390,44 @@ public class ConnectDialogViewModel : ReactiveObject
         var existing = _store.Profiles
             .FirstOrDefault(p => string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
 
+        var isLich = SelectedMode.Mode == ConnectionMode.LichProxy;
+        // Lich profiles store the proxy endpoint and carry no SGE credentials;
+        // SGE profiles store the fixed eaccess endpoint and the account creds.
+        var host        = isLich ? (string.IsNullOrWhiteSpace(LichHost) ? "127.0.0.1" : LichHost.Trim())
+                                 : "eaccess.play.net";
+        var port        = isLich ? (int.TryParse(LichPort, out var lp) ? lp : 8000) : 7900;
+        var account     = isLich ? "" : Account;
+        var password    = isLich ? "" : Password;
+
         ConnectionProfile? target;
         if (existing is not null)
         {
             _store.Update(
                 existing.Id, ProfileName,
-                isSimutronics: true,
+                isSimutronics: !isLich,
                 gameCode: Instance.GameCode,
                 characterName: Character,
-                host: "eaccess.play.net", port: 7900,
-                accountName: Account, plainPassword: Password);
+                host: host, port: port,
+                accountName: account, plainPassword: password,
+                mode: SelectedMode.Mode);
             target = existing;
         }
         else
         {
             target = _store.Add(
-                ProfileName, "eaccess.play.net", 7900, Account, Password,
-                isSimutronics: true,
+                ProfileName, host, port, account, password,
+                isSimutronics: !isLich,
                 gameCode: Instance.GameCode,
-                characterName: Character);
+                characterName: Character,
+                mode: SelectedMode.Mode);
             Profiles.Add(target);
             SelectedProfile = target;
         }
+
+        // Per-profile data folder. Set directly on the stored instance (the
+        // ProfileStore.Add/Update signatures don't carry it); the subsequent
+        // store save (_onStoreChanged) persists it.
+        target.DataDirectory = (DataDirectory ?? "").Trim();
 
         // FE:STORM checkbox was removed (May 25, 2026); we no longer write
         // the FrontEndId from the dialog. Any pre-existing profile keeps
@@ -340,6 +470,18 @@ public class ConnectDialogViewModel : ReactiveObject
     {
         var existing = FindProfileByEnteredName();
         if (existing is null || _store is null) return false;
+
+        // A mode switch is itself a meaningful change worth offering to persist.
+        if (existing.Mode != SelectedMode.Mode) return true;
+
+        // Lich profiles have no account/password — compare the proxy endpoint.
+        if (SelectedMode.Mode == ConnectionMode.LichProxy)
+        {
+            var port = int.TryParse(LichPort, out var lp) ? lp : 8000;
+            return !string.Equals(existing.Host, LichHost?.Trim(), StringComparison.OrdinalIgnoreCase)
+                || existing.Port != port;
+        }
+
         var storedPassword = _store.GetPassword(existing);
         return !string.Equals(existing.AccountName, Account, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(storedPassword,        Password, StringComparison.Ordinal);

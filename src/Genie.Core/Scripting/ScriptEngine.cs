@@ -481,7 +481,21 @@ public sealed class ScriptEngine
                     continue;
                 }
 
-                if (StepOne(inst)) progress = true;
+                // Defensive boundary: a single bad line (e.g. an undefined
+                // $var landing in an expression the parser can't tokenize)
+                // must never escape the tick and take the whole client down.
+                // Stop just this script with a clear message and keep the
+                // engine — and the app — alive.
+                try
+                {
+                    if (StepOne(inst)) progress = true;
+                }
+                catch (Exception ex)
+                {
+                    _echo($"[script] {inst.Name} stopped: {ex.Message}");
+                    inst.Running = false;
+                    try { ScriptFinished?.Invoke(inst.Name); } catch { /* never rethrow from cleanup */ }
+                }
             }
         }
     }
@@ -1386,10 +1400,9 @@ public sealed class ScriptEngine
                     _echo(msg);
                 return;
             }
-            //case "#goto":
-                    //Extensions.DispatchCommand(rest);
-                    //_sendCommand(rest);
-                //return;
+            // #goto / #go2 fall through to the default case below, which
+            // forwards them to the host (→ CommandEngine → MapperGoto → the
+            // App's mapper walk). Don't handle them here.
             case "#mapper":
                 // No-op for now; mapper reset is informational only.
                 return;

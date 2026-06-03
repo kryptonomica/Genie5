@@ -43,9 +43,13 @@ public static class MacroKeyConverter
             (mods.HasFlag(KeyModifiers.Control) || mods.HasFlag(KeyModifiers.Alt)))
             return BuildKeyName(key.ToString()[1..], mods);   // strip "D" prefix
 
-        // Numpad digits with Ctrl or Alt.
-        if (key >= Key.NumPad0 && key <= Key.NumPad9 &&
-            (mods.HasFlag(KeyModifiers.Control) || mods.HasFlag(KeyModifiers.Alt)))
+        // Numpad digits fire with OR without a modifier — Genie 4 parity: the
+        // numpad is the classic movement pad (num8 → north, etc.). A plain
+        // numpad press only ever gets swallowed when a macro is actually bound
+        // to it (see MainWindow.OnGlobalKeyDown), so unbound numpad keys still
+        // type normally. (Requires NumLock on, so the OS reports NumPadN
+        // rather than the navigation keys.)
+        if (key >= Key.NumPad0 && key <= Key.NumPad9)
             return BuildKeyName("num" + key.ToString()[6..], mods);
 
         return null;

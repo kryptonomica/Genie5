@@ -5,7 +5,7 @@
         x:Class="Genie.App.Views.ConnectDialog"
         x:DataType="vm:ConnectDialogViewModel"
         Title="Connect to DragonRealms"
-        Width="460" Height="440"
+        Width="460" Height="500"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
 
@@ -37,41 +37,67 @@
 
     <!-- ── Editable fields ─────────────────────────────────────────────── -->
     <StackPanel Grid.Row="2" Spacing="8">
-      <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
 
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name"      VerticalAlignment="Center"/>
+      <!-- Shared: profile name + connection method + data folder (always visible) -->
+      <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Name"   VerticalAlignment="Center"/>
         <TextBox   Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                    Text="{Binding ProfileName}"
                    Watermark="Profile name (e.g. MyCharacter)"/>
 
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Instance"  VerticalAlignment="Center"/>
-        <ComboBox  Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2"
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode"   VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <ComboBox  Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
+                   ItemsSource="{x:Static vm:ConnectDialogViewModel.ConnectionModes}"
+                   SelectedItem="{Binding SelectedMode}"
+                   HorizontalAlignment="Stretch"
+                   ToolTip.Tip="Direct logs in via SGE. Lich proxy attaches to a locally-running Lich 5 that has already authenticated."/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Data folder" VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <TextBox   Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
+                   Text="{Binding DataDirectory}"
+                   Watermark="Optional — defaults to the standard location"
+                   ToolTip.Tip="Where this profile's data (Config, Scripts, Maps, Plugins, Logs) lives. Leave blank to use the default location, or pick a folder (e.g. on a synced drive or USB stick) to keep this character's data there."/>
+        <Button    Grid.Row="2" Grid.Column="2" Content="Browse…" Margin="4,8,0,0"
+                   Command="{Binding BrowseDataDirCommand}"/>
+
+        <TextBlock Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+                   Text="Leave blank for the default location. Set it to keep this character's data in a folder you choose."
+                   TextWrapping="Wrap"
+                   Foreground="#888" FontSize="11" Margin="0,2,0,0"/>
+      </Grid>
+
+      <!-- Direct (SGE) fields -->
+      <Grid ColumnDefinitions="90,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+            IsVisible="{Binding IsDirectMode}">
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Instance"  VerticalAlignment="Center"/>
+        <ComboBox  Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2"
                    ItemsSource="{x:Static vm:ConnectDialogViewModel.Instances}"
                    SelectedItem="{Binding Instance}"
                    HorizontalAlignment="Stretch"/>
 
-        <TextBlock Grid.Row="2" Grid.Column="0" Text="Account"   VerticalAlignment="Center"/>
-        <TextBox   Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Account"   VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <TextBox   Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
                    Text="{Binding Account}"/>
 
-        <TextBlock Grid.Row="3" Grid.Column="0" Text="Password"  VerticalAlignment="Center"/>
-        <TextBox   Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2"
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Password"  VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <TextBox   Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0"
                    Text="{Binding Password}"
                    PasswordChar="●"/>
 
-        <TextBlock Grid.Row="4" Grid.Column="0" Text="Character" VerticalAlignment="Center"/>
-        <ComboBox  Grid.Row="4" Grid.Column="1"
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Character" VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <ComboBox  Grid.Row="3" Grid.Column="1" Margin="0,8,0,0"
                    x:Name="CharacterCombo"
                    ItemsSource="{Binding AvailableCharacters}"
                    SelectedItem="{Binding Character}"
                    PlaceholderText="(click Fetch)"
                    HorizontalAlignment="Stretch"/>
-        <Button    Grid.Row="4" Grid.Column="2"
-                   Content="{Binding FetchButtonLabel}" Margin="4,0,0,0" MinWidth="70"
+        <Button    Grid.Row="3" Grid.Column="2" Margin="4,8,0,0" MinWidth="70"
+                   Content="{Binding FetchButtonLabel}"
                    Command="{Binding FetchCharactersCommand}"
                    ToolTip.Tip="Ask SGE for the character list on this account"/>
 
-        <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2"
+        <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
                    Text="{Binding FetchStatus}"
                    Foreground="#888" FontSize="11" Margin="0,2,0,0"/>
 
@@ -83,6 +109,31 @@
              still exists (defaults to "GENIE") so wider-surface testing
              can re-enable the toggle if needed. See backlog.md →
              "FE:STORM hypothesis — disconfirmed" for the experiment. -->
+      </Grid>
+
+      <!-- Lich proxy fields -->
+      <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto"
+            IsVisible="{Binding IsLichMode}">
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Host"      VerticalAlignment="Center"/>
+        <TextBox   Grid.Row="0" Grid.Column="1"
+                   Text="{Binding LichHost}"
+                   Watermark="127.0.0.1"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port"      VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <TextBox   Grid.Row="1" Grid.Column="1" Margin="0,8,0,0"
+                   Text="{Binding LichPort}"
+                   Watermark="Port Lich is listening on (see the Lich window)"/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Character" VerticalAlignment="Center" Margin="0,8,0,0"/>
+        <TextBox   Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
+                   Text="{Binding Character}"
+                   Watermark="Optional — used for the title bar / profile name"/>
+
+        <TextBlock Grid.Row="3" Grid.Column="1"
+                   Text="Lich must already be running and authenticated for this character. Genie just attaches to its local port."
+                   TextWrapping="Wrap"
+                   Foreground="#888" FontSize="11" Margin="0,6,0,0"/>
       </Grid>
     </StackPanel>
 

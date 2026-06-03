@@ -64,7 +64,7 @@ On first launch Genie 5 will:
 
 ### Pre-built artefacts
 
-Once the release pipeline lands, look for `Genie5-v5.0.0-alpha.3.2-{win-x64, osx-arm64, osx-x64, linux-x64}` on the [Releases](https://github.com/GenieClient/Genie5/releases) page.
+Once the release pipeline lands, look for `Genie5-v5.0.0-alpha.3.4-{win-x64, osx-arm64, osx-x64, linux-x64}` on the [Releases](https://github.com/GenieClient/Genie5/releases) page.
 
 ## Quick start
 
@@ -96,15 +96,16 @@ Genie 5 plays nicely with [Lich 5](https://github.com/elanthia-online/lich-5). T
 
 ## DragonRealms policy compliance
 
-Genie 5 is designed to live well within Simutronics' [Allowed Software policy](https://elanthipedia.play.net/DragonRealms_Policy:_Allowed_Software). A few things you'll **not** find here, on purpose:
+Genie 5 aims to be a good DragonRealms frontend. DR's [Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy) asks that you stay **responsive to the game** while you play — it does **not** require the client window to stay focused, and Genie doesn't try to police how you play. Staying within policy is the player's call. That said, a few design choices keep Genie firmly on the responsive side, and the client itself avoids unattended automation:
 
 - **No auto-reconnect.** If you disconnect, you reconnect by hand.
 - **No agentive AI mode.** AI features (when they ship) are **advisor-only** — they surface suggestions in a panel you read, never drive game commands directly.
-- **No auto-walk while window unfocused.** Movement scripts pause if Genie isn't the foreground window.
 - **No headless mode.** Genie is a UI client, not a background service.
 - **No shipping other players' speech to external services.** The AI context buffer filters out whisper / talk / thoughts / familiar / tells before any external API call.
 
-See [docs/POLICY.md](docs/POLICY.md) for the full compliance review.
+There's also an **optional** idle backstop for click-to-walk / `#goto` travel that can pause a walk after the window has been unfocused for a while. It's **off by default** and fully configurable — purely for users who want it.
+
+See [docs/POLICY.md](docs/POLICY.md) for the details.
 
 ## Architecture
 

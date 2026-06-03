@@ -208,6 +208,19 @@ public sealed class DrXmlParser : IDisposable
         _textLineBuffer.Clear();
     }
 
+    // Find the index of the first lowercase→uppercase adjacency (e.g. the "Y"
+    // in "ledgerYou"). DR item display names never butt an uppercase letter
+    // directly against a lowercase one without a separator — a space ("Imperial
+    // saber") or apostrophe ("Se'Karan") always breaks the adjacency — so this
+    // boundary reliably marks where a server-merged response was concatenated
+    // onto a hand body. Returns -1 when there is no such seam.
+    private static int FindMergeSeam(string s)
+    {
+        for (var i = 1; i < s.Length; i++)
+            if (char.IsLower(s[i - 1]) && char.IsUpper(s[i])) return i;
+        return -1;
+    }
+
     // Emit one complete, decoded text line as a game event.
     private void EmitLine(string rawLine)
     {
@@ -765,9 +778,23 @@ public sealed class DrXmlParser : IDisposable
             }
             case "left" when _inHand:
             case "right" when _inHand:
+            {
                 _inHand = false;
+                var handBody = _componentBuffer.ToString();
                 _componentBuffer.Clear();
+                // Normally the body is just the display name ("razor-edged
+                // scimitar"), which we discard — the noun came from the
+                // attribute. But the server sometimes merges a response INTO
+                // the hand body with no separator:
+                //   <right noun='ledger'>black ledgerYou unlock and open…</right>
+                // Splitting on the first lower→upper seam recovers the
+                // appended game text, which would otherwise be silently lost.
+                // The prefix (the item name) is still discarded here; capturing
+                // it as $righthand is a separate enhancement.
+                var handSeam = FindMergeSeam(handBody);
+                if (handSeam > 0) EmitLine(handBody[handSeam..]);
                 break;
+            }
 
             case "inv":
                 // Force each inventory item onto its own line, then restore

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Genie.Core.Connection;
 
 namespace Genie.Core.Profiles;
 
@@ -24,7 +25,8 @@ public sealed class ProfileStore
     public ConnectionProfile Add(string name, string host, int port,
                                   string accountName, string plainPassword,
                                   bool isSimutronics = false, string gameCode = "",
-                                  string characterName = "", bool autoConnect = false)
+                                  string characterName = "", bool autoConnect = false,
+                                  ConnectionMode mode = ConnectionMode.DirectSGE)
     {
         if (autoConnect)
             foreach (var other in _profiles) other.AutoConnect = false;
@@ -39,6 +41,7 @@ public sealed class ProfileStore
             Port              = port,
             AccountName       = accountName,
             AutoConnect       = autoConnect,
+            Mode              = mode,
             EncryptedPassword = ProfileCrypto.Encrypt(plainPassword)
         };
         _profiles.Add(profile);
@@ -49,7 +52,8 @@ public sealed class ProfileStore
                        string gameCode, string characterName,
                        string host, int port,
                        string accountName, string plainPassword,
-                       bool autoConnect = false)
+                       bool autoConnect = false,
+                       ConnectionMode mode = ConnectionMode.DirectSGE)
     {
         var p = _profiles.FirstOrDefault(x => x.Id == id);
         if (p is null) return;
@@ -60,6 +64,7 @@ public sealed class ProfileStore
         p.Host          = host;
         p.Port          = port;
         p.AccountName   = accountName;
+        p.Mode          = mode;
         if (!string.IsNullOrEmpty(plainPassword))
             p.EncryptedPassword = ProfileCrypto.Encrypt(plainPassword);
         if (autoConnect)

@@ -47,7 +47,7 @@ The deep end: the full scripting language, the mapper's internals, plugins, and 
 | **[Plugins](Plugins)** | The plugin contract, the `#plugin` command, the Experience-tracker example, and the trust model. |
 | **[Keeping Up to Date](Updates)** | The integrated updater — Core app, maps, and plugins. |
 | **[AI Advisor (planned)](AI-Advisor)** 🚧 | The advisor-only AI design and its privacy guarantees — opt-in, never agentive. |
-| **[Policy Compliance](Policy-Compliance)** | How Genie 5 stays inside Simutronics' Allowed Software policy, and the five hard "nevers." |
+| **[Policy Compliance](Policy-Compliance)** | How Genie 5 stays a responsive, good-citizen frontend — and the hard "nevers" it holds about its own behavior. |
 | **[Architecture](Architecture)** | The one-way pipeline, the `Genie.Core` / `Genie.App` split, and the embedding story. |
 | **[Building from Source](Building-from-Source)** | Project layout, the dev test harness, and the developer docs index. |
 | **[Troubleshooting & FAQ](Troubleshooting)** | Common problems and how to fix them. |
@@ -72,4 +72,4 @@ See **[Connecting & Profiles](Connecting)** for the walkthrough.
 - **Contributing** — [CONTRIBUTING.md](https://github.com/GenieClient/Genie5/blob/main/CONTRIBUTING.md). PRs welcome.
 - **Developer docs** — the [`docs/` folder](https://github.com/GenieClient/Genie5/tree/main/docs) covers the parser, scripting engine, and mapper internals.
 
-> Genie 5 is third-party software for DragonRealms and is designed to live within Simutronics' [Allowed Software policy](https://elanthipedia.play.net/DragonRealms_Policy:_Allowed_Software). See **[Policy Compliance](Policy-Compliance)** for what that means in practice.
+> Genie 5 is third-party software for DragonRealms. DR's [Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy) asks players to stay responsive to the game — it's the player's call, not the client's. See **[Policy Compliance](Policy-Compliance)** for what that means in practice.

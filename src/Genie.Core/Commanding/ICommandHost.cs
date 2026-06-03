@@ -128,4 +128,20 @@ public interface ICommandHost
     /// handler; the Console build with no handler echoes a diagnostic.
     /// </summary>
     void ConfigCommand(string args);
+
+    /// <summary>
+    /// Run a <c>#goto</c> (Genie 4 parity; <c>#go2</c> accepted as a synonym)
+    /// command — the raw argument after the verb, identifying a destination
+    /// room by numeric map id, by a <c>note</c> label, or by room-title text.
+    /// The mapper + walker live in the App layer, so <see cref="Genie.Core"/>
+    /// forwards the argument to a host handler; the Console build with no
+    /// handler echoes a diagnostic. Resolution + the actual click-equivalent
+    /// walk are the App's responsibility.
+    /// <para>
+    /// This is the typed/scripted equivalent of clicking a room in the
+    /// Mapper: it starts an attended, RT-gated, fully-interruptible walk —
+    /// the same path <c>travel.cmd</c> and friends rely on.
+    /// </para>
+    /// </summary>
+    void MapperGoto(string args);
 }

@@ -35,7 +35,7 @@ You can mix them: a Lich script can be doing one thing while a Genie `.cmd` scri
 ## Notes & current limits
 
 - **Manual Lich launch.** Genie 5 doesn't auto-start Lich for you yet — start Lich first, then connect Genie to it. (Auto-launch is a possible future convenience.)
-- **Policy still applies.** Running behind Lich doesn't change DragonRealms' Allowed Software rules. The attended-play expectations in [Policy Compliance](Policy-Compliance) apply to whatever automation you run, in either tool.
+- **Policy still applies.** Running behind Lich doesn't change DragonRealms' [Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy). The responsiveness expectation in [Policy Compliance](Policy-Compliance) applies to whatever automation you run, in either tool.
 
 ## Related
 

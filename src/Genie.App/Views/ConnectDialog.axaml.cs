@@ -1,3 +1,5 @@
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.ReactiveUI;
 using Genie.Core.Connection;
@@ -40,7 +42,33 @@ public partial class ConnectDialog : ReactiveWindow<ConnectDialogViewModel>
                 if (ViewModel!.AvailableCharacters.Count == 0) return;
                 Dispatcher.UIThread.Post(() => CharacterCombo.IsDropDownOpen = true);
             }));
+
+            // Browse → OS folder picker for the optional per-profile data folder.
+            ViewModel!.BrowseDataDirRequested += async () => await PickDataFolderAsync();
         });
+    }
+
+    private async Task PickDataFolderAsync()
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null || ViewModel is null) return;
+
+        var startLocation = !string.IsNullOrWhiteSpace(ViewModel.DataDirectory)
+                            && Directory.Exists(ViewModel.DataDirectory)
+            ? await top.StorageProvider.TryGetFolderFromPathAsync(ViewModel.DataDirectory)
+            : null;
+
+        var picked = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title                  = "Select this profile's data folder",
+            SuggestedStartLocation = startLocation,
+            AllowMultiple          = false,
+        });
+
+        var folder = picked.FirstOrDefault();
+        if (folder is null) return;
+
+        ViewModel.SetDataDirectoryFromBrowse(folder.Path.LocalPath);
     }
 
     private async Task HandleOkAsync(ConnectResult? result)

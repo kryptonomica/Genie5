@@ -13,10 +13,29 @@ public sealed class AppPaths
     public string BasePath { get; }
     public bool IsLocal { get; }
 
+    /// <summary>
+    /// Sentinel file that, when present next to the executable, puts Genie in
+    /// portable mode: all data folders (Config, Scripts, Maps, Plugins, Logs,
+    /// Profiles, Layouts, …) live beside the exe instead of in the per-user
+    /// data directory. The portable .zip ships with this file; the installer
+    /// does not. Contents are ignored — only its presence matters.
+    /// </summary>
+    public const string PortableMarkerFileName = "genie5.portable";
+
     public static AppPaths Discover(string appName, string baseDirectory)
     {
-        var localConfig = Path.Combine(baseDirectory, "Config");
-        if (Directory.Exists(localConfig))
+        // Portable mode is signalled by an explicit marker file beside the
+        // exe. The legacy "a Config folder already exists here" check is kept
+        // as a secondary trigger so existing hand-made local installs keep
+        // working without adding the marker.
+        var markerPath = Path.Combine(baseDirectory, PortableMarkerFileName);
+        var legacyLocalConfig = Path.Combine(baseDirectory, "Config");
+        var wantsPortable = File.Exists(markerPath) || Directory.Exists(legacyLocalConfig);
+
+        // Guard: only honor portable mode if we can actually write here. A
+        // copy dropped in Program Files (or any read-only location) falls back
+        // to the per-user data dir rather than failing to save settings.
+        if (wantsPortable && IsDirectoryWritable(baseDirectory))
         {
             return new AppPaths(baseDirectory, isLocal: true);
         }
@@ -46,6 +65,26 @@ public sealed class AppPaths
 
         Directory.CreateDirectory(userDir);
         return new AppPaths(userDir, isLocal: false);
+    }
+
+    /// <summary>
+    /// True if we can create/delete a file in <paramref name="dir"/>. Used to
+    /// decide whether portable mode is actually viable at this location.
+    /// </summary>
+    private static bool IsDirectoryWritable(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var probe = Path.Combine(dir, ".genie5-write-probe");
+            File.WriteAllText(probe, string.Empty);
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public string ResolvePath(string configuredPath)

@@ -14,9 +14,12 @@ public class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // Parse launch flags (--host/--port/--profile/--mode) so an external
+            // launcher (e.g. Lich Launcher) can start Genie pre-connected.
+            var startup = StartupOptions.Parse(desktop.Args);
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new MainWindowViewModel()
+                DataContext = new MainWindowViewModel(startup)
             };
         }
         base.OnFrameworkInitializationCompleted();

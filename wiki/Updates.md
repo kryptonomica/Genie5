@@ -30,6 +30,8 @@ The plain **Portable `.zip`** builds don't register for updates — re-download 
 
 > **Signing:** alpha builds are currently unsigned, so first launch shows a SmartScreen / Gatekeeper warning ([details](Installation#platform-first-launch-notes)). A SignPath-backed signing pipeline is in progress (see the [README's code-signing section](https://github.com/GenieClient/Genie5/blob/main/README.md#code-signing-policy)); signed Windows builds are expected from an upcoming release.
 
+> **Release channel (while we're in alpha):** the Core updater has a **stable** / **beta** channel selector in the Updates dialog. Every current build ships as a GitHub **pre-release**, so during the alpha/beta period Genie defaults to the **beta** channel — that's what lets the in-app updater see new alpha builds. If you ever switch to **stable** you'll see "up to date" until the first non-prerelease (5.0.0) ships. Leave it on **beta** to ride the test releases.
+
 ## Maps
 
 The Maps tab (equivalently **File → Update Maps from Official Repo…**) pulls the latest zone XML from the community repository and **merges** it with your local data — upstream layout fixes come down while your stamped room ids survive. This has its own page: [Updating Maps & Scripts](Updating-Maps-and-Scripts).

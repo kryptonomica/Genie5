@@ -161,6 +161,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                     ctx.SetOutput(null);
                 }
             }));
+
+            // Command-line auto-connect (--host/--port/--profile). Fired here so
+            // the dialog interaction handlers above are already registered (the
+            // connect path itself doesn't need them, but anything it triggers
+            // might). The VM guards against running more than once, so repeated
+            // activations are harmless.
+            _ = ViewModel!.RunStartupConnectAsync();
         });
     }
 

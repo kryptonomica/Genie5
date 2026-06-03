@@ -11,15 +11,28 @@ or anything that runs while the user isn't actively at the keyboard, **read
 this file first** and open an issue with the policy question if anything is
 unclear.
 
-## The Allowed Software policy in practice
+## What the policy actually says
 
-Simutronics permits third-party clients but draws a hard line at software
-that plays the game for the user. The community phrasing is *"responsive
-software is fine; agentive software is not."* The user must be present,
-attending to the session, and in control of decisions that affect the
-character's state.
+Simutronics permits third-party clients. DR's
+[Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy)
+draws its line at being **responsive to the gaming environment** — you may
+run scripts and automation as long as you remain attentive and able to react.
+The community phrasing is *"responsive software is fine; agentive software is
+not."*
 
-Five hard nevers fall directly out of that:
+A few things this policy does **not** say, and that Genie therefore does not
+impose:
+
+- It does **not** require the client window to stay focused. Working in
+  another window while you travel, or running multiple characters, is a
+  player workflow question, not a focus requirement.
+- It is **not the client's job to enforce**. Staying within policy is the
+  player's responsibility. Genie's job is to be a good frontend.
+
+So Genie holds a small set of hard nevers about *its own* behavior — the
+client should never act on its own while you're away — and keeps any feature
+that would constrain *your* workflow strictly opt-in. Four hard nevers fall
+out of "the client shouldn't play itself," plus one optional convenience:
 
 ### 1. No auto-reconnect after disconnect
 
@@ -43,15 +56,23 @@ displayed to the user, who decides what to type.
 This is enforced as a release gate (G4) in `AiContextBuffer.cs` and any PR
 that wires AI responses back into the command pipeline will be closed.
 
-### 3. No auto-walk while the window is unfocused
+### 3. Auto-walk is attended — with an *optional* idle pause (off by default)
 
-The AutoMapper's click-to-walk feature pauses the walk automatically after
-60 seconds of window unfocus (`AutoWalkService.OnWindowDeactivated`). Esc
-cancels the walk; any typed command cancels the walk; the unfocus timer
-cannot be extended.
+Click-to-walk and `#goto` are direct user intent: you click a room (or type
+`#goto`), and the walker steps there under roundtime gating — *responsive* to
+that intent, not a fire-and-forget command burst. Esc cancels the walk, any
+typed command cancels it, and a disconnect cancels it (it never auto-resumes
+across a reconnect — a fresh click is required).
 
-The pause never auto-resumes across a disconnect — a new click is required
-after reconnection.
+For users who want an extra idle backstop, there's an **optional** pause that
+suspends an active walk after the window has been unfocused for a configurable
+interval (`AutoWalkService.OnWindowDeactivated`, gated on
+`GenieConfig.AutoWalkPauseOnUnfocus`, minimum 60s). It is **off by default**:
+DR policy is about responsiveness, not window focus, so the client does not
+require focus to function. When enabled, the user clicks Resume to continue.
+
+This is a convenience, not a compliance requirement — it exists because some
+players asked for it, not because Genie decides how you're allowed to play.
 
 ### 4. No headless / daemon mode
 

@@ -93,7 +93,7 @@ Each recognised tag emits one or more `GameEvent`s. Tags in the `_settingsTags` 
 
 | Tag | Event | Notes |
 | --- | --- | --- |
-| `<right exist='29' noun='sword'>an iron sword</right>` | `HeldItemEvent(Hand.Right, noun, exist)` | Event fires from the attributes immediately; the body text is currently discarded (so `$righthand` == `$righthandnoun` for now). `<left>` mirrors it. |
+| `<right exist='29' noun='sword'>an iron sword</right>` | `HeldItemEvent(Hand.Right, noun, exist)` | Event fires from the attributes immediately; the body display name is discarded (so `$righthand` == `$righthandnoun` for now). **Exception:** the server sometimes merges a response into the body with no separator (`<right noun='ledger'>black ledgerYou unlock and open…</right>`); the parser splits on the first lower→upper seam and re-emits the appended game text (which would otherwise be lost) on the active stream. `<left>` mirrors it. |
 | `<spell>Fire Strike</spell>` | `SpellEvent(name)` | Prepared spell; content accumulates between tags. |
 | `<inv id='stow'>a finely carved shortbow</inv>` | (routed to `inv` stream) | The parser treats `<inv>` as an implicit push to the `inv` stream so item lines don't leak into the main window, popping back on `</inv>`. |
 | `<container id='stow' title='My Backpack' target='#37666728'/>` | `ContainerEvent(logicalId, title, targetId)` | Lets the UI render `#NNNN` ids as human names in click-echoes. Skipped if `target` is empty. |

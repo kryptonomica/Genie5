@@ -93,16 +93,15 @@ Genie 4 `.xml` zone files must round-trip without loss. 24+ community forks of t
 ### 3. SGE protocol
 The wire-level protocol is documented in [docs/SGE_PROTOCOL.md](docs/SGE_PROTOCOL.md). Don't change SGE handshake logic without verifying against the [Genie 4 source](https://github.com/GenieClient) — small mistakes silently break auth.
 
-### 4. DragonRealms policy compliance
-Genie 5 ships within Simutronics' Allowed Software policy. The following are **hard nevers** — PRs that introduce them will be closed:
+### 4. DragonRealms policy
+DR's [Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy) is about staying **responsive to the game** — it does not require window focus, and it's the *player's* responsibility, not something the client enforces. Genie's job is to be a good frontend. That said, the client itself stays clear of unattended automation. The following are **hard nevers** — PRs that introduce them will be closed:
 
-- ❌ Auto-reconnect
+- ❌ Auto-reconnect (silently resuming a session after a drop)
 - ❌ Agentive AI mode (AI driving `Commands.ProcessInput` directly)
 - ❌ Headless mode / running without a visible UI
-- ❌ Auto-walk while the Genie window is unfocused or minimized
 - ❌ Shipping other players' speech (whisper / talk / thoughts / familiar / tells) to external AI services without per-player consent
 
-See [docs/POLICY.md](docs/POLICY.md) for the full compliance review. If you're not sure whether a feature fits, ask in an issue *before* writing the PR.
+Note: anything that constrains how a player runs the client (e.g. the optional auto-walk idle pause) must be **opt-in and off by default**. See [docs/POLICY.md](docs/POLICY.md) for the rationale. If you're not sure whether a feature fits, ask in an issue *before* writing the PR.
 
 ## Pull request workflow
 

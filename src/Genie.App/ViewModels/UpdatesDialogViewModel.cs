@@ -62,7 +62,7 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
     [Reactive] public bool   CoreCanUpdate       { get; private set; }
 
     /// <summary>Bound to the channel ComboBox. Persisted on change to <see cref="CoreFeed.Channel"/>.</summary>
-    [Reactive] public string CoreChannel { get; set; } = "stable";
+    [Reactive] public string CoreChannel { get; set; } = "beta";
 
     public IReadOnlyList<string> AvailableChannels { get; } = new[] { "stable", "beta" };
 
@@ -122,7 +122,7 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
         _pluginManager = pluginManager;
 
         _config = _store.Load();
-        CoreChannel          = string.IsNullOrWhiteSpace(_config.Core.Channel) ? "stable" : _config.Core.Channel;
+        CoreChannel          = string.IsNullOrWhiteSpace(_config.Core.Channel) ? "beta" : _config.Core.Channel;
         CoreInstalledVersion = (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly())
                                    .GetName().Version?.ToString() ?? "(unknown)";
 

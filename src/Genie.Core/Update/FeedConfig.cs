@@ -35,8 +35,11 @@ public sealed class CoreFeed
     public string Owner        { get; set; } = "GenieClient";
     public string Repo         { get; set; } = "Genie5";
 
-    /// <summary>Release channel — <c>"stable"</c> or <c>"beta"</c>. Beta = GitHub releases marked prerelease.</summary>
-    public string Channel      { get; set; } = "stable";
+    /// <summary>Release channel — <c>"stable"</c> or <c>"beta"</c>. Beta = GitHub releases marked prerelease.
+    /// Defaults to <c>"beta"</c> during the alpha/beta period: every shipped build is a GitHub
+    /// prerelease, so a <c>"stable"</c> default would never surface an update. Flip back to
+    /// <c>"stable"</c> at the 5.0.0 GA release (when a non-prerelease exists to track).</summary>
+    public string Channel      { get; set; } = "beta";
 
     /// <summary>
     ///   Asset filename pattern. Supports <c>{os}</c> (win/osx/linux) and

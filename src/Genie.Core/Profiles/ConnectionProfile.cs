@@ -1,3 +1,5 @@
+using Genie.Core.Connection;
+
 namespace Genie.Core.Profiles;
 
 public sealed class ConnectionProfile
@@ -11,6 +13,16 @@ public sealed class ConnectionProfile
     public string Host            { get; set; } = string.Empty;
     public int    Port            { get; set; } = 4000;
     public bool   AutoConnect     { get; set; }
+
+    /// <summary>
+    /// How this profile reaches the game. <see cref="ConnectionMode.DirectSGE"/>
+    /// (default) authenticates via eaccess.play.net using the account/password
+    /// fields; <see cref="ConnectionMode.LichProxy"/> ignores credentials and
+    /// connects straight to <see cref="Host"/>:<see cref="Port"/> where a
+    /// locally-running Lich 5 proxy has already authenticated. Serialized as a
+    /// number; older profiles without the field deserialize to DirectSGE (0).
+    /// </summary>
+    public ConnectionMode Mode    { get; set; } = ConnectionMode.DirectSGE;
     // AES-GCM encrypted, base64: nonce(12) + tag(16) + ciphertext
     public string EncryptedPassword { get; set; } = string.Empty;
 
@@ -29,4 +41,18 @@ public sealed class ConnectionProfile
     /// fall back to the global default, then the built-in layout.
     /// </summary>
     public string DefaultLayoutName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional per-profile data root. When set, this profile's data (its
+    /// Config / Scripts / Maps / Plugins / Logs / Layouts) lives under this
+    /// folder instead of the default location (per-user AppData, or beside the
+    /// exe in portable mode). Lets a user keep one character on a synced drive
+    /// or USB stick and another local. Empty = use the default root.
+    /// <para>
+    /// The master profile list (<c>profiles.json</c>) and global app settings
+    /// always stay in the default root — they have to, since that's where the
+    /// app reads this override from in the first place.
+    /// </para>
+    /// </summary>
+    public string DataDirectory { get; set; } = string.Empty;
 }

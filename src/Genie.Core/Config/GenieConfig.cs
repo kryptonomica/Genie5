@@ -44,6 +44,23 @@ public sealed class GenieConfig
     public string ServerActivityCommand { get; set; } = "fatigue";
     public int UserActivityTimeout { get; set; } = 300;
     public string UserActivityCommand { get; set; } = "quit";
+
+    /// <summary>
+    /// Optional safeguard for click-to-walk / <c>#goto</c> traversal: when
+    /// <c>true</c>, an in-progress auto-walk pauses itself after the window
+    /// has been unfocused for <see cref="AutoWalkUnfocusSeconds"/> seconds
+    /// (the user clicks Resume to continue). <strong>Default OFF</strong> —
+    /// DR's Scripting Policy asks players to be *responsive to the game*, not
+    /// to keep the client window focused, so this is purely opt-in for users
+    /// who want an extra idle backstop. Genie's job is to be a good frontend;
+    /// staying within policy is the player's call.
+    /// </summary>
+    public bool AutoWalkPauseOnUnfocus { get; set; }
+
+    /// <summary>Seconds of window-unfocus before <see cref="AutoWalkPauseOnUnfocus"/>
+    /// pauses an active auto-walk. Minimum 60; only consulted when the toggle
+    /// is on.</summary>
+    public int AutoWalkUnfocusSeconds { get; set; } = 60;
     public double RoundTimeOffset { get; set; }
     public bool ShowLinks { get; set; } = true;
     public bool ShowImages { get; set; } = true;
@@ -81,8 +98,18 @@ public sealed class GenieConfig
 
     public string ScriptDir => _localDirectory.Current.ResolvePath(ScriptDirRaw);
     public string SoundDir => _localDirectory.Current.ResolvePath(SoundDirRaw);
-    public string PluginDir => _localDirectory.Current.ResolvePath(PluginDirRaw);
-    public string MapDir => _localDirectory.Current.ResolvePath(MapDirRaw);
+
+    /// <summary>
+    /// Maps and Plugins are shared resources — community map data and installed
+    /// plugin binaries — so they always resolve against the shared root, even
+    /// when a profile uses its own per-profile data folder. This keeps one copy
+    /// for every profile instead of an empty folder per override. See
+    /// <see cref="Runtime.LocalDirectoryService.Shared"/>.
+    /// </summary>
+    public string MapDir => _localDirectory.Shared.ResolvePath(MapDirRaw);
+
+    /// <inheritdoc cref="MapDir"/>
+    public string PluginDir => _localDirectory.Shared.ResolvePath(PluginDirRaw);
     public string ConfigDir => _localDirectory.Current.ResolvePath(ConfigDirRaw);
     public string ConfigProfileDir => _localDirectory.Current.ResolvePath(ProfileConfigDirRaw);
     public string LogDir => _localDirectory.Current.ResolvePath(LogDirRaw);
@@ -215,6 +242,8 @@ public sealed class GenieConfig
                 $"#config {{servertimeoutcommand}} {{{ServerActivityCommand}}}",
                 $"#config {{usertimeout}} {{{UserActivityTimeout}}}",
                 $"#config {{usertimeoutcommand}} {{{UserActivityCommand}}}",
+                $"#config {{autowalkpauseonunfocus}} {{{AutoWalkPauseOnUnfocus}}}",
+                $"#config {{autowalkunfocusseconds}} {{{AutoWalkUnfocusSeconds}}}",
                 $"#config {{showlinks}} {{{ShowLinks}}}",
                 $"#config {{showimages}} {{{ShowImages}}}",
                 $"#config {{weblinksafety}} {{{WebLinkSafety}}}",
@@ -298,6 +327,10 @@ public sealed class GenieConfig
                 case "usertimeout": UserActivityTimeout = (int)UtilityCore.StringToDouble(value); break;
                 case "servertimeoutcommand": ServerActivityCommand = value; break;
                 case "usertimeoutcommand": UserActivityCommand = value; break;
+                case "autowalkpauseonunfocus": AutoWalkPauseOnUnfocus = ToBool(value); break;
+                case "autowalkunfocusseconds":
+                    AutoWalkUnfocusSeconds = Math.Max(60, (int)UtilityCore.StringToDouble(value));
+                    break;
                 case "connectscript": ConnectScript = value; break;
                 case "autoupdate": AutoUpdate = ToBool(value); Notify(ConfigFieldUpdated.AutoUpdate); break;
                 case "autoupdatelamp": AutoUpdateLamp = ToBool(value); Notify(ConfigFieldUpdated.AutoUpdateLamp); break;

@@ -48,7 +48,7 @@ All of this data stays on your machine. Uninstalling Genie 5 and deleting its
 
 Genie 5 does not share data with any third party. Your interactions with Simutronics'
 servers are governed by [Simutronics' own policies](https://www.play.net/) and the
-[DragonRealms Allowed Software policy](https://elanthipedia.play.net/DragonRealms_Policy:_Allowed_Software).
+[DragonRealms Scripting Policy](https://elanthipedia.play.net/Policy:Scripting_policy).
 If you enable the optional AI advisor, the AI vendor's terms apply to the filtered
 context you choose to send.
 

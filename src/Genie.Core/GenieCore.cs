@@ -55,7 +55,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// <summary>Plugin-API contract version (bumped only on a breaking change
     /// to <see cref="Genie.Plugins.IGeniePlugin"/> / <see cref="Genie.Plugins.IPluginHost"/>).</summary>
     public const int PluginInterfaceVersion = 1;
-    private const string HostVersionString  = "5.0.0-alpha.3.2";
+    private const string HostVersionString  = "5.0.0-alpha.3.4";
 
     // ── Network / parser layer ─────────────────────────────────────────────────
     private readonly GameConnection    _connection;
@@ -172,6 +172,13 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
         // ── Config (loaded early so it can influence the network handshake) ────
         _localDir = new LocalDirectoryService("Genie5", AppContext.BaseDirectory);
+
+        // Per-profile data root: if this connection's profile specified its own
+        // folder, repoint the data root BEFORE loading settings so everything
+        // (settings.cfg, Scripts, Maps, …) resolves under it.
+        if (!string.IsNullOrWhiteSpace(cfg.DataDirectoryOverride))
+            _localDir.UseExplicitRoot(cfg.DataDirectoryOverride);
+
         Config    = new GenieConfig(_localDir);
         Config.Load();
 
@@ -570,6 +577,26 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// save / load / edit / get / set subforms against <c>DisplaySettings</c>.
     /// </summary>
     public event Action<string>? ConfigCommandRequested;
+
+    void ICommandHost.MapperGoto(string args)
+    {
+        // Mapper room resolution + the attended walk live in the App layer;
+        // forward the raw destination argument. Console builds with no handler
+        // just get a diagnostic (no UI mapper to drive).
+        if (MapperGotoRequested is null)
+            EchoLine?.Invoke("[goto] no mapper host wired (Console build).");
+        else
+            MapperGotoRequested.Invoke(args);
+    }
+
+    /// <summary>
+    /// Raised by <c>#goto</c> / <c>#go2</c> from the command bar or a script.
+    /// Carries the raw destination argument (numeric id, note label, or title
+    /// text). The App resolves it against the active zone and starts an
+    /// attended, RT-gated walk — the typed/scripted equivalent of clicking a
+    /// room in the Mapper.
+    /// </summary>
+    public event Action<string>? MapperGotoRequested;
 
     // ── IPluginHost (explicit — avoids name clashes with ICommandHost.Echo,
     //    the public State (GameState) and Variables (VariableEngine)) ──────────
