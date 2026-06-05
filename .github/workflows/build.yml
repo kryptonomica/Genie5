@@ -33,14 +33,16 @@ jobs:
       - name: Build Genie.App (Release)
         run: dotnet build src/Genie.App/Genie.App.csproj -c Release --no-restore
 
-      # Build every project in the solution — crucially the loadable plugins
-      # (Plugin_EXPTrackerV5, Plugin_InventoryViewV5), which are NOT referenced
-      # by Genie.App and so were never compiled by the per-project steps above.
-      # Without this, a broken plugin — or a .slnx referencing a project whose
-      # files weren't committed — slips past the build (only `dotnet restore`
-      # would catch the latter, and nothing the former). --no-restore: restore
-      # already ran on the solution above.
-      - name: Build full solution incl. plugins (Release)
+      # Build the solution (Core + App + the plugin contract assembly). The
+      # loadable plugins (EXPTracker / InventoryView / SpellTimer) are
+      # DELIBERATELY NOT part of this build — they live in their own standalone
+      # repos under github.com/GenieClient and are validated by their own CI.
+      # The Core build must never depend on them. For development they are built
+      # from local clones and dropped into the Plugins folder via
+      # scripts/deploy-plugins.ps1; at runtime PluginManager loads them as DLLs.
+      # This step still catches a .slnx referencing a project whose files weren't
+      # committed (restore would fail). --no-restore: restore already ran above.
+      - name: Build solution (Release)
         run: dotnet build Genie.slnx -c Release --no-restore
 
       # The Profiles/ folder was silently shadowed by an over-broad
