@@ -51,6 +51,21 @@ public sealed class DisplaySettings : ReactiveObject
     [Reactive] public bool   ShowStatusBar { get; set; } = true;
 
     /// <summary>
+    /// Windowed (MDI) document mode — every panel becomes a free-floating
+    /// child window inside the main window, à la Genie 4, instead of the
+    /// tabbed/docked layout.
+    /// <para>
+    /// Deliberately <see cref="JsonIgnore"/>: the mode is NOT auto-persisted
+    /// across restarts. It's session/layout state only — fresh launches start
+    /// tabbed, and the windowed choice (with its per-window geometry) rides on
+    /// a saved <see cref="SavedLayout"/> instead. Loading a layout sets this;
+    /// the Window-menu toggle flips it for the current session.
+    /// </para>
+    /// </summary>
+    [JsonIgnore]
+    [Reactive] public bool   WindowedMode { get; set; }
+
+    /// <summary>
     /// Name of the global layout preset auto-applied on connect when the
     /// connected profile has no <c>DefaultLayoutName</c> of its own (and for
     /// bare-credential connections). Empty means no global default — fall back

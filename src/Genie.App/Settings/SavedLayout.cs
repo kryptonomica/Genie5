@@ -41,6 +41,21 @@ public sealed class SavedLayout
     public double WindowWidth  { get; set; } = 1280;
     public double WindowHeight { get; set; } = 800;
 
+    /// <summary>Main-window position (DIPs). Only meaningful when
+    /// <see cref="HasWindowGeometry"/> is true.</summary>
+    public int  WindowX { get; set; }
+    public int  WindowY { get; set; }
+
+    /// <summary>Whether the main window was maximized when the layout was saved.
+    /// Wins over size on restore (we just re-maximize).</summary>
+    public bool WindowMaximized { get; set; }
+
+    /// <summary>True once a layout has actually captured the main-window
+    /// geometry. Layouts saved before window geometry rode on the profile leave
+    /// this false, so applying them leaves the current window size untouched
+    /// instead of snapping to the 1280×800 defaults at (0,0).</summary>
+    public bool HasWindowGeometry { get; set; }
+
     // ── Dock-tool visibility ───────────────────────────────────────────
 
     /// <summary>String IDs of every tool that should be visible in the
@@ -58,6 +73,16 @@ public sealed class SavedLayout
     /// just which tools are visible). Null for layouts saved before this
     /// feature; those fall back to <see cref="VisibleTools"/>.</summary>
     public Docking.DockNodeSnapshot? DockTree { get; set; }
+
+    /// <summary>Whether this layout was saved in windowed (MDI) document mode.
+    /// On load, the app switches to that mode before rebuilding — so a layout
+    /// saved in windowed mode reopens windowed, not tabbed.</summary>
+    public bool WindowedMode { get; set; }
+
+    /// <summary>Per-window MDI geometry (position/size/state), keyed by panel
+    /// id. Only populated for <see cref="WindowedMode"/> layouts; restores each
+    /// floating window where it was when the layout was saved.</summary>
+    public Dictionary<string, MdiWindowBounds>? MdiBounds { get; set; }
 
     // ── Cross-cutting display flags ────────────────────────────────────
 
@@ -82,6 +107,13 @@ public sealed class SavedLayout
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        // Dock leaves a ProportionalDock's Proportion at double.NaN to mean
+        // "auto / equal share". The DockTree snapshot captures that verbatim,
+        // and System.Text.Json rejects NaN/Infinity unless told otherwise —
+        // which crashed "Save Layout" (the snapshot legitimately contains NaN).
+        // Allow the named literals so NaN round-trips and auto-sized docks stay
+        // auto-sized; used for both serialize and deserialize (shared options).
+        NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
     };
 
     public string ToJson() => JsonSerializer.Serialize(this, JsonOpts);

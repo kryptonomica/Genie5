@@ -16,6 +16,11 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
     {
         InitializeComponent();
 
+        // Main-window size/position is no longer auto-restored on startup — the
+        // app always opens at the XAML default size. Geometry now rides on a
+        // saved layout profile (captured/applied via the VM's
+        // CaptureWindowGeometry / ApplyWindowGeometry bridge, wired below).
+
         // Ctrl+Right-Click on selected game text → append selection to the
         // command bar. Window-level handler so the gesture works regardless of
         // which docked panel currently shows the SelectableTextBlock (main game
@@ -49,6 +54,33 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
 
         this.WhenActivated(d =>
         {
+            // Bridge the main-window geometry to the VM so a saved layout can
+            // capture/restore it (size, position, maximized). The VM owns no
+            // Window reference, so it calls back through these hooks.
+            ViewModel!.CaptureWindowGeometry = () =>
+            {
+                var maximized = WindowState == WindowState.Maximized;
+                return (Bounds.Width, Bounds.Height, Position.X, Position.Y, maximized);
+            };
+            ViewModel!.ApplyWindowGeometry = (w, h, x, y, maximized) =>
+            {
+                if (maximized)
+                {
+                    WindowState = WindowState.Maximized;
+                    return;
+                }
+                WindowState = WindowState.Normal;
+                if (w >= 400) Width  = w;
+                if (h >= 300) Height = h;
+                // Only restore position if it looks sane (guards against a
+                // window stranded off-screen after a monitor change).
+                if (x > -50 && y > -50 && x < 20000 && y < 20000)
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Position = new PixelPoint(x, y);
+                }
+            };
+
             d(ViewModel!.ShowConnectDialog.RegisterHandler(async ctx =>
             {
                 // Pass the previous session's actual config so the dialog
@@ -209,6 +241,8 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         base.OnClosing(e);
+        // Window geometry + windowed-mode layout are no longer auto-saved on
+        // close — they persist only when the user saves a layout profile.
         if (e.Cancel)            return;   // something upstream already vetoed
         if (_closeConfirmed)     return;   // second pass after user said Yes
         if (ViewModel?.IsConnected != true) return;

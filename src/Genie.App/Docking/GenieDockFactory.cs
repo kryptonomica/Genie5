@@ -3,8 +3,8 @@ using Avalonia.Media;
 using Dock.Avalonia.Controls;
 using Dock.Model.Controls;
 using Dock.Model.Core;
-using Dock.Model.ReactiveUI;
-using Dock.Model.ReactiveUI.Controls;
+using Dock.Model.Mvvm;
+using Dock.Model.Mvvm.Controls;
 using Genie.App.ViewModels;
 
 namespace Genie.App.Docking;
@@ -46,6 +46,11 @@ public class GenieDockFactory : Factory
     /// unreliable because Dock.Avalonia may reinstantiate during layout init.
     /// </summary>
     private IRootDock? _root;
+
+    /// <summary>The live MDI <see cref="DocumentDock"/> while in windowed mode
+    /// (null in tabbed mode). Its <c>VisibleDockables</c> is the set of windows
+    /// currently OPEN — used to persist/restore which windows the user closed.</summary>
+    private DocumentDock? _mdiDock;
 
     /// <summary>
     /// "Last known location" for every registered tool. Captures enough
@@ -174,6 +179,8 @@ public class GenieDockFactory : Factory
         var whispers = new StreamTool      (_vm.StreamTabs.Whispers, ws.Get("whispers"));
         var thoughts = new StreamTool      (_vm.StreamTabs.Thoughts, ws.Get("thoughts"));
         var combat   = new StreamTool      (_vm.StreamTabs.Combat,   ws.Get("combat"));
+        var log      = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
+        var itemlog  = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool(_vm.Experience,          ws.Get("experience"));
 
         // ── Default ship layout — three vertical columns ─────────────────
@@ -231,7 +238,7 @@ public class GenieDockFactory : Factory
             Id               = "streams",
             Alignment        = Alignment.Bottom,
             Proportion       = 0.65,
-            VisibleDockables = CreateList<IDockable>(logons, talk, whispers, thoughts, combat),
+            VisibleDockables = CreateList<IDockable>(logons, talk, whispers, thoughts, combat, log, itemlog),
             ActiveDockable   = combat   // matches screenshot default — Combat tab active
         };
 
@@ -302,6 +309,8 @@ public class GenieDockFactory : Factory
         _tools[whispers.Id] = (whispers, streamDock.Id);
         _tools[thoughts.Id] = (thoughts, streamDock.Id);
         _tools[combat.Id]   = (combat,   streamDock.Id);
+        _tools[log.Id]      = (log,      streamDock.Id);
+        _tools[itemlog.Id]  = (itemlog,  streamDock.Id);
         // Experience: registered but hidden by default (like Vitals) — re-opens
         // beside the Backpack via Window → Experience. The plugin fills it.
         _tools[experience.Id] = (experience, backpackDock.Id);
@@ -325,6 +334,184 @@ public class GenieDockFactory : Factory
             _tools[id] = (tool, backpackDock.Id);
 
         return root;
+    }
+
+    /// <summary>
+    /// Windowed (MDI) layout — every panel is a free-floating child window
+    /// inside a single MDI <see cref="DocumentDock"/> (Genie 4 "windowed
+    /// mode"). Requires Dock 11.3.9+ (<see cref="DocumentLayoutMode.Mdi"/>).
+    /// Panel instances and their DataTemplates are identical to
+    /// <see cref="CreateLayout"/>; only the container differs, so the Window
+    /// menu, per-window settings, and float/visibility plumbing all carry over.
+    /// </summary>
+    /// <param name="visibleIds">Panel ids to open as windows. Null = the
+    /// default set. When restoring a saved layout this is the set that was open
+    /// when it was saved, so windows the user had closed stay closed.</param>
+    public IRootDock CreateMdiLayout(IReadOnlyCollection<string>? visibleIds = null)
+    {
+        // Host-window locator is harmless in MDI mode (children are in-window,
+        // not OS windows) but a panel can still be floated out to a real
+        // window, so keep it wired exactly as the tabbed path does.
+        HostWindowLocator = new Dictionary<string, Func<IHostWindow?>>
+        {
+            [nameof(IDockWindow)] = () => new HostWindow
+            {
+                Background            = new SolidColorBrush(Color.FromRgb(0x1f, 0x1f, 0x1f)),
+                TransparencyLevelHint = new[] { WindowTransparencyLevel.None },
+            }
+        };
+
+        var ws         = _vm.WindowSettings;
+        var gameText   = new GameTextDocument(_vm.GameText,           ws.Get("game-text"));
+        var vitals     = new VitalsTool      (_vm.Vitals,             ws.Get("vitals"));
+        var room       = new RoomTool        (_vm.Room,               ws.Get("room"));
+        var backpack   = new BackpackTool    (_vm.Inventory,          ws.Get("backpack"));
+        var mapper     = new MapperTool      (_vm.Mapper,             ws.Get("mapper"));
+        var logons     = new StreamTool      (_vm.StreamTabs.Logons,   ws.Get("logons"));
+        var talk       = new StreamTool      (_vm.StreamTabs.Talk,     ws.Get("talk"));
+        var whispers   = new StreamTool      (_vm.StreamTabs.Whispers, ws.Get("whispers"));
+        var thoughts   = new StreamTool      (_vm.StreamTabs.Thoughts, ws.Get("thoughts"));
+        var combat     = new StreamTool      (_vm.StreamTabs.Combat,   ws.Get("combat"));
+        var log        = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
+        var itemlog    = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
+        var experience = new ExperienceTool  (_vm.Experience,          ws.Get("experience"));
+
+        // Every MDI panel in canonical order, paired with its id.
+        var panels = new (string Id, IDockable Dockable)[]
+        {
+            ("game-text", gameText), ("room", room), ("mapper", mapper), ("backpack", backpack),
+            ("logons", logons), ("talk", talk), ("whispers", whispers), ("thoughts", thoughts),
+            ("combat", combat), ("log", log), ("itemlog", itemlog),
+            ("vitals", vitals), ("experience", experience),
+        };
+
+        // Which panels open as windows. Default mirrors the tabbed layout
+        // (Vitals + Experience stay registered-but-hidden).
+        var defaultVisible = new[]
+        {
+            "game-text", "room", "mapper", "backpack",
+            "logons", "talk", "whispers", "thoughts", "combat", "log", "itemlog",
+        };
+        var show = new HashSet<string>(
+            visibleIds is { Count: > 0 } ? visibleIds : defaultVisible,
+            StringComparer.OrdinalIgnoreCase);
+
+        var visibleDockables = panels.Where(p => show.Contains(p.Id))
+                                     .Select(p => p.Dockable).ToArray();
+        if (visibleDockables.Length == 0)        // never leave the MDI dock empty
+            visibleDockables = new IDockable[] { gameText };
+        var active = visibleDockables.FirstOrDefault(
+                         d => string.Equals(d.Id, "game-text", StringComparison.OrdinalIgnoreCase))
+                     ?? visibleDockables[0];
+
+        var mdiDock = new DocumentDock
+        {
+            Id                = "mdi",
+            Title             = "Windows",
+            IsCollapsable     = false,
+            CanCreateDocument = false,
+            LayoutMode        = DocumentLayoutMode.Mdi,
+            VisibleDockables  = CreateList<IDockable>(visibleDockables),
+            ActiveDockable    = active,
+        };
+        _mdiDock = mdiDock;
+
+        var rootLayout = new ProportionalDock
+        {
+            Id               = "root-layout",
+            Orientation      = Orientation.Horizontal,
+            IsCollapsable    = false,
+            VisibleDockables = CreateList<IDockable>(mdiDock),
+        };
+
+        var root = CreateRootDock();
+        root.Id               = "root";
+        root.IsCollapsable    = false;
+        root.VisibleDockables = CreateList<IDockable>(rootLayout);
+        root.ActiveDockable   = rootLayout;
+        root.DefaultDockable  = rootLayout;
+        _root                 = root;
+
+        // Registry for Window-menu visibility toggles — ALL panels are
+        // registered (so a closed/hidden one can be re-opened from the menu),
+        // even though only the `show` set starts visible. No nested home docks
+        // in MDI mode.
+        _tools.Clear();
+        foreach (var p in panels)
+            _tools[p.Id] = (p.Dockable, mdiDock.Id);
+        _dockHomes.Clear();
+
+        foreach (var (id, tool) in _pluginWindowTools)
+            _tools[id] = (tool, mdiDock.Id);
+
+        return root;
+    }
+
+    /// <summary>Build + initialise the MDI layout, ready to assign to the
+    /// DockControl. MDI counterpart of <see cref="BuildDefaultLayout"/>.
+    /// <paramref name="savedBounds"/> (if any) restores each child window's
+    /// last position/size/state.</summary>
+    public IRootDock BuildMdiLayout(
+        IReadOnlyDictionary<string, Settings.MdiWindowBounds>? savedBounds = null)
+    {
+        // The saved geometry keys are exactly the windows that were open, so
+        // restore opens only those (closed windows stay closed).
+        var visibleIds = savedBounds is { Count: > 0 } ? savedBounds.Keys.ToList() : null;
+        var root = CreateMdiLayout(visibleIds);
+        InitLayout(root);
+        if (savedBounds is { Count: > 0 }) ApplyMdiBounds(savedBounds);
+        CaptureAllPositions();
+        return root;
+    }
+
+    // ── Windowed-mode (MDI) per-window geometry ────────────────────────────
+    // Every dockable in Dock.Model.Mvvm (Tool AND Document) implements
+    // IMdiDocument, so each floating panel carries its own MdiBounds/MdiState.
+
+    /// <summary>Read the current MDI geometry of every panel that has a
+    /// non-empty rect. Called before leaving windowed mode and on app close
+    /// so positions survive restarts.</summary>
+    public Dictionary<string, Settings.MdiWindowBounds> CaptureMdiBounds()
+    {
+        var result = new Dictionary<string, Settings.MdiWindowBounds>();
+        // Iterate the MDI dock's live VisibleDockables — i.e. only the windows
+        // currently OPEN. A panel the user closed is no longer here, so it
+        // isn't recorded and won't be re-opened on restore. (Iterating _tools
+        // would also capture closed panels' stale bounds.)
+        if (_mdiDock?.VisibleDockables is not { } open) return result;
+        foreach (var dockable in open)
+        {
+            if (dockable is Dock.Model.Controls.IMdiDocument mdi &&
+                dockable.Id is { Length: > 0 } id)
+            {
+                var r = mdi.MdiBounds;
+                // Only capture real, finite rects — a window that was never
+                // realised (or is minimised) can report NaN/Infinity bounds,
+                // which would crash the layout's JSON write.
+                if (double.IsFinite(r.X) && double.IsFinite(r.Y) &&
+                    double.IsFinite(r.Width) && double.IsFinite(r.Height) &&
+                    r.Width > 0 && r.Height > 0)
+                    result[id] = new Settings.MdiWindowBounds(
+                        r.X, r.Y, r.Width, r.Height, mdi.MdiState.ToString());
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Restore saved MDI geometry onto the freshly built panels.</summary>
+    public void ApplyMdiBounds(IReadOnlyDictionary<string, Settings.MdiWindowBounds> bounds)
+    {
+        foreach (var (_, (dockable, _)) in _tools)
+        {
+            if (dockable is Dock.Model.Controls.IMdiDocument mdi &&
+                dockable.Id is { Length: > 0 } id &&
+                bounds.TryGetValue(id, out var b))
+            {
+                mdi.MdiBounds = new Dock.Model.Core.DockRect(b.X, b.Y, b.Width, b.Height);
+                if (Enum.TryParse<Dock.Model.Core.MdiWindowState>(b.State, out var st))
+                    mdi.MdiState = st;
+            }
+        }
     }
 
     // ── Layout snapshot (full-tree round-trip) ─────────────────────────────

@@ -130,6 +130,11 @@
                   IsChecked="{Binding Display.ShowStatusBar}"
                   Command="{Binding ToggleStatusBarCommand}"
                   ToolTip.Tip="Show/hide the Wrayth-style vitals strip at the bottom of the window"/>
+        <MenuItem Header="_Windowed Mode (MDI)"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding Display.WindowedMode, Mode=OneWay}"
+                  Command="{Binding ToggleWindowedModeCommand}"
+                  ToolTip.Tip="Genie 4-style windowed mode: every panel becomes a free-floating child window inside the main window, instead of the tabbed/docked layout. The choice and each window's position/size are remembered."/>
         <MenuItem Header="G_uild in Title Bar"
                   ToggleType="CheckBox"
                   IsChecked="{Binding Display.ShowGuildInTitle}"
@@ -214,6 +219,16 @@
                   ToggleType="CheckBox"
                   IsChecked="{Binding CombatVisible, Mode=OneWay}"
                   Command="{Binding ToggleCombatCommand}"/>
+        <MenuItem Header="Lo_g"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding LogVisible, Mode=OneWay}"
+                  Command="{Binding ToggleLogCommand}"
+                  ToolTip.Tip="Consolidated conversation log — mirrors the Talk and Whispers speech streams. Also the target for script `#echo &gt;log`."/>
+        <MenuItem Header="_Item Log"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding ItemLogVisible, Mode=OneWay}"
+                  Command="{Binding ToggleItemLogCommand}"
+                  ToolTip.Tip="Item / loot log — fed by the server itemLog stream and by script `#echo &gt;itemlog`."/>
 
         <Separator/>
 
@@ -943,14 +958,14 @@
                           Background="Transparent" BorderThickness="0"
                           Foreground="#80a8c0"
                           ToolTip.Tip="Edit this script in the configured editor"
-                          Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ScriptBar.EditScriptCommand}"
+                          Command="{ReflectionBinding $parent[ItemsControl].DataContext.ScriptBar.EditScriptCommand}"
                           CommandParameter="{Binding}"/>
                   <Button Content="✕"
                           FontSize="10" Padding="3,0" MinWidth="0" MinHeight="0"
                           Background="Transparent" BorderThickness="0"
                           Foreground="#d08080"
                           ToolTip.Tip="Stop this script (#stop)"
-                          Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).ScriptBar.StopScriptCommand}"
+                          Command="{ReflectionBinding $parent[ItemsControl].DataContext.ScriptBar.StopScriptCommand}"
                           CommandParameter="{Binding}"/>
                 </StackPanel>
               </Border>

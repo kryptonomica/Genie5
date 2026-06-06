@@ -7,6 +7,17 @@
              x:Class="Genie.App.App"
              RequestedThemeVariant="Dark">
 
+  <!-- Genie 4-style skinned chrome for windowed (MDI) child windows. Overrides
+       the default MdiDocumentWindow ControlTheme from DockFluentTheme, so it
+       must be merged here in Application.Resources. -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Genie/Themes/MdiDocumentWindowSkin.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
     <DockFluentTheme />
@@ -71,6 +82,8 @@
         <ScrollViewer x:Name="gameScroll"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
+                      Width="{Binding $parent[Grid].Bounds.Width}"
+                      Height="{Binding $parent[Grid].Bounds.Height}"
                       controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}">
           <ItemsControl ItemsSource="{Binding ViewModel.Lines}"
                         FontFamily="{Binding ToolFontFamily}"
@@ -586,7 +599,9 @@
       <Grid RowDefinitions="*" Background="{Binding ToolBackground}">
         <ScrollViewer x:Name="backpackScroll"
                       HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto">
+                      VerticalScrollBarVisibility="Auto"
+                      Width="{Binding $parent[Grid].Bounds.Width}"
+                      Height="{Binding $parent[Grid].Bounds.Height}">
           <ItemsControl ItemsSource="{Binding ViewModel.Items}"
                         FontFamily="{Binding ToolFontFamily}"
                         FontSize="{Binding ToolFontSize}"
@@ -610,6 +625,8 @@
         <ScrollViewer x:Name="streamScroll"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
+                      Width="{Binding $parent[Grid].Bounds.Width}"
+                      Height="{Binding $parent[Grid].Bounds.Height}"
                       controls:AutoScrollBehavior.ItemsSource="{Binding Buffer.Lines}">
           <ItemsControl ItemsSource="{Binding Buffer.Lines}"
                         FontFamily="{Binding ToolFontFamily}"

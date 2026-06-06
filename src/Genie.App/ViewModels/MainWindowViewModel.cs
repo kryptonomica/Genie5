@@ -176,6 +176,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
 
     public Interaction<LayoutSavePrompt, LayoutSaveResult?> ShowLayoutSavePrompt   { get; } = new();
     public ReactiveCommand<Unit, Unit>                    ToggleStatusBarCommand   { get; }
+    public ReactiveCommand<Unit, Unit>                    ToggleWindowedModeCommand{ get; }
     public ReactiveCommand<Unit, Unit>                    ToggleGuildInTitleCommand{ get; }
     public ReactiveCommand<Unit, Unit>                    ToggleHandsBarCommand    { get; }
     /// <summary>Window → Hands Strip Position → Top. Snaps the strip to the top of the window.</summary>
@@ -261,6 +262,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool WhispersVisible { get; private set; } = true;
     [Reactive] public bool ThoughtsVisible { get; private set; } = true;
     [Reactive] public bool CombatVisible   { get; private set; } = true;
+    [Reactive] public bool LogVisible      { get; private set; } = true;
+    [Reactive] public bool ItemLogVisible  { get; private set; } = true;
 
     // ── Toggle commands (one per dockable) ───────────────────────────────────
     public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
@@ -274,6 +277,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleWhispersCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleThoughtsCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleCombatCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleLogCommand      { get; }
+    public ReactiveCommand<Unit, Unit> ToggleItemLogCommand  { get; }
 
     // ── Core ──────────────────────────────────────────────────────────────────
 
@@ -315,6 +320,24 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     private readonly string _pathsPath;
     private readonly string _configDir;
     private readonly string _defaultMapsDir;
+
+    /// <summary>
+    /// In-memory MDI geometry held across a Window-menu mode toggle within a
+    /// single session. Captured when leaving windowed mode so toggling back
+    /// restores the floating windows where they were. Deliberately NOT
+    /// persisted to disk — windowed geometry only survives a restart via a
+    /// saved layout (<see cref="SavedLayout.MdiBounds"/>).
+    /// </summary>
+    private Dictionary<string, Settings.MdiWindowBounds>? _mdiBoundsCache;
+
+    // ── Main-window geometry bridge (set by the View) ───────────────────────
+    /// <summary>Set by <c>MainWindow</c>: returns the live window geometry so a
+    /// layout save can capture it. Null until the view wires it up.</summary>
+    public Func<(double Width, double Height, int X, int Y, bool Maximized)>? CaptureWindowGeometry { get; set; }
+
+    /// <summary>Set by <c>MainWindow</c>: applies geometry from a loaded layout
+    /// to the main window. Null until the view wires it up.</summary>
+    public Action<double, double, int, int, bool>? ApplyWindowGeometry { get; set; }
 
     /// <summary>
     /// Directory the <see cref="SessionRecorder"/> writes raw-XML captures to
@@ -480,6 +503,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("whispers",  "Whispers");
         WindowSettings.Register("thoughts",  "Thoughts");
         WindowSettings.Register("combat",    "Combat");
+        WindowSettings.Register("log",       "Log");
+        WindowSettings.Register("itemlog",   "ItemLog");
         WindowSettings.Register("mapper",    "Mapper");
         WindowSettings.Register("experience", "Experience");
 
@@ -531,6 +556,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         };
 
         DockFactory = factory;
+        // Always start in the built-in tabbed layout. The document mode,
+        // window geometry, and MDI window positions are NOT auto-restored from
+        // the last session — they only load when a layout profile is applied
+        // (the Layout menu, or the per-profile / global default layout on
+        // connect via ApplyDefaultLayoutForConnect).
         DockLayout  = factory.BuildDefaultLayout();
 
         // Wire the Mapper's "pop out" button. Done here (after factory exists)
@@ -788,6 +818,27 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             Display.Save(_displayPath);
         });
 
+        // Switch between tabbed/docked and windowed (MDI) document modes.
+        // Rebuilds the dock layout from scratch — the panel view-models are
+        // reused, only the container tree changes — then re-syncs the
+        // Window-menu check marks against the freshly built tree.
+        ToggleWindowedModeCommand = ReactiveCommand.Create(() =>
+        {
+            if (DockFactory is not GenieDockFactory factory) return;
+            // Leaving windowed mode — capture the current window geometry into
+            // the in-memory cache so toggling back restores positions within
+            // this session. (Not written to disk; restart-persistence is via a
+            // saved layout only.)
+            if (Display.WindowedMode)
+                _mdiBoundsCache = factory.CaptureMdiBounds();
+            Display.WindowedMode = !Display.WindowedMode;
+            DockLayout = Display.WindowedMode
+                ? factory.BuildMdiLayout(_mdiBoundsCache)
+                : factory.BuildDefaultLayout();
+            RefreshVisibilityBools();
+            GameText.AddSystemLine($"[layout] {(Display.WindowedMode ? "windowed (MDI)" : "tabbed")} mode");
+        });
+
         ToggleGuildInTitleCommand = ReactiveCommand.Create(() =>
         {
             Display.ShowGuildInTitle = !Display.ShowGuildInTitle;
@@ -925,15 +976,18 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleWhispersCommand = MakeToggleCommand("whispers",  v => WhispersVisible = v);
         ToggleThoughtsCommand = MakeToggleCommand("thoughts",  v => ThoughtsVisible = v);
         ToggleCombatCommand   = MakeToggleCommand("combat",    v => CombatVisible   = v);
+        ToggleLogCommand      = MakeToggleCommand("log",       v => LogVisible      = v);
+        ToggleItemLogCommand  = MakeToggleCommand("itemlog",   v => ItemLogVisible  = v);
 
         ResetLayoutCommand = ReactiveCommand.Create(() =>
         {
             if (DockFactory is not GenieDockFactory factory) return;
-            foreach (var id in new[] { "game-text", "vitals", "room", "backpack", "mapper", "logons", "talk", "whispers", "thoughts", "combat" })
+            foreach (var id in new[] { "game-text", "vitals", "room", "backpack", "mapper", "logons", "talk", "whispers", "thoughts", "combat", "log", "itemlog" })
                 factory.SetToolVisibility(id, true);
 
             GameVisible   = VitalsVisible   = RoomVisible    = BackpackVisible = MapperVisible = true;
             LogonsVisible = TalkVisible     = WhispersVisible = ThoughtsVisible = CombatVisible = true;
+            LogVisible    = ItemLogVisible  = true;
         });
 
         DisconnectCommand = ReactiveCommand.CreateFromTask(
@@ -1494,6 +1548,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("whispers",  factory.IsToolVisible("whispers"));
         SetVisibilityBool("thoughts",  factory.IsToolVisible("thoughts"));
         SetVisibilityBool("combat",    factory.IsToolVisible("combat"));
+        SetVisibilityBool("log",       factory.IsToolVisible("log"));
+        SetVisibilityBool("itemlog",   factory.IsToolVisible("itemlog"));
     }
 
     // ── Plugin-created windows ───────────────────────────────────────────────
@@ -1516,6 +1572,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             "experience", "main", "game", "game-text", "room", "vitals",
             "backpack", "mapper", "scripts",
             "logons", "talk", "whispers", "thoughts", "combat",
+            "log", "itemlog",
         };
 
     private static bool IsReservedWindow(string? name)
@@ -1544,6 +1601,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // not re-open it on every line if the user closed it.
         core.EchoToWindow += (text, window, _) =>
         {
+            // First-class log windows: route #echo >log / >itemlog to the
+            // built-in stream panels instead of auto-creating a plugin window.
+            var w = window?.Trim().ToLowerInvariant();
+            if (w is "log" or "itemlog")
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                    (w == "log" ? StreamTabs.Log : StreamTabs.ItemLog).Add(text));
+                return;
+            }
             if (IsReservedWindow(window)) return;
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
@@ -1774,6 +1840,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "whispers":  ForceSet(visible, v => WhispersVisible = v, () => WhispersVisible); break;
             case "thoughts":  ForceSet(visible, v => ThoughtsVisible = v, () => ThoughtsVisible); break;
             case "combat":    ForceSet(visible, v => CombatVisible   = v, () => CombatVisible);   break;
+            case "log":       ForceSet(visible, v => LogVisible      = v, () => LogVisible);      break;
+            case "itemlog":   ForceSet(visible, v => ItemLogVisible  = v, () => ItemLogVisible);  break;
         }
 
         static void ForceSet(bool target, Action<bool> set, Func<bool> get)
@@ -2124,7 +2192,21 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             ShowEchoText          = Display.ShowEchoText,
             ShowScriptText        = Display.ShowScriptText,
             MapBackgroundHex      = Display.MapBackgroundHex,
+            WindowedMode          = Display.WindowedMode,
         };
+
+        // Main-window geometry — captured from the View (if it has wired the
+        // bridge) so window size/position/maximized ride on the layout profile.
+        if (CaptureWindowGeometry is { } capture)
+        {
+            var g = capture();
+            layout.WindowWidth     = g.Width;
+            layout.WindowHeight    = g.Height;
+            layout.WindowX         = g.X;
+            layout.WindowY         = g.Y;
+            layout.WindowMaximized = g.Maximized;
+            layout.HasWindowGeometry = true;
+        }
 
         // Visible-tool list — walk the dock factory's known tools and
         // record which ones are currently in the dock tree. The factory
@@ -2143,6 +2225,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             // alignments, active tabs, container structure), so loading the
             // layout restores the visual arrangement, not just visibility.
             layout.DockTree = factory.CaptureLayout();
+
+            // In windowed mode the tree snapshot isn't the arrangement — the
+            // per-window MDI geometry is. Capture it so the layout reopens with
+            // each floating window where it was.
+            if (Display.WindowedMode)
+                layout.MdiBounds = factory.CaptureMdiBounds();
         }
         return layout;
     }
@@ -2167,11 +2255,32 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Display.ShowScriptText         = layout.ShowScriptText;
         if (!string.IsNullOrWhiteSpace(layout.MapBackgroundHex))
             Display.MapBackgroundHex   = layout.MapBackgroundHex;
+        // Switch document mode to match the saved layout BEFORE rebuilding the
+        // dock, so a layout saved in windowed mode reopens windowed (not tabbed).
+        Display.WindowedMode           = layout.WindowedMode;
         Display.Save(_displayPath);
+
+        // Restore the main-window geometry from the layout (only when the
+        // layout actually captured it — older layouts leave the window as-is).
+        if (layout.HasWindowGeometry)
+            ApplyWindowGeometry?.Invoke(
+                layout.WindowWidth, layout.WindowHeight,
+                layout.WindowX, layout.WindowY, layout.WindowMaximized);
 
         if (DockFactory is Docking.GenieDockFactory factory)
         {
-            if (layout.DockTree is not null)
+            if (layout.WindowedMode)
+            {
+                // Windowed (MDI): the dock-tree snapshot doesn't capture MDI
+                // arrangement — the per-window geometry does. Prefer the
+                // layout's own saved geometry, falling back to the in-session
+                // cache (null is fine — BuildMdiLayout cascades from defaults).
+                var bounds = layout.MdiBounds is { Count: > 0 }
+                    ? layout.MdiBounds
+                    : _mdiBoundsCache;
+                DockLayout = factory.BuildMdiLayout(bounds);
+            }
+            else if (layout.DockTree is not null)
             {
                 // Authoritative path: rebuild the whole tree from the snapshot
                 // and swap it into the bound DockControl. Restores proportions,
@@ -2191,6 +2300,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 foreach (var id in factory.ToolIds)
                     factory.SetToolVisibility(id, wanted.Contains(id));
             }
+            RefreshVisibilityBools();
         }
     }
 
