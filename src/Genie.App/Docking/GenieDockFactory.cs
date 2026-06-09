@@ -215,6 +215,16 @@ public class GenieDockFactory : Factory
         {
             Id               = "center-col",
             Orientation      = Orientation.Vertical,
+            Proportion       = 0.56,   // 1.0 - leftCol(0.22) - backpackDock(0.22).
+                                       // Without this, Dock.Avalonia treats centerCol as
+                                       // "fill the remainder" but the resulting Grid* on
+                                       // the column lacks a concrete star-weight, which
+                                       // (a) leaves the horizontal splitters between
+                                       // leftCol↔centerCol and centerCol↔backpackDock
+                                       // un-draggable (no redistribution math to run), and
+                                       // (b) makes Maximize→Restore redistribute the
+                                       // recovered pixels unevenly because there's nothing
+                                       // anchoring the centre column's share.
             IsCollapsable    = false,
             VisibleDockables = CreateList<IDockable>(
                 documentDock,
@@ -1064,7 +1074,16 @@ public class GenieDockFactory : Factory
         // Walk the tree to find this dockable's parent + grandparent rather
         // than relying on Dockable.Owner being set.
         if (FindParentInTree(_root, dockable) is not IDock parent) return;
-        if (string.IsNullOrEmpty(parent.Id)) return;
+
+        // Drag-redock creates fresh ToolDock / ProportionalDock containers
+        // with empty Id. Earlier this branch returned silently — which left
+        // _lastKnownPositions stuck on the LAST recognised parent (the
+        // original home), so a "drag Mapper to a new column → close it →
+        // reopen via Window menu" cycle restored to the original home
+        // instead of the new spot. Stamping a stable synthetic Id keeps
+        // both Stage 0a (parent in tree) and Stage 0b (rebuild from
+        // grandparent) viable across the drag-close-reopen cycle.
+        EnsureStableId(parent);
         var idx = parent.VisibleDockables?.IndexOf(dockable) ?? -1;
 
         string?      grandparentId          = null;
@@ -1073,9 +1092,14 @@ public class GenieDockFactory : Factory
         int          idxInGrandparent       = -1;
         string?      anchorSiblingId        = null;
         Orientation? grandparentOrientation = null;
-        if (FindParentInTree(_root, parent) is IDock grand
-            && !string.IsNullOrEmpty(grand.Id))
+        if (FindParentInTree(_root, parent) is IDock grand)
         {
+            // Same treatment for the grandparent — when a drag creates a new
+            // ProportionalDock to host the new column, its Id is also empty.
+            // Without this Stage 0b ("rebuild parent inside grandparent")
+            // misses on lookup at restore time even though the grandparent is
+            // still live in the tree.
+            EnsureStableId(grand);
             grandparentId    = grand.Id;
             idxInGrandparent = grand.VisibleDockables?.IndexOf(parent) ?? -1;
             if (parent is IToolDock toolDock)
@@ -1112,6 +1136,23 @@ public class GenieDockFactory : Factory
         _lastKnownPositions[id] = new LastKnownLocation(
             parent.Id, idx, grandparentId, parentAlignment, parentProportion,
             idxInGrandparent, anchorSiblingId, grandparentOrientation);
+    }
+
+    /// <summary>
+    /// Stamp a synthetic stable Id on a dock that Dock.Avalonia spawned with
+    /// an empty Id (drag-redock containers, occasionally a fresh
+    /// ProportionalDock wrapper from a split). Keeps the Id we already
+    /// assigned in <c>CreateLayout</c> intact — the synthetic prefix
+    /// <c>auto-</c> makes it obvious in diagnostics that this container
+    /// wasn't part of the canonical layout. The Id survives for the
+    /// lifetime of the container instance, which is exactly the lifetime we
+    /// need for <see cref="_lastKnownPositions"/> to round-trip a
+    /// drag-close-reopen sequence.
+    /// </summary>
+    private static void EnsureStableId(IDockable dock)
+    {
+        if (string.IsNullOrEmpty(dock.Id))
+            dock.Id = "auto-" + Guid.NewGuid().ToString("N").Substring(0, 12);
     }
 
     /// <summary>
