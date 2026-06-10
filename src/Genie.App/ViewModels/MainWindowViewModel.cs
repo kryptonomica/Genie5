@@ -567,6 +567,18 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // (the Layout menu, or the per-profile / global default layout on
         // connect via ApplyDefaultLayoutForConnect).
         DockLayout  = factory.BuildDefaultLayout();
+        // Out-of-box default: the Mapper floats in its own window rather than
+        // docking at the centre-bottom. Arm the pending-float flag; the window
+        // floats it from MainWindow.OnOpened, once the dock tree + owner window
+        // are live (FloatDockable needs both).
+        //
+        // BUT only for a genuinely fresh setup: if the user has already defined
+        // the Mapper's location in a saved default layout/profile, that layout
+        // owns placement (applied on connect via ApplyDefaultLayoutForConnect) —
+        // don't override it with a float. This is the "keep what the user chose"
+        // rule, and it also removes the float→re-dock flicker for those users.
+        if (!HasUserDefinedDefaultLayout())
+            factory.PendingMapperFloat = true;
 
         // Wire the Mapper's "pop out" button. Done here (after factory exists)
         // because the VM doesn't carry a factory reference itself.
@@ -685,6 +697,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // something" escape hatch.
         ResetLayoutCommand = ReactiveCommand.Create(() =>
         {
+            // Reset is a *default* presentation, so the Mapper should float
+            // (matches first-run). Arm before ApplyLayout — its legacy fallback
+            // rebuilds the default tree — then float once the tree settles.
+            if (DockFactory is GenieDockFactory rf) rf.PendingMapperFloat = true;
             ApplyLayout(new Settings.SavedLayout
             {
                 Name              = "Default",
@@ -701,6 +717,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 ShowScriptText       = true,
             });
             GameText.AddSystemLine("[layout] reset to default");
+            FloatMapperAfterLayout();
         });
 
         // Refresh the menu's "Load ▶" list — called on SubmenuOpened
@@ -840,6 +857,13 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             DockLayout = Display.WindowedMode
                 ? factory.BuildMdiLayout(_mdiBoundsCache)
                 : factory.BuildDefaultLayout();
+            // Returning to tabbed mode presents the default → float the Mapper.
+            // (MDI mode already shows it as its own window, so don't arm there.)
+            if (!Display.WindowedMode)
+            {
+                factory.PendingMapperFloat = true;
+                FloatMapperAfterLayout();
+            }
             RefreshVisibilityBools();
             GameText.AddSystemLine($"[layout] {(Display.WindowedMode ? "windowed (MDI)" : "tabbed")} mode");
         });
@@ -2372,6 +2396,41 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             RefreshVisibilityBools();
         }
     }
+
+    /// <summary>
+    /// Float the Mapper out into its own window iff a default-layout
+    /// presentation armed <see cref="Docking.GenieDockFactory.PendingMapperFloat"/>.
+    /// Called from <c>MainWindow.OnOpened</c> for the startup default, and posted
+    /// after runtime default rebuilds (Reset, leaving windowed mode). No-op when
+    /// the flag isn't armed — e.g. when a saved layout is showing.
+    /// </summary>
+    public void TryFloatPendingMapper()
+    {
+        if (DockFactory is GenieDockFactory f) f.FloatMapperIfPending();
+    }
+
+    /// <summary>
+    /// True when the user has already defined where the Mapper lives by setting
+    /// a default layout — the global default (<see cref="DisplaySettings.GlobalDefaultLayout"/>)
+    /// or any profile's <see cref="ConnectionProfile.DefaultLayoutName"/>. Such a
+    /// layout is applied on connect and owns the Mapper's placement, so the
+    /// startup auto-float is suppressed to honour the user's choice. (Explicit
+    /// "Reset to Default Layout" still floats — that action asks for the factory
+    /// default on purpose.)
+    /// </summary>
+    private bool HasUserDefinedDefaultLayout()
+        => !string.IsNullOrWhiteSpace(Display.GlobalDefaultLayout)
+           || Profiles.Profiles.Any(p => !string.IsNullOrWhiteSpace(p.DefaultLayoutName));
+
+    /// <summary>
+    /// Post <see cref="TryFloatPendingMapper"/> to run after the dock tree has
+    /// settled on the freshly-assigned layout. Used by the runtime rebuild paths
+    /// (Reset to Default, windowed→tabbed) where the window is already shown.
+    /// </summary>
+    private void FloatMapperAfterLayout()
+        => Avalonia.Threading.Dispatcher.UIThread.Post(
+               TryFloatPendingMapper,
+               Avalonia.Threading.DispatcherPriority.Background);
 
     /// <summary>
     /// On connect, apply the appropriate default layout: the profile's own

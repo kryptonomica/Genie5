@@ -204,6 +204,21 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
     }
 
     /// <summary>
+    /// Once the window is shown (so the DockControl is attached and a host
+    /// window can be created), pop the Mapper out into its own floating window
+    /// if the startup default armed it. Posted at Background priority so the
+    /// dock tree has finished initialising before FloatDockable runs. No-op
+    /// when a saved layout is showing (the flag is only armed for the default).
+    /// </summary>
+    protected override void OnOpened(System.EventArgs e)
+    {
+        base.OnOpened(e);
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            () => ViewModel?.TryFloatPendingMapper(),
+            Avalonia.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>
     /// Pull truth from the dock factory just before the Window menu renders so
     /// each check mark reflects the dock's actual state — guards against any
     /// close/move path that didn't trigger a sync event.

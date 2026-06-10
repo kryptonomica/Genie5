@@ -86,6 +86,15 @@ public class MapperViewModel : ReactiveObject
     [Reactive] public string CurrentNotes { get; set; } = "";
 
     /// <summary>
+    /// When <c>true</c>, the auto-hiding Details flyout stays open even when
+    /// the pointer leaves it — toggled by the pin button in the panel header.
+    /// When <c>false</c> (the default) the flyout collapses to a thin
+    /// "DETAILS" strip on the map's right edge and only slides out while
+    /// hovered. Session-only; not persisted.
+    /// </summary>
+    [Reactive] public bool DetailsPinned { get; set; }
+
+    /// <summary>
     /// File-system last-write time of the loaded zone XML. Surfaces in the
     /// Details panel as "Last updated: N days ago" so the user can spot
     /// stale data (a zone from 6 months ago might be missing recently-added

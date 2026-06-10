@@ -272,19 +272,24 @@
           </StackPanel>
         </Border>
 
-        <!-- ── ROW 1: map (left) + Details panel (right) ─────────────── -->
-        <!-- 3-column split: map gets `*` (all remaining width), splitter   -->
-        <!-- is a 4-px drag handle, Details column is 260 px by default but -->
-        <!-- the user can drag the splitter to resize either side or close  -->
-        <!-- the Details column entirely.                                    -->
-        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,260">
+        <!-- ── ROW 1: map + auto-hiding Details flyout ───────────────── -->
+        <!-- Single overlay cell: the map fills the row (less a thin strip  -->
+        <!-- reserved on the right), and the Details panel is an auto-hiding -->
+        <!-- flyout pinned to the right edge. Collapsed it shows a vertical  -->
+        <!-- "DETAILS" strip; hovering the strip (or the open panel) slides  -->
+        <!-- the full panel out OVER the map, and moving the pointer away    -->
+        <!-- auto-hides it again. The pin button in the header keeps it open -->
+        <!-- (ViewModel.DetailsPinned). -->
+        <Grid Grid.Row="1">
 
-          <!-- Map (left column) — background lives on the MapCanvas itself
+          <!-- Map — background lives on the MapCanvas itself
                (user-customisable); leave the Border transparent so the
                chosen colour bleeds to the scroll viewport edges.
                The auto-walk indicator overlays the top of the column when a
-               walk is active; visibility is gated on AutoWalk.Current. -->
-          <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+               walk is active; visibility is gated on AutoWalk.Current.
+               Right margin (24) reserves room for the always-present
+               collapsed Details strip so it never covers the map scrollbar. -->
+          <Grid RowDefinitions="Auto,Auto,*" Margin="0,0,24,0">
             <!-- Skills prompt — visible when a zone is loaded but we have
                  no skill data yet AND the user hasn't dismissed-forever.
                  Sits at the very top so it's visible before the user
@@ -398,25 +403,55 @@
             </Border>
           </Grid>
 
-          <!-- Drag handle between map and details -->
-          <GridSplitter Grid.Column="1" Width="4"
-                        Background="#333" ResizeDirection="Columns"
-                        VerticalAlignment="Stretch" HorizontalAlignment="Center"
-                        ShowsPreview="False"/>
+          <!-- Auto-hiding Details flyout — pinned right, drawn OVER the    -->
+          <!-- map (last child of the single-cell row). `DetailsFlyout` is   -->
+          <!-- the hover host: its IsPointerOver, OR ViewModel.DetailsPinned, -->
+          <!-- decides which child shows. Both the strip and the open panel  -->
+          <!-- are children of this one host, so moving between them never   -->
+          <!-- drops the hover — no open/close flicker. -->
+          <Border x:Name="DetailsFlyout"
+                  HorizontalAlignment="Right" VerticalAlignment="Stretch">
+            <Grid>
 
-          <!-- Details panel (right column) — moved from the old bottom    -->
-          <!-- Expander so it doesn't eat vertical space the map needs.    -->
-          <!-- Wrapped in a ScrollViewer so the content scrolls if the     -->
-          <!-- panel is sized narrow / the user adds long Notes text.      -->
-          <Border Grid.Column="2" Background="#1a1a1a"
-                  BorderBrush="#333" BorderThickness="1,0,0,0">
-            <ScrollViewer HorizontalScrollBarVisibility="Disabled"
-                          VerticalScrollBarVisibility="Auto"
-                          Padding="6,4">
+              <!-- Collapsed strip — shown whenever the panel is hidden. -->
+              <Border x:Name="DetailsStrip" Width="24"
+                      Background="#1a1a1a" BorderBrush="#333" BorderThickness="1,0,0,0"
+                      IsVisible="{Binding !#DetailsPanel.IsVisible}"
+                      ToolTip.Tip="Hover to open the Details panel; use the pin inside to keep it open.">
+                <TextBlock Text="DETAILS" Foreground="#7a92a8" FontSize="10"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderTransformOrigin="50%,50%">
+                  <TextBlock.RenderTransform>
+                    <RotateTransform Angle="-90"/>
+                  </TextBlock.RenderTransform>
+                </TextBlock>
+              </Border>
+
+              <!-- Expanded panel — visible while hovered or pinned. Wrapped  -->
+              <!-- in a ScrollViewer so the content scrolls if the panel is   -->
+              <!-- short / the user adds long Notes text. -->
+              <Border x:Name="DetailsPanel" Width="260"
+                      Background="#1a1a1a" BorderBrush="#333" BorderThickness="1,0,0,0">
+                <Border.IsVisible>
+                  <MultiBinding Converter="{x:Static controls:BoolOrConverter.Instance}">
+                    <Binding Path="#DetailsFlyout.IsPointerOver"/>
+                    <Binding Path="ViewModel.DetailsPinned"/>
+                  </MultiBinding>
+                </Border.IsVisible>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto"
+                              Padding="6,4">
               <StackPanel Spacing="10">
 
-                <TextBlock Text="DETAILS" Foreground="#cdd" FontSize="11"
-                           FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Grid.Column="0" Text="DETAILS" Foreground="#cdd" FontSize="11"
+                             FontWeight="SemiBold" VerticalAlignment="Center"/>
+                  <ToggleButton Grid.Column="1" Content="📌"
+                                IsChecked="{Binding ViewModel.DetailsPinned}"
+                                FontSize="11" Padding="5,0" MinHeight="0"
+                                ToolTip.Tip="Pin the Details panel open. When unpinned, it auto-hides to a strip when the pointer leaves."/>
+                </Grid>
 
                 <!-- ── Current Room ─────────────────────────────────── -->
                 <StackPanel Spacing="3">
@@ -521,7 +556,9 @@
                 <TextBlock Text="Tip: hover a room for details, right-click for a context menu, mouse-wheel to zoom."
                            Foreground="#668" FontSize="10" TextWrapping="Wrap"/>
               </StackPanel>
-            </ScrollViewer>
+                </ScrollViewer>
+              </Border>
+            </Grid>
           </Border>
         </Grid>
 

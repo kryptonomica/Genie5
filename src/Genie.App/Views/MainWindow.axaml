@@ -27,22 +27,6 @@
                   Command="{Binding OpenRecordingsFolderCommand}"
                   ToolTip.Tip="Open the {AppData}/Genie5/Logs/ folder where Record Session saves its `.xml` captures. There's no in-App replay viewer yet — use the Console (dotnet run --project src/Genie.Core -- REPLAY &lt;file&gt;) to play recordings back."/>
         <Separator/>
-        <MenuItem Header="_Maps">
-          <MenuItem Header="_Update from Official Repo..."
-                    Command="{Binding Mapper.UpdateMapsCommand}"
-                    ToolTip.Tip="Download the latest zone XML files from github.com/GenieClient/Maps and merge with your local maps directory."/>
-          <MenuItem Header="_Open Maps Folder"
-                    Command="{Binding OpenMapsFolderCommand}"
-                    ToolTip.Tip="Open the current Maps directory in your file browser so you can see / hand-edit the .xml zone files."/>
-          <MenuItem Header="C_hange Maps Directory..."
-                    Command="{Binding SetMapsDirectoryCommand}"
-                    ToolTip.Tip="Pick a DIFFERENT folder to use as your Maps directory. Useful for pointing at a local git clone of github.com/GenieClient/Maps for git workflow (pull / push / pull-request)."/>
-          <Separator/>
-          <MenuItem Header="Cross-_Zone Connections..."
-                    Command="{Binding ZoneConnectionsCommand}"
-                    ToolTip.Tip="Open the meta-graph editor: transit links between zones (boats, climb-walls, ferry crossings) that the multi-zone pathfinder consults. Saves to {MapsDirectory}/ZoneConnections.xml."/>
-        </MenuItem>
-        <Separator/>
         <MenuItem Header="_Import from Genie 4..."
                   Command="{Binding Genie4ImportCommand}"
                   ToolTip.Tip="One-time migration of your Genie 4 settings: highlights, triggers, substitutes, gags, aliases, macros, variables, classes. Choose Global (all characters) or per-character. Your Genie 4 install is left untouched."/>
@@ -188,13 +172,6 @@
                   ToggleType="CheckBox"
                   IsChecked="{Binding BackpackVisible, Mode=OneWay}"
                   Command="{Binding ToggleBackpackCommand}"/>
-        <MenuItem Header="_Mapper"
-                  ToggleType="CheckBox"
-                  IsChecked="{Binding MapperVisible, Mode=OneWay}"
-                  Command="{Binding ToggleMapperCommand}"/>
-        <MenuItem Header="Float Mapper _Window"
-                  Command="{Binding Mapper.FloatCommand}"
-                  ToolTip.Tip="Pop the Mapper out into its own OS window. Drag its title bar back over Genie to re-dock."/>
 
         <Separator/>
 
@@ -392,6 +369,30 @@
                     Command="{Binding OpenIsharonSettingsCommand}"
                     ToolTip.Tip="Isharon's curated Genie settings collection (elanthia.org/GenieSettings) — highlights, names, presets, and more."/>
         </MenuItem>
+      </MenuItem>
+      <MenuItem Header="_Maps">
+        <MenuItem Header="_Show Mapper"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding MapperVisible, Mode=OneWay}"
+                  Command="{Binding ToggleMapperCommand}"
+                  ToolTip.Tip="Show or hide the Mapper panel."/>
+        <MenuItem Header="_Float Mapper Window"
+                  Command="{Binding Mapper.FloatCommand}"
+                  ToolTip.Tip="Pop the Mapper out into its own OS window. Drag its title bar back over Genie to re-dock."/>
+        <Separator/>
+        <MenuItem Header="_Update from Official Repo..."
+                  Command="{Binding Mapper.UpdateMapsCommand}"
+                  ToolTip.Tip="Download the latest zone XML files from github.com/GenieClient/Maps and merge with your local maps directory."/>
+        <MenuItem Header="_Open Maps Folder"
+                  Command="{Binding OpenMapsFolderCommand}"
+                  ToolTip.Tip="Open the current Maps directory in your file browser so you can see / hand-edit the .xml zone files."/>
+        <MenuItem Header="C_hange Maps Directory..."
+                  Command="{Binding SetMapsDirectoryCommand}"
+                  ToolTip.Tip="Pick a DIFFERENT folder to use as your Maps directory. Useful for pointing at a local git clone of github.com/GenieClient/Maps for git workflow (pull / push / pull-request)."/>
+        <Separator/>
+        <MenuItem Header="Cross-_Zone Connections..."
+                  Command="{Binding ZoneConnectionsCommand}"
+                  ToolTip.Tip="Open the meta-graph editor: transit links between zones (boats, climb-walls, ferry crossings) that the multi-zone pathfinder consults. Saves to {MapsDirectory}/ZoneConnections.xml."/>
       </MenuItem>
     </Menu>
 

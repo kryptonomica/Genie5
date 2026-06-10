@@ -635,6 +635,31 @@ public class GenieDockFactory : Factory
         return root;
     }
 
+    /// <summary>
+    /// Armed by the call sites that present the <em>default</em> layout to the
+    /// user (first-run startup, Reset to Default Layout, leaving windowed mode).
+    /// When set, <see cref="FloatMapperIfPending"/> pops the Mapper out into its
+    /// own floating window — the out-of-box default is a floating Mapper, not
+    /// one docked at the centre-bottom. Restoring a <em>saved</em> layout never
+    /// arms this, so the user's persisted Mapper placement is preserved.
+    /// </summary>
+    public bool PendingMapperFloat { get; set; }
+
+    /// <summary>
+    /// If <see cref="PendingMapperFloat"/> is set, float the Mapper now that the
+    /// dock tree is live and the owner window is shown (FloatDockable needs both,
+    /// so this must run after the window opens — not at <c>BuildDefaultLayout</c>
+    /// time). Idempotent: clears the flag so it fires once per default-layout
+    /// presentation. The Mapper stays in the dockable registry with its centre-
+    /// bottom home intact, so the user can re-dock it any time.
+    /// </summary>
+    public void FloatMapperIfPending()
+    {
+        if (!PendingMapperFloat) return;
+        PendingMapperFloat = false;
+        FloatTool("mapper");
+    }
+
     private IDockable? BuildNode(DockNodeSnapshot n)
     {
         switch (n.Kind)
