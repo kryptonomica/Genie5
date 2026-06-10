@@ -2745,11 +2745,22 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             }
             else
             {
-                // No configured editor — let the OS open with whatever's
-                // associated with `.cmd`. UseShellExecute=true is required
-                // for shell-association launch.
-                System.Diagnostics.Process.Start(
-                    new System.Diagnostics.ProcessStartInfo(candidate) { UseShellExecute = true });
+                // No configured editor. Do NOT shell-launch the file: on Windows
+                // the shell association for `.cmd` is "run as a batch script"
+                // (cmd.exe), so UseShellExecute would EXECUTE the script instead
+                // of opening it for editing (issue #63). Open it in a plain text
+                // editor explicitly instead.
+                if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                        System.Runtime.InteropServices.OSPlatform.Windows))
+                    System.Diagnostics.Process.Start("notepad.exe", $"\"{candidate}\"");
+                else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                             System.Runtime.InteropServices.OSPlatform.OSX))
+                    // -t opens in the default TEXT editor regardless of extension.
+                    System.Diagnostics.Process.Start("open", $"-t \"{candidate}\"");
+                else
+                    // Linux doesn't treat `.cmd` as executable, so xdg-open routes
+                    // it to the text/plain handler (a text editor).
+                    System.Diagnostics.Process.Start("xdg-open", $"\"{candidate}\"");
             }
             GameText.AddSystemLine($"[editor] opened '{Path.GetFileName(candidate)}'");
         }
