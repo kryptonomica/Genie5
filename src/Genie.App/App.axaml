@@ -85,18 +85,26 @@
                       Width="{Binding $parent[Grid].Bounds.Width}"
                       Height="{Binding $parent[Grid].Bounds.Height}"
                       controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}">
+          <!-- Plain ItemsControl (keeps its default control-theme so it renders),
+               with controls:LineSelection.Enabled adding browser-style selection
+               ACROSS line items — Avalonia's per-control text selection can't
+               span controls, so the behavior owns pointer input, drives each
+               line's SelectionStart/End, and handles Ctrl+C / Ctrl+A. -->
           <ItemsControl ItemsSource="{Binding ViewModel.Lines}"
+                        controls:LineSelection.Enabled="True"
                         FontFamily="{Binding ToolFontFamily}"
                         FontSize="{Binding ToolFontSize}"
                         Foreground="{Binding ToolForeground}">
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:TextLine">
-                <!-- Foreground inherited from the ItemsControl above (which is
-                     bound to the tool's per-window setting). Highlight Inlines
-                     with their own foreground still override; the .echo class
-                     style still wins for typed-input echoes. -->
+                <!-- Foreground inherited from the control above (bound to the
+                     tool's per-window setting). Highlight Inlines with their own
+                     foreground still override; the .echo class style still wins
+                     for typed-input echoes. SelectionBrush gives the cross-line
+                     drag a visible highlight. -->
                 <SelectableTextBlock TextWrapping="Wrap"
                                      Classes.echo="{Binding IsEcho}"
+                                     SelectionBrush="#553A6EA5"
                                      controls:InlinesBehavior.Source="{Binding Inlines}"/>
               </DataTemplate>
             </ItemsControl.ItemTemplate>

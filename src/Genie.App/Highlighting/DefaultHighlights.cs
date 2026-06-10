@@ -285,6 +285,11 @@ public static class DefaultHighlights
             Foreground       = isUrl ? UrlBrush : LinkBrush,
             TextDecorations  = TextDecorations.Underline,
             Cursor           = new Cursor(StandardCursorType.Hand),
+            // Payload so a container that owns pointer input (the game window's
+            // SelectableLinesControl, which suppresses this TextBlock's own press
+            // handler to drive cross-line selection) can re-dispatch the click.
+            // Other panels keep using the PointerPressed handler below.
+            Tag              = new LinkPayload(command, text, isUrl),
         };
         // Tooltip shows the URL for external links — safety hint before the
         // user clicks something that will leave the game window and open a
@@ -312,3 +317,12 @@ public static class DefaultHighlights
         return new InlineUIContainer { Child = tb };
     }
 }
+
+/// <summary>
+/// Data carried on a clickable link inline (via <see cref="Avalonia.Controls.Control.Tag"/>)
+/// so a control that owns pointer input can re-dispatch the link without the
+/// inline's own <c>PointerPressed</c> handler firing. <paramref name="Display"/>
+/// is the visible link text (passed to <see cref="DefaultHighlights.OnLinkClicked"/>
+/// as the echo override); <paramref name="Command"/> is the server-bound command.
+/// </summary>
+public sealed record LinkPayload(string Command, string Display, bool IsUrl);
