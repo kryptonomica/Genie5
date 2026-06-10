@@ -4,7 +4,30 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.3.4 — connection, mapper & update-cycle test
+## Latest: v5.0.0-alpha.3.6 — scripting, docking & UI polish
+
+A quality-of-life batch that closes a run of community-reported issues, plus mapper-aware scripting.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **3.6** as a small delta. See [Keeping Up to Date](Updates).
+
+**Scripting**
+
+- **Mapper variables for scripts** — `$roomid`, `$zoneid`, and `$zonename` now track the mapper's current location (Genie 4 parity), so scripts can branch on where you are. Thanks to **@dylb0t** ([#67](https://github.com/GenieClient/Genie5/pull/67), [#45](https://github.com/GenieClient/Genie5/issues/45)).
+- **Room/zone tags + `#goto @tag`** — tag rooms or zones from the mapper, then route to the nearest room carrying a tag.
+- **Paused/delayed scripts resume reliably** — fixed a stall where `pause` / `delay` could hang a script ([#61](https://github.com/GenieClient/Genie5/issues/61)).
+- **`#edit <script>`** opens the script in your editor instead of running it ([#63](https://github.com/GenieClient/Genie5/issues/63)).
+
+**Interface**
+
+- **Character-Account identity** in the title bar and profile picker, e.g. `Renucci-MONIL` ([#4](https://github.com/GenieClient/Genie5/issues/4)).
+- **Browser-style selection** — click-drag to select across multiple lines in the Game window and copy ([#34](https://github.com/GenieClient/Genie5/issues/34)).
+- **Docking** — draggable centre splitters; a panel dragged to a new spot keeps that spot after floating or closing ([#35](https://github.com/GenieClient/Genie5/issues/35)).
+- **Windowed (MDI) document mode** with Genie 4-style window decorations ([#52](https://github.com/GenieClient/Genie5/issues/52)).
+- **Config** — per-profile settings with a global fallback ([#60](https://github.com/GenieClient/Genie5/issues/60)); Room-panel fields wrap; script output is classified as Script Lines.
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.3.6)
+
+## v5.0.0-alpha.3.4 — connection, mapper & update-cycle test
 
 A connection/mapper/quality-of-life batch, and the build we're using to exercise the **in-app update cycle** end-to-end.
 
