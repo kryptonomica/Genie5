@@ -1071,6 +1071,16 @@ public class GenieDockFactory : Factory
         if (dockable?.Id is not { Length: > 0 } id) return;
         if (_root is null) return;
 
+        // Don't overwrite the last DOCKED location with a floating one. While a
+        // tool sits in a HostWindow, its parent/grandparent are the ephemeral
+        // float containers, which vanish when that window closes — caching them
+        // sends a later reopen down the home-fallback path instead of the user's
+        // custom docked spot (#35). Keep the prior docked position instead.
+        if (_root.Windows?.Any(w => w.Layout is { } l && FindByIdInTree(l, id) is not null) ?? false)
+        {
+            return;
+        }
+
         // Walk the tree to find this dockable's parent + grandparent rather
         // than relying on Dockable.Owner being set.
         if (FindParentInTree(_root, dockable) is not IDock parent) return;
@@ -1212,10 +1222,20 @@ public class GenieDockFactory : Factory
     /// </summary>
     private void WireLastKnownPositionTracking()
     {
-        DockableAdded += (_, e) =>
+        // Capture on any event that can move a dockable. A drag-redock does NOT
+        // reliably raise DockableAdded (or raises it before the new parent is
+        // wired), so the custom location was never cached and a later reopen
+        // restored to the stale home (#35). Also listen for DockableDocked /
+        // DockableMoved, and DEFER the capture to the next dispatcher cycle so
+        // the tree has settled (the parent linkage is live) before we walk it.
+        void Recapture(IDockable? d)
         {
-            if (e.Dockable is { } d) CapturePosition(d);
-        };
+            if (d?.Id is not { Length: > 0 }) return;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => CapturePosition(d));
+        }
+        DockableAdded  += (_, e) => Recapture(e.Dockable);
+        DockableDocked += (_, e) => Recapture(e.Dockable);
+        DockableMoved  += (_, e) => Recapture(e.Dockable);
     }
 
     /// <summary>
