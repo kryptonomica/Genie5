@@ -384,6 +384,14 @@ jobs:
     name: Sign with SignPath Foundation
     runs-on: ubuntu-latest
     needs: publish
+    # Signing is gated OFF until a trusted SignPath Foundation certificate is in
+    # place. The interim self-signed test cert yields an untrusted signature, and
+    # the CI trusted-build login into the SignPath org isn't enabled — so this job
+    # 401s and marks every release red. The velopack jobs ship the (unsigned)
+    # installers independently, so skip this chain cleanly until signing is real.
+    # To turn signing back on: set repo variable ENABLE_RELEASE_SIGNING=true and
+    # point SIGNPATH_SIGNING_POLICY at the Foundation (trusted) policy.
+    if: vars.ENABLE_RELEASE_SIGNING == 'true'
     steps:
       - name: Submit signing request
         id: signpath
@@ -413,6 +421,8 @@ jobs:
     name: Attach signed binary to GitHub Release
     runs-on: ubuntu-latest
     needs: sign
+    # Skips with the sign job (see above) until ENABLE_RELEASE_SIGNING=true.
+    if: vars.ENABLE_RELEASE_SIGNING == 'true'
     steps:
       - name: Download signed artifact
         uses: actions/download-artifact@v4
