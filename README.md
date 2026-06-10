@@ -6,7 +6,7 @@
 
 **A cross-platform, modern successor to [Genie 4](https://github.com/GenieClient) — the long-running Windows client for [DragonRealms](https://www.play.net/dr), Simutronics' text-based MMO.**
 
-> ⚠️ **Alpha** — Genie 5 is in active development. The first public alpha targets feature parity with the most-used 80% of Genie 4 while running natively on Windows, macOS, and Linux. Expect rough edges. File issues; PRs welcome.
+> ⚠️ **Alpha** — Genie 5 is in active development, several alphas in. It targets feature parity with the most-used 80% of Genie 4 while running natively on Windows, macOS, and Linux. Expect rough edges. File issues; PRs welcome.
 
 ## Why Genie 5
 
@@ -21,14 +21,14 @@ The Genie 4 codebase is WinForms + Windows-only and hasn't kept pace with modern
 
 | Layer | State |
 |---|---|
-| SGE authentication (StormFront + Wizard modes) | ✅ Working |
+| SGE authentication (StormFront + Wizard modes; optional TLS login) | ✅ Working |
 | DragonRealms XML parser (`<component>`, `<d>`, `<a href>`, `<container>`, `<roundTime>`, etc.) | ✅ Working |
-| Live game session — connect, play, type commands | ✅ Working |
+| Live game session — connect (Direct SGE / Lich proxy picker), play, type commands | ✅ Working |
 | Genie 4 `.cmd` script engine (labels, `MATCH`, `GOSUB`, `$variables`, `WAITFOR`, etc.) | ✅ Working |
 | Rules engines (`#alias`, `#trigger`, `#highlight`, `#substitute`, `#gag`, `#macro`, `#class`, `#var`) | ✅ Working with `.cfg` persistence |
 | Per-character profile storage with AES-GCM password encryption | ✅ Working |
 | Dockable UI panels (vitals, room, inventory, mapper, stream tabs) | ✅ Working |
-| Mapper with click-to-goto, zone fingerprinting, Less Obvious Paths | ✅ Working (auto-walk is a roadmap item) |
+| Mapper — click-to-goto, `#goto`/`#go2`, room/zone tags + `#goto @tag`, `$roomid`/`$zoneid`/`$zonename` script vars, zone fingerprinting, Less Obvious Paths | ✅ Working (auto-walk is a roadmap item) |
 | Session Recorder for raw-XML capture | ✅ Working |
 | Lich 5 proxy mode (`ConnectionMode.LichProxy`) | ✅ Working |
 | Dev-replay mode (replay recorded sessions through the engine) | ✅ Working (via Console) |
@@ -43,11 +43,22 @@ See [backlog](docs/ROADMAP.md) for the full feature roadmap.
 
 ## Installation
 
-### Prerequisites
+### Download a pre-built build (recommended)
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (until pre-built alpha artefacts ship)
+Grab the [latest release](https://github.com/GenieClient/Genie5/releases/latest) and pick your platform:
+
+| Platform | Installer | Portable |
+|---|---|---|
+| **Windows** | `01-Windows-Genie5-Setup.exe` | `01-Windows-Genie5-Portable.zip` |
+| **macOS (Apple Silicon)** | `02-macOS-Apple-Silicon-Genie5.dmg` (or `.pkg`) | `02-macOS-Apple-Silicon-Genie5-Portable.zip` |
+| **macOS (Intel)** | `03-macOS-Intel-Genie5.dmg` (or `.pkg`) | `03-macOS-Intel-Genie5-Portable.zip` |
+| **Linux (x64)** | `04-Linux-Genie5.AppImage` | — |
+
+The **Setup.exe** / **.pkg** / **AppImage** builds register for in-app updates; the **Portable** `.zip` builds don't. Builds are **unsigned** for now, so you'll see a first-launch warning — the [Installation guide](https://github.com/GenieClient/Genie5/wiki/Installation) has the per-platform "unknown publisher" / Gatekeeper steps.
 
 ### Build from source
+
+Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 
 ```sh
 git clone https://github.com/GenieClient/Genie5.git
@@ -61,10 +72,6 @@ On first launch Genie 5 will:
 1. Migrate any existing Genie 4 scripts from `%USERPROFILE%\Documents\Genie 4\Scripts\` into its own `Scripts/` folder (Windows only — no-op elsewhere)
 2. Migrate any existing Genie 4 maps from `%USERPROFILE%\Documents\Genie 4\Maps\` (Windows only)
 3. Create `{AppData}/Genie5/Config/` for `.cfg` rule files and per-character profile data
-
-### Pre-built artefacts
-
-Once the release pipeline lands, look for `Genie5-v5.0.0-alpha.3.4-{win-x64, osx-arm64, osx-x64, linux-x64}` on the [Releases](https://github.com/GenieClient/Genie5/releases) page.
 
 ## Quick start
 
@@ -141,13 +148,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, feature requests, and PRs a
 
 - **Discord** — [discord.gg/MtmzE2w](https://discord.gg/MtmzE2w) — the long-running Genie community server, shared with Genie 4. Drop in for alpha-tester chat, scripting help, mapper questions, or general DR conversation.
 - **Issues** — [GitHub Issues](https://github.com/GenieClient/Genie5/issues) for bug reports + feature requests
-- **Discussions** — [GitHub Discussions](https://github.com/GenieClient/Genie5/discussions) (TBD)
+- **Discussions** — [GitHub Discussions](https://github.com/GenieClient/Genie5/discussions) for Q&A, ideas, and show-and-tell
 
 ## Code signing policy
 
 Free code signing for Windows release builds is provided by [SignPath.io](https://signpath.io/), with a free code signing certificate from the [SignPath Foundation](https://signpath.org/).
 
-Signed Windows binaries will be published on the [Releases](https://github.com/GenieClient/Genie5/releases) page once SignPath Foundation approval is granted — code-signing activates in an upcoming release. Every release is built from this repository's source via GitHub Actions and is manually approved before signing.
+**Current alpha builds are not yet code-signed** — Windows SmartScreen and macOS Gatekeeper will show a first-launch "unknown publisher" warning. Trusted-signed Windows binaries are planned for a future release, pending SignPath Foundation certificate approval. Once active, each release will be built from this repository's source via GitHub Actions and manually approved before signing.
 
 ### Roles
 
