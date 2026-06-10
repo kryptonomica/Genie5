@@ -55,4 +55,23 @@ public sealed class ConnectionProfile
     /// </para>
     /// </summary>
     public string DataDirectory { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Disambiguated label for profile pickers: the user's profile <see cref="Name"/>
+    /// plus the <c>Character-Account</c> identity, so two same-named characters on
+    /// different accounts are distinguishable in the dropdown. Falls back to just
+    /// the identity (or "(unnamed)") when there's no Name. (Pre-publish #4.)
+    /// </summary>
+    public string PickerLabel
+    {
+        get
+        {
+            var id = CharacterIdentity.Format(CharacterName, AccountName);
+            if (string.IsNullOrWhiteSpace(Name))
+                return id.Length > 0 ? id : "(unnamed)";
+            return id.Length > 0 && !string.Equals(Name, id, System.StringComparison.OrdinalIgnoreCase)
+                ? $"{Name}  —  {id}"
+                : Name;
+        }
+    }
 }

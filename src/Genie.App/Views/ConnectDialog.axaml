@@ -21,7 +21,9 @@
                  HorizontalAlignment="Stretch">
         <ComboBox.ItemTemplate>
           <DataTemplate DataType="profiles:ConnectionProfile">
-            <TextBlock Text="{Binding Name}"/>
+            <!-- PickerLabel = "Name — Character-Account" so two same-named
+                 characters on different accounts are distinguishable (#4). -->
+            <TextBlock Text="{Binding PickerLabel}"/>
           </DataTemplate>
         </ComboBox.ItemTemplate>
       </ComboBox>
