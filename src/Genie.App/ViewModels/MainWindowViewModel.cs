@@ -118,6 +118,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit>                    ShowUpdatesCommand       { get; }
     public Interaction<UpdatesDialogViewModel, Unit>      ShowUpdatesDialog        { get; } = new();
 
+    // ── Help menu (About) ───────────────────────────────────────────────────
+    public ReactiveCommand<Unit, Unit>                    ShowAboutCommand         { get; }
+    public Interaction<Unit, Unit>                        ShowAboutDialog          { get; } = new();
+
     /// <summary>Opens the community Discord invite in the user's default browser.
     /// Cross-platform via <c>UseShellExecute = true</c>; same pattern the parser
     /// uses for <c>&lt;a href&gt;</c> links from the game stream.</summary>
@@ -875,6 +879,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             // (a successful update during the session should clear the dot).
             _ = CheckForUpdatesInBackgroundAsync();
         });
+
+        // Help → About — version, links, license, credits. No input/output.
+        ShowAboutCommand = ReactiveCommand.CreateFromTask(async () =>
+            await ShowAboutDialog.Handle(Unit.Default));
 
         // All Help-menu external links funnel through OpenUrl() (defined below),
         // which hands the URL to the OS shell. Ported from the Genie 4 Help menu;

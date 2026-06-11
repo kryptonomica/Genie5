@@ -482,6 +482,10 @@
                     Command="{Binding OpenIsharonSettingsCommand}"
                     ToolTip.Tip="Isharon's curated Genie settings collection (elanthia.org/GenieSettings) — highlights, names, presets, and more."/>
         </MenuItem>
+        <Separator/>
+        <MenuItem Header="_About Genie 5…"
+                  Command="{Binding ShowAboutCommand}"
+                  ToolTip.Tip="Version, links, license, and credits."/>
       </MenuItem>
       <MenuItem Header="_Maps">
         <MenuItem Header="_Show Mapper"
