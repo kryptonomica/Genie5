@@ -73,7 +73,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             authParts[2].StartsWith("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             var reason = authParts.Length >= 3 ? authParts[2] : authResponse;
-            throw new InvalidOperationException(
+            throw new SgeAuthException(
                 $"SGE auth failed — server replied: {reason}. Check account name and password.");
         }
 
@@ -148,7 +148,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         logger.LogDebug("Auth response: {AuthResponse}", authResponse);
 
         if (!authResponse.StartsWith("A\t"))
-            throw new InvalidOperationException(
+            throw new SgeAuthException(
                 $"SGE auth failed — unexpected response: {authResponse}");
 
         var authParts = authResponse.Split('\t');
@@ -158,7 +158,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             authParts[2].StartsWith("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             var reason = authParts.Length >= 3 ? authParts[2] : authResponse;
-            throw new InvalidOperationException(
+            throw new SgeAuthException(
                 $"SGE auth failed — server replied: {reason}. " +
                 "Check account name and password.");
         }
@@ -272,7 +272,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
                 "PROBLEM 4" => "Game is unavailable.",
                 _           => $"Server refused login ({code})."
             };
-            throw new InvalidOperationException($"SGE login refused: {detail}");
+            throw new SgeAuthException($"SGE login refused: {detail}");
         }
 
         // Success: L\tOK\tKEY=xxxx\tGAMEHOST=...\tGAMEPORT=...\t...
@@ -287,7 +287,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         }
 
         if (key is null || host is null || port == 0)
-            throw new InvalidOperationException(
+            throw new SgeAuthException(
                 $"Could not parse SGE login response: {response}");
 
         return new SgeResult(host, port, key);

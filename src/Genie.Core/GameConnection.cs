@@ -113,6 +113,19 @@ public sealed class GameConnection : IAsyncDisposable
                 return;
             }
             catch (OperationCanceledException) { throw; }
+            catch (SgeAuthException ex)
+            {
+                // Non-transient: bad credentials, a server PROBLEM (already
+                // logged in / character in game / billing / unavailable), or an
+                // unparseable login reply. Retrying won't change the outcome, so
+                // surface the real reason and stop immediately instead of burning
+                // MaxReconnectAttempts on a futile loop (the symptom that turned
+                // a "character is currently in game" into ~50s of silent retries
+                // ending in a generic failure).
+                _log.LogWarning("SGE login refused (non-retryable): {Reason}", ex.Message);
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Error, 0, ex.Message));
+                throw;
+            }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Connection attempt {Attempt} failed", attempt + 1);

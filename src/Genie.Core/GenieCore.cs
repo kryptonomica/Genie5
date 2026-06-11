@@ -637,6 +637,28 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// </summary>
     public event Action<string>? MapperGotoRequested;
 
+    void ICommandHost.Connect(ConnectRequest request)
+    {
+        // The connection lifecycle, saved profiles, and the Connect dialog all
+        // live in the App layer; forward the parsed request. Console builds with
+        // no handler just get a diagnostic. Note: $lastcommand is deliberately
+        // NOT set for #connect (it's an internal command that never reaches the
+        // game socket), so an explicit `#connect acct pw …` password never leaks
+        // through the lastcommand global.
+        if (ConnectRequested is null)
+            EchoLine?.Invoke("[connect] no connect host wired (Console build).");
+        else
+            ConnectRequested.Invoke(request);
+    }
+
+    /// <summary>
+    /// Raised by <c>#connect</c> / <c>#reconnect</c> / <c>#lichconnect</c> from
+    /// the command bar or a script. The App layer interprets the
+    /// <see cref="ConnectRequest"/> (reconnect / saved profile / explicit
+    /// credentials) and drives the actual connect.
+    /// </summary>
+    public event Action<ConnectRequest>? ConnectRequested;
+
     // ── IPluginHost (explicit — avoids name clashes with ICommandHost.Echo,
     //    the public State (GameState) and Variables (VariableEngine)) ──────────
 

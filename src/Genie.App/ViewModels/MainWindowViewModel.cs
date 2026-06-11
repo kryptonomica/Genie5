@@ -2070,6 +2070,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         _core.MapperGotoRequested     += args =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => Mapper.GotoByName(args));
 
+        // #connect / #reconnect / #lichconnect from the command bar or a script —
+        // resolve to a config (reconnect-last / saved profile / explicit creds)
+        // and drive the connection. UI-thread-bound because it touches the
+        // connection lifecycle. The cold-start path (no live core) routes the
+        // same request through TryHandleColdConnect in SendCommand.
+        _core.ConnectRequested        += req =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = HandleConnectRequest(req));
+
         // Mapper Edit-Exit requests — user right-clicks a map node, picks
         // "Edit Exit ▶ {verb}". MapperViewModel raises the event, we open
         // the dialog, and on save we ask the mapper to persist the zone.
@@ -2757,21 +2765,140 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
 
     private Task SendCommand(string cmd)
     {
-        if (_core is not null && !string.IsNullOrWhiteSpace(cmd))
-        {
-            // Typed user input cancels any in-flight auto-walk — per the
-            // compliance review, "any non-map-click input cancels." The
-            // user has taken manual control of the session; respecting
-            // that immediately keeps the walker on the responsive side
-            // of DR policy. Cancel BEFORE dispatching the typed input
-            // so the cancelled walk doesn't try to send a stale step
-            // when the next room-change fires.
-            if (Mapper.AutoWalk?.Current is not null)
-                Mapper.AutoWalk.Cancel("user took manual command");
+        if (string.IsNullOrWhiteSpace(cmd)) return Task.CompletedTask;
 
-            _core.ProcessInput(cmd);
+        // Cold start: a #connect / #reconnect / #lichconnect must work even with
+        // no live core (disconnected) — that's the whole point of typing/scripting
+        // a connect. When a core exists the same verbs flow through ProcessInput →
+        // CommandEngine → ConnectRequested instead (see the wire in ConnectAsync).
+        if (_core is null)
+        {
+            // Anything that isn't a connect verb has no command processor to run
+            // (the engine lives in the core, which doesn't exist until connect).
+            // Echo a hint instead of swallowing the input silently.
+            if (!TryHandleColdConnect(cmd))
+                GameText.AddSystemLine(
+                    "[not connected] use #connect <profile>, " +
+                    "#connect account password character game, or the Connect dialog.");
+            return Task.CompletedTask;
         }
+
+        // Typed user input cancels any in-flight auto-walk — per the
+        // compliance review, "any non-map-click input cancels." The
+        // user has taken manual control of the session; respecting
+        // that immediately keeps the walker on the responsive side
+        // of DR policy. Cancel BEFORE dispatching the typed input
+        // so the cancelled walk doesn't try to send a stale step
+        // when the next room-change fires.
+        if (Mapper.AutoWalk?.Current is not null)
+            Mapper.AutoWalk.Cancel("user took manual command");
+
+        _core.ProcessInput(cmd);
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Recognize a <c>#connect</c> / <c>#reconnect</c> / <c>#lichconnect</c> typed
+    /// while disconnected (no live core to route it through) and drive the same
+    /// <see cref="HandleConnectRequest"/> path the in-core command wire uses.
+    /// Returns <c>true</c> when the input was a connect verb (handled), <c>false</c>
+    /// otherwise so the caller can hint that there's nothing to run while
+    /// disconnected. Uses the default command char <c>#</c> — the configurable
+    /// char only matters once a core (and its config) exists.
+    /// </summary>
+    private bool TryHandleColdConnect(string cmd)
+    {
+        var trimmed = cmd.TrimStart();
+        if (trimmed.Length == 0 || trimmed[0] != '#') return false;
+
+        var parts = Genie.Core.Parsing.ArgumentParser.ParseArgs(trimmed[1..]);
+        if (parts.Count == 0) return false;
+
+        var verb = parts[0].ToLowerInvariant();
+        if (verb is not ("connect" or "reconnect" or "lichconnect")) return false;
+
+        IReadOnlyList<string> args = verb == "reconnect"
+            ? System.Array.Empty<string>()
+            : parts.Skip(1).ToList();
+        var req = new Genie.Core.Commanding.ConnectRequest(args, IsLich: verb == "lichconnect");
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = HandleConnectRequest(req));
+        return true;
+    }
+
+    /// <summary>
+    /// Interpret a <see cref="Genie.Core.Commanding.ConnectRequest"/> (Genie 4
+    /// grammar: 0 args = reconnect last, 1 arg = saved profile by name, 4 args =
+    /// explicit <c>account password character game</c>) and drive the connection,
+    /// disconnecting any live session first. The Lich variant forces
+    /// <see cref="ConnectionMode.LichProxy"/>.
+    /// </summary>
+    private async Task HandleConnectRequest(Genie.Core.Commanding.ConnectRequest req)
+    {
+        var args = req.Args;
+        ConnectionConfig?  cfg;
+        ConnectionProfile? profile = null;
+
+        switch (args.Count)
+        {
+            case 0:   // reconnect the last session
+                if (LastConnectionConfig is null)
+                {
+                    GameText.AddSystemLine("[connect] nothing to reconnect to — connect once first.");
+                    return;
+                }
+                cfg     = LastConnectionConfig;
+                profile = ConnectedProfile;
+                break;
+
+            case 1:   // saved profile by name
+            {
+                var name = args[0];
+                profile = Profiles.Profiles.FirstOrDefault(p =>
+                    string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (profile is null)
+                {
+                    GameText.AddSystemLine($"[connect] no profile named '{name}'.");
+                    return;
+                }
+                cfg = ConfigFromProfile(profile);
+                if (req.IsLich && cfg.Mode != ConnectionMode.LichProxy)
+                    cfg = cfg with { Mode = ConnectionMode.LichProxy };
+                break;
+            }
+
+            case 4:   // explicit: account password character game
+                cfg = new ConnectionConfig
+                {
+                    Mode            = req.IsLich ? ConnectionMode.LichProxy : ConnectionMode.DirectSGE,
+                    SgeHost         = "eaccess.play.net",
+                    SgePort         = 7900,
+                    AccountName     = args[0],
+                    AccountPassword = args[1],
+                    CharacterName   = args[2],
+                    GameCode        = args[3],
+                };
+                break;
+
+            default:
+                GameText.AddSystemLine(
+                    "[connect] usage: #connect <profile> | #connect account password character game " +
+                    "(use a saved profile to keep your password out of scripts)");
+                return;
+        }
+
+        var who = string.IsNullOrWhiteSpace(cfg.CharacterName) ? "last session" : cfg.CharacterName;
+        GameText.AddSystemLine($"[connect] connecting {who}...");
+
+        try
+        {
+            if (IsConnected) await DisconnectAsync();
+            await ConnectAsync(cfg, profile);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("HandleConnectRequest", ex);
+            GameText.AddSystemLine($"[connect] failed: {ex.Message}");
+        }
     }
 
     /// <summary>

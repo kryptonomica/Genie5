@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Reactive;
+using Genie.Core.Commanding;
 using ReactiveUI;
 using ReactiveUI.Fody.Helpers;
 
@@ -27,7 +28,10 @@ public class CommandViewModel : ReactiveObject
         var cmd = CommandText.Trim();
         if (string.IsNullOrEmpty(cmd)) return;
 
-        _history.Add(cmd);
+        // Store a password-masked copy in the recall history so an explicit
+        // `#connect account password character game` can't be retrieved in
+        // plaintext via Up-arrow. The real (unmasked) line is still sent.
+        _history.Add(ConnectCommandMask.Mask(cmd));
         _historyIndex = -1;
         CommandText = "";
 

@@ -144,4 +144,14 @@ public interface ICommandHost
     /// </para>
     /// </summary>
     void MapperGoto(string args);
+
+    /// <summary>
+    /// Handle a <c>#connect</c> / <c>#reconnect</c> / <c>#lichconnect</c> command
+    /// (Genie 4 parity). The connection lifecycle, saved profiles, and the
+    /// Connect dialog all live in the App layer, so <see cref="Genie.Core"/>
+    /// forwards the parsed request to a host handler; the Console build with no
+    /// handler echoes a diagnostic. See <see cref="ConnectRequest"/> for the
+    /// argument grammar.
+    /// </summary>
+    void Connect(ConnectRequest request);
 }

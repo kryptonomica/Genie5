@@ -245,6 +245,22 @@ public sealed class CommandEngine
                 else
                     _host.Echo("Usage: #goto <room id | label | title>");
                 break;
+            // Genie 4 parity (#connect / #reconnect / #lichconnect). Args are
+            // already $variable-expanded by ProcessInput, so a login script's
+            // `#connect $acct $pw Char DR` arrives literal. The App owns the
+            // connection lifecycle + profiles, so forward the parsed request;
+            // argument-count interpretation (0=reconnect, 1=profile, 4=explicit)
+            // lives in the App handler so it can resolve profiles and echo usage.
+            case "connect":
+                _host.Connect(new ConnectRequest(parts.Skip(1).ToList(), IsLich: false));
+                break;
+            case "lichconnect":
+                _host.Connect(new ConnectRequest(parts.Skip(1).ToList(), IsLich: true));
+                break;
+            case "reconnect":
+                // Always reconnect the last session, regardless of any tokens.
+                _host.Connect(new ConnectRequest(Array.Empty<string>(), IsLich: false));
+                break;
             case "class":
             case "classes":
                 HandleClass(parts);
