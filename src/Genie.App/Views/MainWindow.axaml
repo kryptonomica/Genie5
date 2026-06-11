@@ -214,6 +214,11 @@
                   IsChecked="{Binding ExperienceVisible, Mode=OneWay}"
                   Command="{Binding ToggleExperienceCommand}"
                   ToolTip.Tip="Skill ranks and learning rates, tracked by the Experience plugin. Train a skill or type 'exp' to populate it."/>
+        <MenuItem Header="Scr_ipts"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding ScriptsVisible, Mode=OneWay}"
+                  Command="{Binding ToggleScriptsCommand}"
+                  ToolTip.Tip="Running scripts (.cmd and .js) with per-script Stop, a Start… file picker, and the script output log."/>
 
         <!-- ── Plugin-created windows (dynamic) ─────────────────────────── -->
         <!-- Populated at runtime from the dock factory whenever a plugin     -->
@@ -947,27 +952,34 @@
             </ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="x:String">
+            <DataTemplate x:DataType="vm:ScriptBarItem">
               <Border Background="#283139" BorderBrush="#3e4a55"
                       BorderThickness="1" CornerRadius="3" Padding="6,1">
                 <StackPanel Orientation="Horizontal" Spacing="4"
                             VerticalAlignment="Center">
-                  <TextBlock Text="{Binding}" FontSize="11"
+                  <TextBlock Text="{Binding Name}" FontSize="11"
                              Foreground="#cfe0ee" VerticalAlignment="Center"/>
+                  <!-- Language tag — only shown for .js scripts. -->
+                  <Border Background="#2d3b46" CornerRadius="2" Padding="3,0"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding IsJavaScript}">
+                    <TextBlock Text="js" FontSize="9" Foreground="#e8c97a"
+                               VerticalAlignment="Center"/>
+                  </Border>
                   <Button Content="✏"
                           FontSize="10" Padding="3,0" MinWidth="0" MinHeight="0"
                           Background="Transparent" BorderThickness="0"
                           Foreground="#80a8c0"
                           ToolTip.Tip="Edit this script in the configured editor"
                           Command="{ReflectionBinding $parent[ItemsControl].DataContext.ScriptBar.EditScriptCommand}"
-                          CommandParameter="{Binding}"/>
+                          CommandParameter="{Binding Name}"/>
                   <Button Content="✕"
                           FontSize="10" Padding="3,0" MinWidth="0" MinHeight="0"
                           Background="Transparent" BorderThickness="0"
                           Foreground="#d08080"
                           ToolTip.Tip="Stop this script (#stop)"
                           Command="{ReflectionBinding $parent[ItemsControl].DataContext.ScriptBar.StopScriptCommand}"
-                          CommandParameter="{Binding}"/>
+                          CommandParameter="{Binding Name}"/>
                 </StackPanel>
               </Border>
             </DataTemplate>

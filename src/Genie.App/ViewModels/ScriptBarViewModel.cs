@@ -24,13 +24,14 @@ public sealed class ScriptBarViewModel : ReactiveObject
     private GenieCore? _core;
 
     /// <summary>
-    /// Names of scripts currently in the engine's instance list. Updated
-    /// on <see cref="ScriptEngine.ScriptStarted"/> / <see cref="ScriptEngine.ScriptFinished"/>
-    /// events, always marshalled to the UI thread before mutating the
-    /// ObservableCollection (Avalonia's ItemsControl requires UI-thread
-    /// modifications).
+    /// Scripts currently in the engine's instance list (both <c>.cmd</c> and
+    /// <c>.js</c>). Updated on <see cref="ScriptEngine.ScriptStarted"/> /
+    /// <see cref="ScriptEngine.ScriptFinished"/> events, always marshalled to the
+    /// UI thread before mutating the ObservableCollection (Avalonia's ItemsControl
+    /// requires UI-thread modifications). Each item carries its language so the
+    /// bar can tag <c>.js</c> rows.
     /// </summary>
-    public ObservableCollection<string> RunningScripts { get; } = new();
+    public ObservableCollection<ScriptBarItem> RunningScripts { get; } = new();
 
     /// <summary>
     /// True when at least one script is in <see cref="RunningScripts"/>.
@@ -83,18 +84,32 @@ public sealed class ScriptBarViewModel : ReactiveObject
         _core = core;
 
         core.Scripts.ScriptStarted += name =>
+        {
+            // Resolve the language now, on the engine thread — an ultra-short
+            // .js script could finish before the marshalled add runs.
+            var isJs = core.Scripts.IsJavaScript(name);
             Dispatcher.UIThread.Post(() =>
             {
-                if (!RunningScripts.Contains(name))
-                    RunningScripts.Add(name);
+                // Reload semantics: replace an existing same-named row.
+                for (int i = RunningScripts.Count - 1; i >= 0; i--)
+                    if (RunningScripts[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                        RunningScripts.RemoveAt(i);
+                RunningScripts.Add(new ScriptBarItem(name, isJs));
                 HasScripts = RunningScripts.Count > 0;
             });
+        };
 
         core.Scripts.ScriptFinished += name =>
             Dispatcher.UIThread.Post(() =>
             {
-                RunningScripts.Remove(name);
+                for (int i = RunningScripts.Count - 1; i >= 0; i--)
+                    if (RunningScripts[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                        RunningScripts.RemoveAt(i);
                 HasScripts = RunningScripts.Count > 0;
             });
     }
 }
+
+/// <summary>One running-script chip in the script bar. Carries the language so
+/// the bar can show a "js" tag; the Stop/Edit commands key off <see cref="Name"/>.</summary>
+public sealed record ScriptBarItem(string Name, bool IsJavaScript);

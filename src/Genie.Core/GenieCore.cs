@@ -498,7 +498,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     }
 
     IReadOnlyList<string> ICommandHost.RunningScripts()
-        => Scripts.Instances.Where(i => i.Running).Select(i => i.Name).ToList();
+        => Scripts.RunningScriptNames();
 
     void ICommandHost.SetGlobalVariable(string name, string value)
     {

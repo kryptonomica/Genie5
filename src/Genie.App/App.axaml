@@ -725,6 +725,74 @@
       </ScrollViewer>
     </DataTemplate>
 
+    <!-- ── Scripts panel (running list + Start/Stop + output log) ─────────── -->
+    <!-- The always-on bottom strip (ScriptBarViewModel) shows the same running  -->
+    <!-- scripts compactly; this dockable panel adds the Start… picker, Stop All,-->
+    <!-- and a scrollable [script] output log. Both .cmd and .js appear here.    -->
+    <DataTemplate DataType="docking:ScriptsTool">
+      <Grid RowDefinitions="Auto,Auto,*" Margin="4">
+
+        <!-- Toolbar -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6"
+                    Margin="0,0,0,4">
+          <Button Content="Start…" Command="{Binding ViewModel.StartScriptCommand}"
+                  FontSize="11" Padding="8,2"
+                  ToolTip.Tip="Run a .cmd / .inc / .js script via file picker"/>
+          <Button Content="Stop All" Command="{Binding ViewModel.StopAllCommand}"
+                  FontSize="11" Padding="8,2"/>
+          <Button Content="Clear" Command="{Binding ViewModel.ClearOutputCommand}"
+                  FontSize="11" Padding="8,2"
+                  ToolTip.Tip="Clear the output log below"/>
+          <TextBlock Text="{Binding ViewModel.StatusText}" Foreground="#8aa3b5"
+                     FontSize="11" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Running scripts -->
+        <Border Grid.Row="1" Background="#1f2429" BorderBrush="#3a4148"
+                BorderThickness="1" CornerRadius="3" Padding="4" MaxHeight="160">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding ViewModel.RunningScripts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:RunningScriptRow">
+                  <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,1">
+                    <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="12"
+                               Foreground="#cfe0ee" VerticalAlignment="Center"/>
+                    <!-- Language tag — only shown for .js scripts. -->
+                    <Border Grid.Column="1" Background="#2d3b46" CornerRadius="2"
+                            Padding="3,0" Margin="4,0" VerticalAlignment="Center"
+                            IsVisible="{Binding IsJavaScript}">
+                      <TextBlock Text="js" FontSize="9" Foreground="#e8c97a"/>
+                    </Border>
+                    <Button Grid.Column="2" Content="Stop" FontSize="10"
+                            Padding="6,1" Command="{Binding StopCommand}"/>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
+
+        <!-- Output log -->
+        <Border Grid.Row="2" Background="#15191d" BorderBrush="#3a4148"
+                BorderThickness="1" CornerRadius="3" Margin="0,4,0,0">
+          <ScrollViewer VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Disabled"
+                        controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Output}">
+            <ItemsControl ItemsSource="{Binding ViewModel.Output}"
+                          FontFamily="Consolas,Menlo,monospace" FontSize="11"
+                          Foreground="#9fb4c4" Margin="4">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="vm:TextLine">
+                  <SelectableTextBlock TextWrapping="Wrap"
+                                       controls:InlinesBehavior.Source="{Binding Inlines}"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </DataTemplate>
+
   </Application.DataTemplates>
 
 </Application>

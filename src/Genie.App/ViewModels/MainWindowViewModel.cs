@@ -38,6 +38,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ExperienceViewModel Experience { get; } = new();
     public ScriptBarViewModel  ScriptBar  { get; } = new();
 
+    /// <summary>Backs the dockable Scripts panel (running list with per-script
+    /// Stop, a Start… picker, and the script output log). Distinct from
+    /// <see cref="ScriptBar"/>, which is the always-on bottom strip.</summary>
+    public ScriptsViewModel    Scripts    { get; } = new();
+
     /// <summary>
     /// Global layout presets, shared across every character —
     /// <c>{AppData}/Genie5/Layouts/</c>. Always present.
@@ -264,6 +269,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool CombatVisible   { get; private set; } = true;
     [Reactive] public bool LogVisible      { get; private set; } = true;
     [Reactive] public bool ItemLogVisible  { get; private set; } = true;
+    [Reactive] public bool ScriptsVisible  { get; private set; }   // hidden by default (opt-in)
 
     // ── Toggle commands (one per dockable) ───────────────────────────────────
     public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
@@ -279,6 +285,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleCombatCommand   { get; }
     public ReactiveCommand<Unit, Unit> ToggleLogCommand      { get; }
     public ReactiveCommand<Unit, Unit> ToggleItemLogCommand  { get; }
+    public ReactiveCommand<Unit, Unit> ToggleScriptsCommand  { get; }
 
     // ── Core ──────────────────────────────────────────────────────────────────
 
@@ -512,6 +519,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("itemlog",   "ItemLog");
         WindowSettings.Register("mapper",    "Mapper");
         WindowSettings.Register("experience", "Experience");
+        WindowSettings.Register("scripts",   "Scripts");
 
         // ── Global → per-window propagation ─────────────────────────────
         // When the user changes DisplaySettings (color, font, etc.), the
@@ -1007,6 +1015,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleCombatCommand   = MakeToggleCommand("combat",    v => CombatVisible   = v);
         ToggleLogCommand      = MakeToggleCommand("log",       v => LogVisible      = v);
         ToggleItemLogCommand  = MakeToggleCommand("itemlog",   v => ItemLogVisible  = v);
+        ToggleScriptsCommand  = MakeToggleCommand("scripts",   v => ScriptsVisible  = v);
 
         ResetLayoutCommand = ReactiveCommand.Create(() =>
         {
@@ -1579,6 +1588,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("combat",    factory.IsToolVisible("combat"));
         SetVisibilityBool("log",       factory.IsToolVisible("log"));
         SetVisibilityBool("itemlog",   factory.IsToolVisible("itemlog"));
+        SetVisibilityBool("scripts",   factory.IsToolVisible("scripts"));
     }
 
     // ── Plugin-created windows ───────────────────────────────────────────────
@@ -1897,6 +1907,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "combat":    ForceSet(visible, v => CombatVisible   = v, () => CombatVisible);   break;
             case "log":       ForceSet(visible, v => LogVisible      = v, () => LogVisible);      break;
             case "itemlog":   ForceSet(visible, v => ItemLogVisible  = v, () => ItemLogVisible);  break;
+            case "scripts":   ForceSet(visible, v => ScriptsVisible  = v, () => ScriptsVisible);  break;
         }
 
         static void ForceSet(bool target, Action<bool> set, Func<bool> get)
@@ -2012,6 +2023,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Mapper.Attach(_core);
         StreamTabs.Attach(_core);
         Experience.Attach(_core);
+        Scripts.Attach(_core);
         AttachPluginWindows(_core);
 
         // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin
@@ -2922,15 +2934,16 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             return;
         }
 
-        // Try .cmd first, fall back to .inc. Scripts are typically .cmd
-        // but #include-style helpers use .inc.
+        // Try .cmd first, then .inc helpers, then .js array scripts.
         var candidate = Path.Combine(dir, name + ".cmd");
         if (!File.Exists(candidate))
             candidate = Path.Combine(dir, name + ".inc");
         if (!File.Exists(candidate))
+            candidate = Path.Combine(dir, name + ".js");
+        if (!File.Exists(candidate))
         {
             GameText.AddSystemLine(
-                $"[editor] script not found: '{name}' (looked for {name}.cmd, {name}.inc in {dir})");
+                $"[editor] script not found: '{name}' (looked for {name}.cmd, {name}.inc, {name}.js in {dir})");
             return;
         }
 
@@ -2999,7 +3012,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 {
                     var ext = Path.GetExtension(f);
                     return ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
-                        || ext.Equals(".inc", StringComparison.OrdinalIgnoreCase);
+                        || ext.Equals(".inc", StringComparison.OrdinalIgnoreCase)
+                        || ext.Equals(".js",  StringComparison.OrdinalIgnoreCase);
                 })
                 .Select(f => Path.GetFileNameWithoutExtension(f) ?? "")
                 .Where(n => !string.IsNullOrEmpty(n) &&

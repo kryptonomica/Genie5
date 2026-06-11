@@ -53,6 +53,11 @@ public sealed class GameConnection : IAsyncDisposable
     private TcpClient?    _tcp;
     private NetworkStream? _networkStream;
     private StreamWriter?  _writer;
+    // Serializes outbound writes. The .cmd engine sends on the UI thread, but
+    // .js scripts run on their own threads and can call SendCommandAsync
+    // concurrently — with each other and with .cmd sends. StreamWriter is not
+    // thread-safe for concurrent writes, so gate every write+flush.
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
     private CancellationTokenSource _cts = new();
     private Task?          _readLoop;
 
@@ -147,8 +152,16 @@ public sealed class GameConnection : IAsyncDisposable
             throw new InvalidOperationException("Not connected.");
 
         _log.LogDebug("→ {Command}", command);
-        await _writer.WriteLineAsync(command.AsMemory(), ct);
-        await _writer.FlushAsync(ct);
+        await _sendGate.WaitAsync(ct);
+        try
+        {
+            await _writer.WriteLineAsync(command.AsMemory(), ct);
+            await _writer.FlushAsync(ct);
+        }
+        finally
+        {
+            _sendGate.Release();
+        }
     }
 
     public async Task DisconnectAsync()
@@ -358,5 +371,6 @@ public sealed class GameConnection : IAsyncDisposable
         _aiRawSubject.Dispose();
         _stateSubject.Dispose();
         _cts.Dispose();
+        _sendGate.Dispose();
     }
 }

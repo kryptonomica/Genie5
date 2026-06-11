@@ -182,6 +182,7 @@ public class GenieDockFactory : Factory
         var log      = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
         var itemlog  = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool(_vm.Experience,          ws.Get("experience"));
+        var scripts    = new ScriptsTool   (_vm.Scripts,            ws.Get("scripts"));
 
         // ── Default ship layout — three vertical columns ─────────────────
         //   ┌──────────┬─────────────────────┬──────────┐
@@ -324,6 +325,9 @@ public class GenieDockFactory : Factory
         // Experience: registered but hidden by default (like Vitals) — re-opens
         // beside the Backpack via Window → Experience. The plugin fills it.
         _tools[experience.Id] = (experience, backpackDock.Id);
+        // Scripts: registered but hidden by default (like Vitals/Experience) —
+        // re-opens beside the Backpack via Window → Scripts.
+        _tools[scripts.Id]    = (scripts,    backpackDock.Id);
 
         // ── Home-dock recreation map ─────────────────────────────────────
         // Mirrors the proportions/alignments set on the ToolDocks above so a

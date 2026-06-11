@@ -65,10 +65,10 @@ public class ScriptsViewModel : ReactiveObject
         Output.Clear();
         StatusText = "Connected.";
 
-        // Seed any scripts already running (auto-connect scripts, etc.).
-        foreach (var inst in core.Scripts.Instances)
-            if (inst.Running)
-                RunningScripts.Add(MakeRow(inst.Name));
+        // Seed any scripts already running (auto-connect scripts, etc.) —
+        // both .cmd and .js.
+        foreach (var name in core.Scripts.RunningScriptNames())
+            RunningScripts.Add(MakeRow(name));
 
         // Add/remove rows reactively. Both event paths marshal to the UI
         // thread since the engine ticks from connection / parser threads.
@@ -156,7 +156,7 @@ public class ScriptsViewModel : ReactiveObject
             SuggestedStartLocation = startLocation,
             FileTypeFilter         = new[]
             {
-                new FilePickerFileType("Genie scripts") { Patterns = ["*.cmd", "*.inc"] },
+                new FilePickerFileType("Genie scripts") { Patterns = ["*.cmd", "*.inc", "*.js"] },
                 new FilePickerFileType("All files")     { Patterns = ["*"]              },
             },
         });
@@ -179,7 +179,9 @@ public class ScriptsViewModel : ReactiveObject
     /// conversion / record-init wiring stays straightforward.
     /// </summary>
     private RunningScriptRow MakeRow(string name)
-        => new(name, ReactiveCommand.Create(() => StopOne(name)));
+        => new(name,
+               _core?.Scripts.IsJavaScript(name) ?? false,
+               ReactiveCommand.Create(() => StopOne(name)));
 }
 
 /// <summary>
@@ -190,4 +192,4 @@ public class ScriptsViewModel : ReactiveObject
 /// <c>x:DataType</c> resolution can find it — nested types via
 /// <c>Owner+Inner</c> syntax don't compile cleanly there.
 /// </summary>
-public sealed record RunningScriptRow(string Name, ReactiveCommand<Unit, Unit> StopCommand);
+public sealed record RunningScriptRow(string Name, bool IsJavaScript, ReactiveCommand<Unit, Unit> StopCommand);

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Genie.Core.Extensions;
 using Genie.Core.Extensions.Builtin;
+using Genie.Core.Scripting.Js;
 
 namespace Genie.Core.Scripting;
 
@@ -25,6 +26,12 @@ public sealed class ScriptEngine
     private readonly Action<string>       _echo;
     private readonly Action<string>?      _handleHashCmd;
     private readonly string               _scriptsDir;
+
+    /// <summary>Threaded runtime for <c>.js</c> scripts. The .cmd tick loop is
+    /// untouched; JS launches are delegated here from <see cref="TryStart"/>, and
+    /// game lines/prompts/stop/pause are forwarded so both languages behave
+    /// uniformly from the user's perspective.</summary>
+    private readonly JsScriptRuntime      _js;
 
     /// <summary>
     /// Directed echo: (message, windowName, hexColor). When window or color
@@ -112,6 +119,23 @@ public sealed class ScriptEngine
         // (it also had a stale mindstate table).
         Extensions.Register(new InfoTrackerExtension());
         Directory.CreateDirectory(_scriptsDir);
+
+        _js = new JsScriptRuntime(
+            scriptsDir:         _scriptsDir,
+            send:               _sendCommand,
+            echo:               _echo,
+            globals:            Globals,
+            roundtimeRemaining: () => RoundTimeRemainingSeconds?.Invoke() ?? 0,
+            onStarted:          n => ScriptStarted?.Invoke(n),
+            onFinished:         n => ScriptFinished?.Invoke(n),
+            // genie.echoTo(window, text[, color]) reuses the same directed-echo
+            // seam as the .cmd `#echo >Window #Color`; fall back to plain script
+            // echo when the UI hasn't wired EchoTo (headless tests).
+            echoTo:             (msg, win, col) =>
+            {
+                if (EchoTo is not null) EchoTo(msg, win, col);
+                else                    _echo(msg);
+            });
     }
 
     /// <summary>
@@ -129,7 +153,19 @@ public sealed class ScriptEngine
 
     public string ScriptsDir => _scriptsDir;
     public IReadOnlyList<ScriptInstance> Instances => _instances;
-    public bool AnyRunning => _instances.Any(i => i.Running);
+    public bool AnyRunning => _instances.Any(i => i.Running) || _js.AnyRunning;
+
+    /// <summary>Names of every running script, both .cmd and .js — used by the
+    /// <c>$scriptlist</c> pseudo-variable and the scripts panel.</summary>
+    public IReadOnlyList<string> RunningScriptNames() =>
+        _instances.Where(i => i.Running).Select(i => i.Name)
+                  .Concat(_js.RunningNames())
+                  .ToList();
+
+    /// <summary>True if a currently-running script of this name is a <c>.js</c>
+    /// script (vs a .cmd script). Used by the UI to tag rows by language.</summary>
+    public bool IsJavaScript(string name) =>
+        _js.RunningNames().Any(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Fired when a script finishes (done or stopped). Arg is the script name.</summary>
     public event Action<string>? ScriptFinished;
@@ -153,6 +189,14 @@ public sealed class ScriptEngine
             _echo($"[script] not found: {name}  (searched in: {_scriptsDir})");
             return false;
         }
+
+        // .js scripts run on the threaded JavaScript runtime, not the .cmd tick
+        // loop. Dispatch before the .cmd-specific parse / reload / arg-seeding
+        // below. (This lineage keeps the inline TryStart body — the
+        // StartInstance/TryStartFile extraction lives only in the held
+        // Analyst-Capture work, which isn't on public.)
+        if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
+            return _js.TryStart(name, args, path);
 
         ScriptInstance inst;
         try
@@ -207,7 +251,7 @@ public sealed class ScriptEngine
 
     private string? ResolveScriptPath(string name)
     {
-        foreach (var ext in new[] { "", ".cmd", ".inc" })
+        foreach (var ext in new[] { "", ".cmd", ".inc", ".js" })
         {
             var p = Path.Combine(_scriptsDir, name + ext);
             if (File.Exists(p)) return p;
@@ -217,6 +261,7 @@ public sealed class ScriptEngine
 
     public void StopAll()
     {
+        _js.StopAll();
         if (_instances.Count == 0) return;
         var names = _instances.Select(i => i.Name).ToList();
         foreach (var i in _instances) i.Running = false;
@@ -227,6 +272,7 @@ public sealed class ScriptEngine
 
     public void Stop(string name)
     {
+        _js.Stop(name);
         for (int i = _instances.Count - 1; i >= 0; i--)
         {
             if (!_instances[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase)) continue;
@@ -239,6 +285,7 @@ public sealed class ScriptEngine
 
     public void PauseScript(string name)
     {
+        _js.Pause(name);
         foreach (var inst in _instances)
             if (inst.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
             { inst.UserPaused = true; _echo($"[script] {name} paused"); }
@@ -246,6 +293,7 @@ public sealed class ScriptEngine
 
     public void ResumeScript(string name)
     {
+        _js.Resume(name);
         foreach (var inst in _instances)
             if (inst.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
             { inst.UserPaused = false; _echo($"[script] {name} resumed"); }
@@ -253,12 +301,14 @@ public sealed class ScriptEngine
 
     public void PauseAll()
     {
+        _js.PauseAll();
         foreach (var inst in _instances) inst.UserPaused = true;
         _echo("[script] all scripts paused");
     }
 
     public void ResumeAll()
     {
+        _js.ResumeAll();
         foreach (var inst in _instances) inst.UserPaused = false;
         _echo("[script] all scripts resumed");
         Tick();
@@ -272,6 +322,11 @@ public sealed class ScriptEngine
         // globals even when no scripts are running, so the next script that
         // starts sees up-to-date values.
         Extensions.DispatchGameLine(line);
+
+        // Feed JS waiters (genie.waitFor / waitForRe) on their own threads. Done
+        // before the .cmd early-return so JS scripts get lines even when no .cmd
+        // scripts are active.
+        _js.OnGameLine(line);
 
         if (_instances.Count == 0) return;
 
@@ -331,6 +386,7 @@ public sealed class ScriptEngine
     {
         if (_inFlight > 0) _inFlight--;
         Extensions.DispatchPrompt();
+        _js.OnPrompt();   // wake JS scripts parked in genie.waitForPrompt()
 
         // Signal 'wait'-paused scripts that a prompt has arrived. The tick
         // loop will then check roundtime before actually unblocking.
@@ -1837,9 +1893,9 @@ public sealed class ScriptEngine
     {
         // Snapshot to a local array first: the same unlocked access pattern the
         // engine uses for Instances/AnyRunning, but the copy avoids enumerating
-        // the live list if a start/stop mutates it mid-read.
-        var names = _instances.ToArray().Where(i => i.Running).Select(i => i.Name);
-        var joined = string.Join("|", names);
+        // the live list if a start/stop mutates it mid-read. Includes .js scripts
+        // so $scriptlist reflects everything the user is running.
+        var joined = string.Join("|", RunningScriptNames());
         return joined.Length == 0 ? "none" : joined;
     }
 
