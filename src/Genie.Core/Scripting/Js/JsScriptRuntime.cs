@@ -35,6 +35,12 @@ internal sealed class JsScriptRuntime
     private readonly object                                  _listGate   = new();
     private readonly ConcurrentDictionary<string, Regex>     _regexCache = new();
 
+    /// <summary>Runaway-loop backstop: abort a <c>.js</c> that runs this many
+    /// statements with NO <c>genie.*</c> call (a tight CPU loop). High enough that
+    /// heavy-but-finite compute between host calls won't trip; a true infinite
+    /// loop hits it in ~1-2s.</summary>
+    private const long MaxStatementsBetweenYields = 200_000_000;
+
     public JsScriptRuntime(
         string                               scriptsDir,
         Action<string>                       send,
@@ -101,13 +107,28 @@ internal sealed class JsScriptRuntime
     {
         try
         {
-            var host = new JsHostApi(this, inst);
+            var host  = new JsHostApi(this, inst);
+            var guard = new RunawayLoopGuard(MaxStatementsBetweenYields);
+            inst.ResetGuard = guard.ResetCounter;
             var engine = new Engine(opts =>
             {
                 // Aborts long-running / infinite JS even with no host calls,
                 // so Stop() reliably tears a script down.
                 opts.CancellationToken(inst.Token);
                 opts.LimitRecursion(128);
+
+                // Cap heap growth so a memory bomb (`let s=""; while(true) s+="x"`)
+                // can't exhaust the process. Generous — real scripts use KB–low-MB.
+                opts.LimitMemory(128L * 1024 * 1024);
+
+                // Runaway tight-loop guard: trips after a huge run of statements
+                // with NO genie.* call (Checkpoint resets it on every host call).
+                // We deliberately do NOT use TimeoutInterval / MaxStatements here:
+                // .js scripts are meant to run for hours (hunt loops with pause/
+                // waitFor), so a wall-clock or cumulative-statement cap would kill
+                // legitimate scripts. This only fires on a loop doing no game
+                // interaction at all — i.e. a genuine bug pegging a CPU thread.
+                opts.Constraints.Constraints.Add(guard);
             });
             engine.SetValue("__genieHost", host);
             engine.Execute(Prelude);
@@ -115,6 +136,15 @@ internal sealed class JsScriptRuntime
         }
         catch (ScriptAbortException)      { /* stopped via host checkpoint/park */ }
         catch (ExecutionCanceledException) { /* stopped via Jint cancellation */ }
+        catch (RunawayLoopException)
+        {
+            _echo($"[script] {inst.Name} aborted: runaway loop — ran {MaxStatementsBetweenYields:N0} " +
+                  "statements without a single genie.* call. Add a genie.pause/waitFor inside the loop.");
+        }
+        catch (MemoryLimitExceededException)
+        {
+            _echo($"[script] {inst.Name} aborted: memory limit (128 MB) exceeded.");
+        }
         catch (JavaScriptException jse)
         {
             _echo($"[script] {inst.Name} JS error: {jse.Message}");
@@ -277,3 +307,33 @@ var genie = {
 var game = genie;
 ";
 }
+
+/// <summary>
+/// A Jint constraint that aborts a script which executes a large number of
+/// statements without ever calling back into the host (<c>genie.*</c>) — i.e. a
+/// tight runaway loop pegging a CPU thread. The counter is reset on every host
+/// call via <see cref="JsScriptInstance.Checkpoint"/>, so a normal script (which
+/// puts/waits/pauses constantly) never trips. Both <see cref="Check"/> (called by
+/// Jint between statements) and the resets run on the single script thread, so no
+/// locking is needed.
+/// </summary>
+internal sealed class RunawayLoopGuard : Jint.Constraint
+{
+    private readonly long _max;
+    private long _count;
+
+    public RunawayLoopGuard(long maxStatementsBetweenYields) => _max = maxStatementsBetweenYields;
+
+    public override void Check()
+    {
+        if (++_count > _max) throw new RunawayLoopException();
+    }
+
+    public override void Reset() => _count = 0;   // Jint calls this at the start of each Execute
+
+    public void ResetCounter() => _count = 0;     // called from Checkpoint on every host call
+}
+
+/// <summary>Thrown by <see cref="RunawayLoopGuard"/> when the no-host-call
+/// statement budget is exceeded. Caught in <c>RunBody</c>.</summary>
+internal sealed class RunawayLoopException : Exception { }

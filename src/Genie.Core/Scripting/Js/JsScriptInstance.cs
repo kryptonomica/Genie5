@@ -62,12 +62,19 @@ internal sealed class JsScriptInstance
         _promptWake.Set();
     }
 
+    /// <summary>Set by the runtime to reset the runaway-loop statement counter
+    /// whenever a host (<c>genie.*</c>) call happens — proof the script is
+    /// interacting rather than spinning in a tight CPU loop. Null until the
+    /// engine is built.</summary>
+    internal Action? ResetGuard;
+
     /// <summary>Called at the top of every host API method: blocks while the
     /// script is user-paused and throws <see cref="ScriptAbortException"/> if it
     /// has been stopped. This is how pause/stop take effect mid-run.</summary>
     public void Checkpoint()
     {
         if (!Running || Cts.IsCancellationRequested) throw new ScriptAbortException();
+        ResetGuard?.Invoke();   // a host call happened → clear the runaway-loop counter
         try { _resume.Wait(Cts.Token); }
         catch (OperationCanceledException) { throw new ScriptAbortException(); }
         if (!Running || Cts.IsCancellationRequested) throw new ScriptAbortException();
