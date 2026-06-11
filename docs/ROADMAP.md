@@ -15,7 +15,7 @@ end up with two parallel PRs.
 
 ## Alpha 1 — shipped
 
-These work today, in the v5.0.0-alpha.3.2 build.
+These work today, in the v5.0.0-alpha.4 build.
 
 - **Connection layer** — SGE direct auth, Lich 5 proxy, dev-replay from
   recorded XML sessions
@@ -26,6 +26,14 @@ These work today, in the v5.0.0-alpha.3.2 build.
 - **Script engine** — full Genie 4 `.cmd` compatibility:
   `#class`, `#alias`, `#var`, `#highlight`, `#trigger`, `#substitute`,
   `#gag`, `#macro` all with save/load + per-character `.cfg` persistence
+- **JavaScript `.js` array scripts** — a Jint-based engine running in
+  parallel to `.cmd`, dispatched by extension. `genie.*` bridge API
+  (`put`/`send`, `waitFor`/`waitForRe`/`matchWait`, `pause`, timers,
+  session/script vars) with memory + runaway-loop guards (#21)
+- **Typed / scripted login** — `#connect` / `#reconnect` / `#lichconnect`
+  (saved-profile, explicit, reconnect-last, and Lich variants; passwords
+  masked in history), plus `--profile` / `--host` / `--port` / `--mode`
+  command-line startup (#46)
 - **Genie 4 settings importer** (File → Import from Genie 4…)
 - **AutoMapper**
   - Click-to-walk with compliance gating
@@ -86,17 +94,6 @@ Linux update channels are scoped but not yet wired:
 target for each OS (a `.app` bundle on macOS, an AppImage or similar on
 Linux) and an `IReleaseSource` that knows how to pull the right artifact
 for each platform.
-
-### JavaScript `.js` array script support
-
-Genie 4 supports `.js` array scripts via a small JavaScript engine. Genie 5
-currently runs only `.cmd` scripts. Some community scripts (notably ones
-that need real arrays or hash maps beyond what `.cmd` variables provide)
-are `.js`-only and don't have `.cmd` equivalents.
-
-Likely implementation: embed a JavaScript runtime (Jint, ClearScript, or
-similar) and expose the same `Scripts.Globals` surface that `.cmd` scripts
-see.
 
 ### Themes / light mode
 
