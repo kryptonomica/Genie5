@@ -218,6 +218,64 @@ switch (mode)
         return;
     }
 
+    case "CAPTUREVERIFY":
+    {
+        if (args_list.Count < 2)
+        {
+            Console.WriteLine("Usage: dotnet run -- CAPTUREVERIFY <session-file>");
+            Console.WriteLine("  Runs the AnalystCapture redactor over a recording (real parser for the");
+            Console.WriteLine("  parsed side, RedactRawXml for the raw side) and reports any other-player");
+            Console.WriteLine("  content that LEAKS past redaction. Target: 0 leaks in both artifacts.");
+            return;
+        }
+        var capPath = ResolveSessionFile(args_list[1], ResultsDir);
+        if (capPath is null) return;
+
+        var rawAll   = await File.ReadAllTextAsync(capPath);
+        var redactor = new Genie.Core.Capture.CaptureRedactor();
+
+        // ── parsed side (_streams.txt): real DrXmlParser → TextEvents → redact ──
+        var parser    = new Genie.Core.Parser.DrXmlParser(
+            loggerFactory.CreateLogger<Genie.Core.Parser.DrXmlParser>());
+        var keptLines = new List<string>();
+        int events = 0, droppedStream = 0, droppedContent = 0;
+        using (parser.GameEvents.OfType<Genie.Core.Events.TextEvent>().Subscribe(ev =>
+        {
+            events++;
+            if (redactor.ShouldDropStream(ev.Stream)) { droppedStream++;  return; }
+            if (redactor.ShouldDropContent(ev.Text))  { droppedContent++; return; }
+            keptLines.Add(ev.Text);
+        }))
+        {
+            for (int i = 0; i < rawAll.Length; i += 4096)
+                parser.Feed(rawAll.Substring(i, Math.Min(4096, rawAll.Length - i)));
+        }
+
+        // ── raw side (.xml): redact the whole raw block ──
+        var redactedXml = redactor.RedactRawXml(rawAll);
+
+        // ── leak detector (independent of the redactor's own patterns): any
+        //    surviving other-player marker — DEAD>, a quoted third-person utterance,
+        //    or an OOC: tag. Self ("You …") is excluded; it isn't other-player. ──
+        var leakRe = new System.Text.RegularExpressions.Regex(
+            @"(?:^|\n)[ \t]*(?:DEAD>|[A-Z][\w'’.\-]*\b[^""\n]*?\b(?:says|asks|whispers|exclaims|shouts|mutters|murmurs)\b[^""\n]*""|[^\n]*\bOOC:)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        bool IsSelf(string l) => l.TrimStart().StartsWith("You ", StringComparison.OrdinalIgnoreCase);
+
+        var streamLeaks = keptLines.Where(l => !IsSelf(l) && leakRe.IsMatch(l)).ToList();
+        var xmlLeaks    = redactedXml.Split('\n').Where(l => !IsSelf(l) && leakRe.IsMatch(l)).ToList();
+
+        Console.WriteLine($"[CAPTUREVERIFY] {Path.GetFileName(capPath)}");
+        Console.WriteLine($"  TextEvents: {events}   dropped(stream): {droppedStream}   dropped(content): {droppedContent}   kept: {keptLines.Count}");
+        Console.WriteLine($"  XML spans redacted: {redactor.DroppedXmlSpans}");
+        Console.ForegroundColor = (streamLeaks.Count + xmlLeaks.Count) == 0 ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  LEAKS — _streams.txt: {streamLeaks.Count}   .xml: {xmlLeaks.Count}   (target 0)");
+        Console.ResetColor();
+        foreach (var l in streamLeaks.Take(12)) Console.WriteLine($"    streams LEAK> {l.Trim()}");
+        foreach (var l in xmlLeaks.Take(12))    Console.WriteLine($"    xml     LEAK> {l.Trim()}");
+        return;
+    }
+
     case "ALIGN":
     {
         if (args_list.Count < 3)

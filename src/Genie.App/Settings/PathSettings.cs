@@ -27,6 +27,23 @@ public sealed class PathSettings
     /// </summary>
     public string? MapsDirectory { get; set; }
 
+    /// <summary>
+    /// Absolute path to the directory the Analyst Capture feature writes its
+    /// redacted capture sets to (<c>capture_*.xml</c> / <c>_streams.txt</c> /
+    /// <c>.meta.json</c>). There is intentionally no fixed default: the user
+    /// points this at a folder they can read directly (e.g. a working dir an
+    /// analysis tool can see). Null / empty means "ask the user where to write" the next
+    /// time a capture starts.
+    /// </summary>
+    public string? CaptureOutputDirectory { get; set; }
+
+    /// <summary>
+    /// Absolute path to a directory of user-supplied capture recipes
+    /// (<c>.cmd</c> + <c>.json</c> pairs) loaded in addition to the built-in
+    /// recipes shipped beside the executable. Null / empty means "built-ins only".
+    /// </summary>
+    public string? CaptureRecipeDirectory { get; set; }
+
     // ── JSON persistence ───────────────────────────────────────────────────
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

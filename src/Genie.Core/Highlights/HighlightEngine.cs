@@ -8,11 +8,20 @@ public sealed class HighlightEngine
     public IReadOnlyList<HighlightRule> Rules => _rules;
     public ClassEngine? Classes { get; set; }
 
+    private bool _safetyEnabled = true;
+    /// <summary>When true, regex-type highlight rules run with a match-timeout +
+    /// literal pre-filter. Toggling rebuilds every rule.</summary>
+    public bool SafetyEnabled
+    {
+        get => _safetyEnabled;
+        set { if (_safetyEnabled == value) return; _safetyEnabled = value; foreach (var r in _rules) r.Rebuild(value); }
+    }
+
     public HighlightRule AddRule(string pattern, string foregroundColor, string backgroundColor = "",
                                  HighlightMatchType matchType = HighlightMatchType.String,
                                  bool caseSensitive = false, bool isEnabled = true, string className = "")
     {
-        var rule = new HighlightRule(pattern, foregroundColor, backgroundColor, matchType, caseSensitive, isEnabled, className);
+        var rule = new HighlightRule(pattern, foregroundColor, backgroundColor, matchType, caseSensitive, isEnabled, className, _safetyEnabled);
         _rules.Add(rule);
         if (!string.IsNullOrEmpty(className)) Classes?.Ensure(className);
         return rule;

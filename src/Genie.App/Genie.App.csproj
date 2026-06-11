@@ -104,4 +104,15 @@
     <ProjectReference Include="..\Genie.Core\Genie.Core.csproj" />
   </ItemGroup>
 
+  <!-- ── Built-in Analyst Capture recipes ─────────────────────────────────── -->
+  <!-- The .cmd + .json recipe pairs shipped with the app. Copied beside the
+       executable under CaptureRecipes/ so the Analyst ▸ Run Capture Recipe menu
+       discovers them at runtime (CaptureRecipe.LoadAll). The relative path is
+       preserved in the output, so they land in <output>/CaptureRecipes/. Users
+       can point at an additional recipe folder via Path settings. -->
+  <ItemGroup>
+    <Content Include="CaptureRecipes\**\*.cmd;CaptureRecipes\**\*.json"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

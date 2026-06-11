@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Genie.Core.Diagnostics;
 
 namespace Genie.Core.Highlights;
 
@@ -6,11 +7,14 @@ public enum HighlightMatchType { String, Line, BeginsWith, Regex }
 
 public sealed class HighlightRule
 {
-    private Regex? _regex;
+    private Regex?  _regex;
+    private string? _hint;        // literal pre-filter for Regex match type
+    private bool    _safe = true;
 
     public HighlightRule(string pattern, string foregroundColor, string backgroundColor = "",
                          HighlightMatchType matchType = HighlightMatchType.String,
-                         bool caseSensitive = false, bool isEnabled = true, string className = "")
+                         bool caseSensitive = false, bool isEnabled = true, string className = "",
+                         bool safe = true)
     {
         Pattern         = pattern;
         ForegroundColor = foregroundColor;
@@ -19,7 +23,7 @@ public sealed class HighlightRule
         CaseSensitive   = caseSensitive;
         IsEnabled       = isEnabled;
         ClassName       = className;
-        RebuildRegex();
+        Rebuild(safe);
     }
 
     public string             Pattern         { get; }
@@ -35,10 +39,18 @@ public sealed class HighlightRule
         var cmp = CaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         return MatchType switch
         {
-            HighlightMatchType.Regex      => _regex?.IsMatch(line) ?? false,
+            HighlightMatchType.Regex      => RegexIsMatch(line, cmp),
             HighlightMatchType.BeginsWith => line.StartsWith(Pattern, cmp),
             _                             => line.Contains(Pattern, cmp),
         };
+    }
+
+    private bool RegexIsMatch(string line, StringComparison cmp)
+    {
+        if (_regex is null) return false;
+        if (_safe && _hint is not null && !line.Contains(_hint, cmp)) return false;
+        try { return _regex.IsMatch(line); }
+        catch (RegexMatchTimeoutException) { RegexSafety.ReportTimeout(PipelineStage.Highlights); return false; }
     }
 
     /// <summary>
@@ -57,9 +69,19 @@ public sealed class HighlightRule
         {
             case HighlightMatchType.Regex:
                 if (_regex is null) yield break;
-                foreach (Match m in _regex.Matches(line))
-                    if (m.Success && m.Length > 0)
-                        yield return (m.Index, m.Length);
+                if (_safe && _hint is not null && !line.Contains(_hint, cmp)) yield break;
+                // Materialise under the timeout guard so a catastrophic pattern
+                // can't hang the render path; yield outside the try (C# rule).
+                List<(int, int)>? spans = null;
+                try
+                {
+                    foreach (Match m in _regex.Matches(line))
+                        if (m.Success && m.Length > 0)
+                            (spans ??= new()).Add((m.Index, m.Length));
+                }
+                catch (RegexMatchTimeoutException) { RegexSafety.ReportTimeout(PipelineStage.Highlights); yield break; }
+                if (spans is not null)
+                    foreach (var s in spans) yield return s;
                 yield break;
 
             case HighlightMatchType.Line:
@@ -88,10 +110,14 @@ public sealed class HighlightRule
         }
     }
 
-    private void RebuildRegex()
+    /// <summary>(Re)build the regex (Regex match type only) with or without the
+    /// safety match-timeout + literal pre-filter.</summary>
+    internal void Rebuild(bool safe)
     {
-        if (MatchType != HighlightMatchType.Regex) return;
+        _safe = safe;
+        if (MatchType != HighlightMatchType.Regex) { _regex = null; _hint = null; return; }
         var opts = RegexOptions.Compiled | (CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase);
-        _regex = new Regex(Pattern, opts);
+        try { _regex = RegexSafety.Build(Pattern, opts, safe); _hint = safe ? RegexSafety.LiteralHint(Pattern) : null; }
+        catch { _regex = null; _hint = null; }
     }
 }

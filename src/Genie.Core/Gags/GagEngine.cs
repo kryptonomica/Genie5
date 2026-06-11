@@ -1,22 +1,43 @@
 using System.Text.RegularExpressions;
 using Genie.Core.Classes;
+using Genie.Core.Diagnostics;
 
 namespace Genie.Core.Gags;
 
 public sealed class GagRule
 {
-    private Regex? _regex;
-    public GagRule(string pattern, bool caseSensitive = false, bool isEnabled = true, string className = "")
-    { Pattern = pattern; CaseSensitive = caseSensitive; IsEnabled = isEnabled; ClassName = className; RebuildRegex(); }
+    private Regex?  _regex;
+    private string? _hint;          // literal pre-filter (null = none)
+    private bool    _safe = true;
+    private readonly StringComparison _cmp;
+
+    public GagRule(string pattern, bool caseSensitive = false, bool isEnabled = true, string className = "", bool safe = true)
+    {
+        Pattern = pattern; CaseSensitive = caseSensitive; IsEnabled = isEnabled; ClassName = className;
+        _cmp = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        Rebuild(safe);
+    }
     public string Pattern       { get; }
     public bool   CaseSensitive { get; }
     public bool   IsEnabled     { get; set; }
     public string ClassName     { get; }
-    public bool Matches(string line) { if (_regex is null || !IsEnabled) return false; return _regex.IsMatch(line); }
-    private void RebuildRegex()
+
+    public bool Matches(string line)
     {
+        if (_regex is null || !IsEnabled) return false;
+        // Cheap literal gate before the regex engine runs.
+        if (_safe && _hint is not null && !line.Contains(_hint, _cmp)) return false;
+        try { return _regex.IsMatch(line); }
+        catch (RegexMatchTimeoutException) { RegexSafety.ReportTimeout(PipelineStage.Gags); return false; }
+    }
+
+    /// <summary>(Re)build the regex with or without the safety match-timeout.</summary>
+    internal void Rebuild(bool safe)
+    {
+        _safe = safe;
         var opts = RegexOptions.Compiled | (CaseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase);
-        try { _regex = new Regex(Pattern, opts); } catch { _regex = null; }
+        try { _regex = RegexSafety.Build(Pattern, opts, safe); _hint = safe ? RegexSafety.LiteralHint(Pattern) : null; }
+        catch { _regex = null; _hint = null; }
     }
 }
 
@@ -26,9 +47,18 @@ public sealed class GagEngine
     public IReadOnlyList<GagRule> Rules => _rules;
     public ClassEngine? Classes { get; set; }
 
+    private bool _safetyEnabled = true;
+    /// <summary>When true, gag regexes run with a match-timeout + literal
+    /// pre-filter. Toggling rebuilds every rule.</summary>
+    public bool SafetyEnabled
+    {
+        get => _safetyEnabled;
+        set { if (_safetyEnabled == value) return; _safetyEnabled = value; foreach (var r in _rules) r.Rebuild(value); }
+    }
+
     public GagRule AddRule(string pattern, bool caseSensitive = false, bool isEnabled = true, string className = "")
     {
-        var rule = new GagRule(pattern, caseSensitive, isEnabled, className);
+        var rule = new GagRule(pattern, caseSensitive, isEnabled, className, _safetyEnabled);
         _rules.Add(rule);
         if (!string.IsNullOrEmpty(className)) Classes?.Ensure(className);
         return rule;

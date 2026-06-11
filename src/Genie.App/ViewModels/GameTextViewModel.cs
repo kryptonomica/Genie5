@@ -1,5 +1,9 @@
 using System.Collections.ObjectModel;
+using System.Reactive;
 using System.Reactive.Linq;
+using System.Text;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Documents;
 using Genie.App.Highlighting;
 using Genie.App.Settings;
@@ -14,6 +18,38 @@ public class GameTextViewModel : ReactiveObject
     private const int MaxLines = 2000;
 
     public ObservableCollection<TextLine> Lines { get; } = [];
+
+    /// <summary>
+    /// Concat every visible line into a single newline-separated string and
+    /// push it to the OS clipboard. Workaround for the Avalonia
+    /// <see cref="Avalonia.Controls.SelectableTextBlock"/> limitation that
+    /// each rendered line is its own selection-island — drag-selecting across
+    /// the <c>exp all</c> dump stops at the first line. Bound to Ctrl+Shift+C
+    /// via <c>MainWindow.KeyBindings</c>. (Full visual multi-line drag-select
+    /// is on the backlog as a custom selection-model refactor; this is the
+    /// pragmatic "I want to paste the whole dump elsewhere" path.)
+    /// </summary>
+    public ReactiveCommand<Unit, Unit> CopyAllCommand { get; }
+
+    public GameTextViewModel()
+    {
+        CopyAllCommand = ReactiveCommand.CreateFromTask(CopyAllToClipboardAsync);
+    }
+
+    private async System.Threading.Tasks.Task CopyAllToClipboardAsync()
+    {
+        if (Lines.Count == 0) return;
+        var sb = new StringBuilder(Lines.Count * 64);
+        foreach (var line in Lines)
+            sb.AppendLine(line.Text);
+        var top = (Application.Current?.ApplicationLifetime
+                       as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        if (top?.Clipboard is { } cb)
+        {
+            await cb.SetTextAsync(sb.ToString());
+            AddSystemLine($"[copied {Lines.Count} line(s) to clipboard]");
+        }
+    }
 
     /// <summary>
     /// Per-tag visibility filters — set by <see cref="MainWindowViewModel"/>
@@ -42,8 +78,12 @@ public class GameTextViewModel : ReactiveObject
             .Subscribe(e =>
             {
                 if (DisplaySettings?.ShowGameText == false) return;
-                var text = core.Substitutes.Apply(e.Text);
-                if (core.Gags.ShouldGag(text)) return;
+                // Timed into their own stages for the perf overlay (zero overhead
+                // when disabled). Substitute pass first, then the gag check.
+                var text = core.Metrics.Time(Genie.Core.Diagnostics.PipelineStage.Substitutes,
+                                             () => core.Substitutes.Apply(e.Text));
+                if (core.Metrics.Time(Genie.Core.Diagnostics.PipelineStage.Gags,
+                                      () => core.Gags.ShouldGag(text))) return;
                 // Substituting shifts offsets, so drop spans if a sub fired —
                 // they refer to positions in the original text. Same rule for
                 // link and bold spans.

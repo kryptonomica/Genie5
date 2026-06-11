@@ -199,18 +199,48 @@ public sealed class ScriptEngine
             return false;
         }
 
+        // The script's own directory is the include base — for ScriptsDir
+        // scripts that's _scriptsDir, preserving the prior behaviour.
+        return StartInstance(name, Path.GetDirectoryName(path) ?? _scriptsDir, path, args);
+    }
+
+    /// <summary>
+    /// Start a script from an explicit file path that may live OUTSIDE
+    /// <see cref="ScriptsDir"/> — e.g. an analyst-capture recipe <c>.cmd</c>.
+    /// The script name is the file's base name; the file's own directory is the
+    /// include base. Mirrors <see cref="TryStart"/> in every other respect
+    /// (reload semantics, arg seeding, ScriptStarted, gating), so a recipe runs
+    /// exactly like any user script.
+    /// </summary>
+    public bool TryStartFile(string fullPath, IReadOnlyList<string>? args = null)
+    {
+        if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
+        {
+            _echo($"[script] not found: {fullPath}");
+            return false;
+        }
+
+        var full = Path.GetFullPath(fullPath);
+        var name = Path.GetFileNameWithoutExtension(full);
+        return StartInstance(name, Path.GetDirectoryName(full)!, full, args ?? Array.Empty<string>());
+    }
+
+    /// <summary>Shared start path for <see cref="TryStart"/> /
+    /// <see cref="TryStartFile"/>: parse <paramref name="path"/> (with
+    /// <paramref name="baseDir"/> as the include base), apply reload semantics,
+    /// seed args, register, and tick.</summary>
+    private bool StartInstance(string name, string baseDir, string path, IReadOnlyList<string> args)
+    {
         // .js scripts run on the threaded JavaScript runtime, not the .cmd tick
-        // loop. Dispatch before the .cmd-specific parse / reload / arg-seeding
-        // below. (This lineage keeps the inline TryStart body — the
-        // StartInstance/TryStartFile extraction lives only in the held
-        // Analyst-Capture work, which isn't on public.)
+        // loop. Everything downstream (this method's reload/var seeding) is
+        // .cmd-specific, so dispatch before any of it.
         if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
             return _js.TryStart(name, args, path);
 
         ScriptInstance inst;
         try
         {
-            inst = ScriptParser.Parse(name, _scriptsDir, File.ReadAllText(path));
+            inst = ScriptParser.Parse(name, baseDir, File.ReadAllText(path));
         }
         catch (Exception ex)
         {

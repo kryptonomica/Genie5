@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Reactive;
 using System.Reactive.Linq;
-using System.Reflection;
 using Avalonia.Threading;
 using Genie.App.Services;
 using Genie.Core.Mapper;
@@ -43,7 +42,11 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
 
     // ── Core tab (Velopack-backed) ─────────────────────────────────────────
 
-    /// <summary>Assembly-recorded version for the "Installed:" line. Distinct from
+    /// <summary>Friendly version string ("5.0.0-alpha.3.2") read via
+    /// <see cref="Genie.Core.GenieCore.HostVersionString"/> — sourced from the
+    /// csproj's <c>&lt;InformationalVersion&gt;</c>, NOT the assembly version
+    /// (which is pinned at <c>5.0.0.0</c> for strong-name binding stability
+    /// across point releases). Distinct from
     /// <see cref="CoreAppUpdater.CurrentVersion"/> which reflects Velopack's
     /// install manifest (only meaningful when launched from a vpk install).</summary>
     public string CoreInstalledVersion { get; }
@@ -123,8 +126,7 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
 
         _config = _store.Load();
         CoreChannel          = string.IsNullOrWhiteSpace(_config.Core.Channel) ? "beta" : _config.Core.Channel;
-        CoreInstalledVersion = (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly())
-                                   .GetName().Version?.ToString() ?? "(unknown)";
+        CoreInstalledVersion = Genie.Core.GenieCore.HostVersionString;
 
         RebuildCoreUpdater();
         CoreLatestVersion = CoreCanUpdate

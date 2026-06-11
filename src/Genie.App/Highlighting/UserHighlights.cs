@@ -1,3 +1,4 @@
+using Genie.Core.Diagnostics;
 using Genie.Core.Highlights;
 
 namespace Genie.App.Highlighting;
@@ -15,6 +16,11 @@ namespace Genie.App.Highlighting;
 public static class UserHighlights
 {
     public static HighlightEngine? Engine { get; set; }
+
+    /// <summary>Active session's metrics collector, set alongside <see cref="Engine"/>.
+    /// <see cref="DefaultHighlights"/> times the user-highlight pass into the
+    /// Highlights stage through this. Null when no session is connected.</summary>
+    public static PipelineMetrics? Metrics { get; set; }
 
     /// <summary>
     /// Raised after any change to the active engine's rules. The game-text

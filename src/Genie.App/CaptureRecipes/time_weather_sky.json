@@ -1,0 +1,16 @@
+{
+  "name": "Time / Weather / Sky",
+  "description": "Verbatim time/weather/sky strings for the Sky widget parser (TimeEvent / WeatherEvent / MoonStateEvent).",
+  "precondition": "Stand OUTDOORS and ABOVE GROUND before running. For the 'no sky' indoors state, run it a second time indoors. Not a Moon Mage? The perceive/predict steps are harmless no-ops.",
+  "cmd": "time_weather_sky.cmd",
+  "sends": [
+    "time",
+    "weather",
+    "sky",
+    "perceive  (Moon Mage only)",
+    "predict   (Moon Mage only)",
+    "[90s ambient wait — no command]"
+  ],
+  "redact": ["talk", "whispers", "thoughts", "familiar", "ooc", "conversation", "group", "logons"],
+  "estimatedSeconds": 120
+}

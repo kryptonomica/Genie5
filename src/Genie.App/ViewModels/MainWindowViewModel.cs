@@ -10,6 +10,7 @@ using Genie.App.Docking;
 using Genie.App.Highlighting;
 using Genie.App.Settings;
 using Genie.Core;
+using Genie.Core.Capture;
 using Genie.Core.Connection;
 using Genie.Core.Events;
 using Genie.Core.Highlights;
@@ -254,6 +255,47 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// </summary>
     public ReactiveCommand<Unit, Unit>                    OpenRecordingsFolderCommand { get; }
 
+    // ── Analyst Capture (redacted, analyst-readable session captures) ──────────
+
+    /// <summary>Master gate for the Analyst Capture feature. OFF by default each
+    /// session (it's a policy-sensitive capability); enabling it shows a one-time
+    /// explainer. Drives the Analyst-menu checkbox and enables the run items.</summary>
+    [Reactive] public bool AnalystCaptureEnabled { get; private set; }
+
+    /// <summary>True while an analyst capture is actively writing. Drives the
+    /// title-bar "🔴 CAP" suffix and the Stop Capture menu item.</summary>
+    [Reactive] public bool IsCapturing { get; private set; }
+
+    /// <summary>Recipes for the <b>Analyst ▸ Run Capture Recipe</b> submenu —
+    /// built-ins (shipped beside the exe) plus any in the user recipe dir.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<RecipeMenuItem> CaptureRecipes { get; } = new();
+
+    /// <summary>Analyst → Enable Analyst Capture — toggles the feature (one-time
+    /// explainer on first enable). Async because the explainer is a dialog.</summary>
+    public ReactiveCommand<Unit, Unit>                    ToggleAnalystCaptureCommand { get; }
+
+    /// <summary>Runs a capture recipe: confirm dialog → start capture → run the
+    /// recipe's `.cmd` via the script engine. Bound per-row in the recipe submenu.</summary>
+    public ReactiveCommand<RecipeMenuItem, Unit>          RunRecipeCommand            { get; }
+
+    /// <summary>Analyst → Start Manual Capture — begin a capture with no recipe
+    /// (the user drives the game; Stop Capture ends it).</summary>
+    public ReactiveCommand<Unit, Unit>                    StartManualCaptureCommand   { get; }
+
+    /// <summary>Analyst → Stop Capture — end the active capture and write meta.</summary>
+    public ReactiveCommand<Unit, Unit>                    StopCaptureCommand          { get; }
+
+    /// <summary>Analyst → Open Capture Folder — reveal the capture output dir.</summary>
+    public ReactiveCommand<Unit, Unit>                    OpenCaptureFolderCommand    { get; }
+
+    /// <summary>Analyst → Set Capture Folder — pick where captures are written
+    /// (the readable dir the analyst reads from). Persisted per machine.</summary>
+    public ReactiveCommand<Unit, Unit>                    SetCaptureFolderCommand     { get; }
+
+    /// <summary>Analyst → Set Recipe Folder — pick an extra directory of user
+    /// recipes loaded alongside the built-ins.</summary>
+    public ReactiveCommand<Unit, Unit>                    SetRecipeFolderCommand      { get; }
+
     // ── Tool visibility (display-only; private setters guarantee these only
     // change via the Toggle commands, never via stray binding pushes) ────────
     [Reactive] public bool GameVisible     { get; private set; } = true;
@@ -315,6 +357,47 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// </summary>
     public DisplaySettings Display { get; }
 
+    // ── Performance overlay + per-component regex safety ──────────────────────
+
+    /// <summary>Live per-stage timing overlay (Performance menu → Show Overlay).</summary>
+    public PerfOverlayViewModel Perf { get; } = new();
+
+    /// <summary>Performance → Show Performance Overlay. Toggles the overlay and,
+    /// with it, metrics collection (off = zero instrumentation overhead).</summary>
+    public ReactiveCommand<Unit, Unit> TogglePerfOverlayCommand { get; }
+
+    private bool _triggersSafety    = true;
+    private bool _highlightsSafety  = true;
+    private bool _substitutesSafety = true;
+    private bool _gagsSafety        = true;
+
+    /// <summary>Regex match-timeout + literal pre-filter for user triggers. ON by
+    /// default; toggling applies live to the connected engine and is remembered
+    /// for the next connect.</summary>
+    public bool TriggersSafety
+    {
+        get => _triggersSafety;
+        set { this.RaiseAndSetIfChanged(ref _triggersSafety, value); if (_core is not null) _core.Triggers.SafetyEnabled = value; }
+    }
+    /// <summary>Regex safety for user highlight rules (Regex match type).</summary>
+    public bool HighlightsSafety
+    {
+        get => _highlightsSafety;
+        set { this.RaiseAndSetIfChanged(ref _highlightsSafety, value); if (_core is not null) _core.Highlights.SafetyEnabled = value; }
+    }
+    /// <summary>Regex safety for substitute rules.</summary>
+    public bool SubstitutesSafety
+    {
+        get => _substitutesSafety;
+        set { this.RaiseAndSetIfChanged(ref _substitutesSafety, value); if (_core is not null) _core.Substitutes.SafetyEnabled = value; }
+    }
+    /// <summary>Regex safety for gag rules.</summary>
+    public bool GagsSafety
+    {
+        get => _gagsSafety;
+        set { this.RaiseAndSetIfChanged(ref _gagsSafety, value); if (_core is not null) _core.Gags.SafetyEnabled = value; }
+    }
+
     /// <summary>
     /// Per-window display settings (title, font, fg/bg, timestamp, redirect).
     /// Edited via Edit → Configuration → Layout. Registered with the known
@@ -355,10 +438,29 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     private readonly string _logsDir;
     private string _pluginsDir = "";
 
+    /// <summary>
+    /// Directory of the built-in Analyst Capture recipes shipped beside the
+    /// executable (<c>{appdir}/CaptureRecipes/</c>, copied there by the csproj).
+    /// Loaded alongside any user recipe dir (<see cref="PathSettings.CaptureRecipeDirectory"/>).
+    /// </summary>
+    private string _builtinRecipesDir = "";
+
+    /// <summary>The active analyst capture, or null when none is running.
+    /// Recreated per Start because the output dir is user-chosen and may change.</summary>
+    private AnalystCapture? _analystCapture;
+
     /// <summary>UI-thread heartbeat that pumps <see cref="Genie.Core.Scripting.ScriptEngine.Tick"/>
     /// so time-based script unblocks (pause / delay / waitfor) fire even with no
     /// incoming game traffic. Started on connect, stopped on disconnect (#61).</summary>
     private Avalonia.Threading.DispatcherTimer? _scriptHeartbeat;
+
+    /// <summary>Base name of the recipe script whose completion should auto-stop
+    /// the current capture (null for a manual capture, which the user stops).</summary>
+    private string? _activeCaptureScript;
+
+    /// <summary>True once the one-time "what Analyst Capture does" explainer has
+    /// been shown this session, so enabling it again doesn't re-nag.</summary>
+    private bool _captureExplained;
 
     /// <summary>
     /// Session-scoped map of DR's <c>#NNNN</c> container-item-IDs to their
@@ -405,6 +507,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // dir, so {AppData}/Genie5/{Config, Logs, Maps, Profiles}/ is the layout.
         _logsDir      = Path.Combine(Path.GetDirectoryName(_configDir)!, "Logs");
         _pluginsDir   = Path.Combine(Path.GetDirectoryName(_configDir)!, "Plugins");
+        // Built-in capture recipes ship beside the exe (csproj copies them).
+        _builtinRecipesDir = Path.Combine(AppContext.BaseDirectory, "CaptureRecipes");
 
         // Global layout presets — one JSON per layout, at {AppData}/Genie5/Layouts/.
         // Per-profile presets attach on connect (see SetProfileLayoutScope).
@@ -975,13 +1079,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // strings are otherwise plain text with no markup for per-char color,
         // so this is the simplest reliable way to make the indicator red.
         this.WhenAnyValue(x => x.ConnectionStatus, x => x.CharacterGuild,
-                          x => x.IsRecording, x => x.Display.ShowGuildInTitle)
+                          x => x.IsRecording, x => x.Display.ShowGuildInTitle,
+                          x => x.IsCapturing)
             .Subscribe(_ =>
             {
                 var guild = (Display.ShowGuildInTitle && !string.IsNullOrWhiteSpace(CharacterGuild))
                     ? $" — {CharacterGuild}" : "";
                 var rec   = IsRecording ? "  🔴 REC" : "";
-                WindowTitle = $"Genie 5 — {ConnectionStatus}{guild}{rec}";
+                var cap   = IsCapturing ? "  🔴 CAP" : "";
+                WindowTitle = $"Genie 5 {Genie.Core.GenieCore.HostVersionString} — {ConnectionStatus}{guild}{rec}{cap}";
             });
 
         // Compound visibility: ShowRtInCommandBar is true only when the
@@ -1017,16 +1123,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleItemLogCommand  = MakeToggleCommand("itemlog",   v => ItemLogVisible  = v);
         ToggleScriptsCommand  = MakeToggleCommand("scripts",   v => ScriptsVisible  = v);
 
-        ResetLayoutCommand = ReactiveCommand.Create(() =>
-        {
-            if (DockFactory is not GenieDockFactory factory) return;
-            foreach (var id in new[] { "game-text", "vitals", "room", "backpack", "mapper", "logons", "talk", "whispers", "thoughts", "combat", "log", "itemlog" })
-                factory.SetToolVisibility(id, true);
-
-            GameVisible   = VitalsVisible   = RoomVisible    = BackpackVisible = MapperVisible = true;
-            LogonsVisible = TalkVisible     = WhispersVisible = ThoughtsVisible = CombatVisible = true;
-            LogVisible    = ItemLogVisible  = true;
-        });
+        // (ResetLayoutCommand is assigned earlier — using ApplyLayout() with a
+        // SavedLayout that goes through factory.BuildDefaultLayout(). A second
+        // assignment here previously overwrote that with a shallow
+        // SetToolVisibility loop, which left drag-redocked panels in place and
+        // forced Vitals into a docked slot. Removed; the earlier assignment is
+        // the canonical reset path.)
 
         DisconnectCommand = ReactiveCommand.CreateFromTask(
             DisconnectAsync,
@@ -1041,6 +1143,17 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetMapsDirectoryCommand     = ReactiveCommand.CreateFromTask(SetMapsDirectoryAsync);
         OpenMapsFolderCommand       = ReactiveCommand.Create(OpenMapsFolder);
         OpenRecordingsFolderCommand = ReactiveCommand.Create(OpenRecordingsFolder);
+        TogglePerfOverlayCommand    = ReactiveCommand.Create(() => Perf.Toggle());
+
+        // ── Analyst Capture commands ───────────────────────────────────────
+        ToggleAnalystCaptureCommand = ReactiveCommand.CreateFromTask(ToggleAnalystCaptureAsync);
+        RunRecipeCommand            = ReactiveCommand.CreateFromTask<RecipeMenuItem>(item => RunRecipeAsync(item.Recipe));
+        StartManualCaptureCommand   = ReactiveCommand.CreateFromTask(StartManualCaptureAsync);
+        StopCaptureCommand          = ReactiveCommand.Create(() => StopCapture("stopped by user"));
+        OpenCaptureFolderCommand    = ReactiveCommand.Create(OpenCaptureFolder);
+        SetCaptureFolderCommand     = ReactiveCommand.CreateFromTask(async () => { await SetCaptureFolderAsync(); });
+        SetRecipeFolderCommand      = ReactiveCommand.CreateFromTask(SetRecipeFolderAsync);
+        RefreshRecipes();
 
         // ── Exception logging for every async ReactiveCommand ────────────────
         // Without a subscriber on ThrownExceptions, ReactiveUI considers the
@@ -1563,6 +1676,261 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Mapper.OnMapsDirectoryChanged();
     }
 
+    // ── Analyst Capture ─────────────────────────────────────────────────────
+
+    /// <summary>Rebuild <see cref="CaptureRecipes"/> from the built-in recipe dir
+    /// plus the optional user recipe dir. Each entry carries the shared
+    /// <see cref="RunRecipeCommand"/> so the menu container style binds it.</summary>
+    private void RefreshRecipes()
+    {
+        CaptureRecipes.Clear();
+        void AddFrom(string? dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            foreach (var r in CaptureRecipe.LoadAll(dir))
+                CaptureRecipes.Add(new RecipeMenuItem(r.Name, r, RunRecipeCommand));
+        }
+        AddFrom(_builtinRecipesDir);
+        AddFrom(Paths.CaptureRecipeDirectory);
+    }
+
+    /// <summary>Toggle the Analyst Capture feature. First enable shows a one-time
+    /// explainer (policy: redaction on, local-only, user-executed). Disabling
+    /// stops any active capture.</summary>
+    private async Task ToggleAnalystCaptureAsync()
+    {
+        if (AnalystCaptureEnabled)
+        {
+            AnalystCaptureEnabled = false;
+            if (IsCapturing) StopCapture("analyst capture disabled");
+            return;
+        }
+
+        if (!_captureExplained &&
+            Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime d &&
+            d.MainWindow is { } owner)
+        {
+            var dlg = new Genie.App.Views.ConfirmDialog(
+                "Enable Analyst Capture",
+                "Analyst Capture records a REDACTED copy of this session to a folder you choose, so it " +
+                "can be handed to an analyst (or an AI assistant) for parser / analysis work.\n\n" +
+                "• Other players' speech (talk / whispers / thoughts / familiar / OOC / group / logons) is " +
+                "stripped by default.\n" +
+                "• Files are written locally only — nothing is sent anywhere automatically.\n" +
+                "• Recipes never auto-run — you start each capture yourself.\n\n" +
+                "Enable it now?");
+            if (!await dlg.ShowDialog<bool>(owner)) { AnalystCaptureEnabled = false; return; }
+            _captureExplained = true;
+        }
+
+        AnalystCaptureEnabled = true;
+        GameText.AddSystemLine("[analyst] capture enabled — run a recipe or Start Manual Capture from the Analyst menu.");
+    }
+
+    /// <summary>Run a capture recipe: confirm → ensure folder → start capture →
+    /// run the recipe's `.cmd` through the script engine.</summary>
+    private async Task RunRecipeAsync(CaptureRecipe recipe)
+    {
+        if (!EnsureCaptureReady()) return;
+
+        var dir = await EnsureCaptureFolderAsync();
+        if (dir is null) return;
+
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime d
+            || d.MainWindow is not { } owner) return;
+
+        var sends   = recipe.Sends.Count > 0 ? "  • " + string.Join("\n  • ", recipe.Sends) : "  (none)";
+        var streams = string.Join(", ", recipe.BuildRedactor().RedactedStreams);
+        var msg =
+            (string.IsNullOrWhiteSpace(recipe.Description)  ? "" : recipe.Description + "\n\n") +
+            (string.IsNullOrWhiteSpace(recipe.Precondition) ? "" : $"Before you run:\n{recipe.Precondition}\n\n") +
+            $"Sends to the game:\n{sends}\n\n" +
+            $"Writes a redacted capture (dropping: {streams})\nto: {dir}\n\n" +
+            (recipe.EstimatedSeconds > 0 ? $"Takes about {recipe.EstimatedSeconds}s. " : "") +
+            "Run now?";
+
+        var dlg = new Genie.App.Views.ConfirmDialog($"Run capture: {recipe.Name}", msg);
+        if (!await dlg.ShowDialog<bool>(owner)) return;
+
+        if (recipe.CmdPath is not { } cmdPath || !File.Exists(cmdPath))
+        {
+            GameText.AddSystemLine($"[analyst] recipe script not found: {recipe.Cmd}");
+            return;
+        }
+
+        StartCapture(dir, recipe, Path.GetFileNameWithoutExtension(cmdPath));
+        if (!_core!.Scripts.TryStartFile(cmdPath))
+            StopCapture("recipe failed to start");
+    }
+
+    /// <summary>Start a manual (recipe-less) capture; the user drives the game and
+    /// stops it via Analyst → Stop Capture.</summary>
+    private async Task StartManualCaptureAsync()
+    {
+        if (!EnsureCaptureReady()) return;
+        var dir = await EnsureCaptureFolderAsync();
+        if (dir is null) return;
+        StartCapture(dir, recipe: null, activeScript: null);
+        GameText.AddSystemLine("[analyst] manual capture started — stop it via Analyst → Stop Capture.");
+    }
+
+    /// <summary>Guard shared by the capture entry points: feature on + connected.</summary>
+    private bool EnsureCaptureReady()
+    {
+        if (!AnalystCaptureEnabled)
+        {
+            GameText.AddSystemLine("[analyst] enable Analyst Capture first (Analyst menu).");
+            return false;
+        }
+        if (_core is null || !IsConnected)
+        {
+            GameText.AddSystemLine("[analyst] connect first — capture needs a live session.");
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>(Re)create the capture for <paramref name="dir"/> and start it on
+    /// the current core's streams. Recreated per start since the dir is user-chosen.</summary>
+    private void StartCapture(string dir, CaptureRecipe? recipe, string? activeScript)
+    {
+        var name = !string.IsNullOrWhiteSpace(_core!.State.CharacterName)
+            ? _core.State.CharacterName
+            : ConnectedProfile?.CharacterName ?? "unknown";
+
+        var meta = new Dictionary<string, string?>
+        {
+            ["guild"]          = string.IsNullOrWhiteSpace(CharacterGuild) ? null : CharacterGuild,
+            ["connectionMode"] = LastConnectionConfig?.Mode.ToString(),
+        };
+
+        _analystCapture?.Dispose();
+        _analystCapture = new AnalystCapture(dir,
+            m => Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(m)));
+        _analystCapture.Start(_core.RawXmlStream, _core.GameEvents, name, DateTime.UtcNow, recipe, extraMeta: meta);
+
+        _activeCaptureScript = activeScript;
+        IsCapturing = true;
+    }
+
+    /// <summary>Stop the active capture (if any), writing its meta sidecar.</summary>
+    private void StopCapture(string reason)
+    {
+        if (!IsCapturing && _analystCapture is null) return;
+        _analystCapture?.Stop();
+        _activeCaptureScript = null;
+        IsCapturing = false;
+        GameText.AddSystemLine($"[analyst] capture stopped ({reason}).");
+    }
+
+    /// <summary>Resolve the capture output dir, prompting for one if unset
+    /// ("user-picked"). Returns null if the user cancels.</summary>
+    private async Task<string?> EnsureCaptureFolderAsync()
+    {
+        var dir = Paths.CaptureOutputDirectory;
+        if (!string.IsNullOrWhiteSpace(dir))
+        {
+            try { Directory.CreateDirectory(dir); return dir; }
+            catch (Exception ex) { ErrorLog.Log("EnsureCaptureFolder", ex); }
+        }
+        return await SetCaptureFolderAsync();
+    }
+
+    /// <summary>Folder picker for the capture output dir. Persists + returns the
+    /// chosen path (null on cancel).</summary>
+    private async Task<string?> SetCaptureFolderAsync()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return null;
+        if (desktop.MainWindow?.StorageProvider is not { } sp) return null;
+
+        IStorageFolder? start = null;
+        var current = Paths.CaptureOutputDirectory;
+        if (!string.IsNullOrWhiteSpace(current) && Directory.Exists(current))
+        {
+            try   { start = await sp.TryGetFolderFromPathAsync(current); }
+            catch { /* picker falls back to its default location */ }
+        }
+
+        var picked = await sp.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title                  = "Choose a folder for analyst captures",
+            AllowMultiple          = false,
+            SuggestedStartLocation = start,
+        });
+        var folder = picked?.FirstOrDefault();
+        if (folder is null) return null;
+
+        var path = folder.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(path)) return null;
+
+        Paths.CaptureOutputDirectory = path;
+        try   { Paths.Save(_pathsPath); }
+        catch (Exception ex) { ErrorLog.Log("SaveCaptureFolder", ex); }
+        GameText.AddSystemLine($"[analyst] capture folder: {path}");
+        return path;
+    }
+
+    /// <summary>Folder picker for an extra user-recipe dir; reloads the recipe list.</summary>
+    private async Task SetRecipeFolderAsync()
+    {
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+        if (desktop.MainWindow?.StorageProvider is not { } sp) return;
+
+        IStorageFolder? start = null;
+        var current = Paths.CaptureRecipeDirectory;
+        if (!string.IsNullOrWhiteSpace(current) && Directory.Exists(current))
+        {
+            try   { start = await sp.TryGetFolderFromPathAsync(current); }
+            catch { /* picker falls back to its default location */ }
+        }
+
+        var picked = await sp.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title                  = "Choose a folder of capture recipes",
+            AllowMultiple          = false,
+            SuggestedStartLocation = start,
+        });
+        var folder = picked?.FirstOrDefault();
+        if (folder is null) return;
+
+        var path = folder.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(path)) return;
+
+        Paths.CaptureRecipeDirectory = path;
+        try   { Paths.Save(_pathsPath); }
+        catch (Exception ex) { ErrorLog.Log("SaveRecipeFolder", ex); }
+        RefreshRecipes();
+        GameText.AddSystemLine($"[analyst] recipe folder: {path} ({CaptureRecipes.Count} recipe(s) total).");
+    }
+
+    /// <summary>Open the capture output dir in the OS file browser (creates it if
+    /// needed). Mirrors <see cref="OpenRecordingsFolder"/>.</summary>
+    private void OpenCaptureFolder()
+    {
+        var dir = Paths.CaptureOutputDirectory;
+        if (string.IsNullOrWhiteSpace(dir))
+        {
+            GameText.AddSystemLine("[analyst] no capture folder set — use Analyst → Set Capture Folder first.");
+            return;
+        }
+        try
+        {
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            var nativePath = Path.GetFullPath(dir);
+            if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                    System.Runtime.InteropServices.OSPlatform.Windows))
+                System.Diagnostics.Process.Start("explorer.exe", nativePath);
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
+                         System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", nativePath);
+            else
+                System.Diagnostics.Process.Start("xdg-open", nativePath);
+        }
+        catch (Exception ex) { ErrorLog.Log("OpenCaptureFolder", ex); }
+    }
+
     /// <summary>
     /// Re-sync every <c>XxxVisible</c> bool to the dock factory's actual state.
     /// Called from the Window menu's SubmenuOpened handler so the check marks
@@ -1960,13 +2328,34 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 ConnectionStatus = e.Kind == ConnectionEventKind.Connected
                     ? $"Connected — {Genie.Core.Profiles.CharacterIdentity.Format(cfg.CharacterName, cfg.AccountName)}"
                     : e.Kind.ToString();
+
+                // Close any in-flight analyst capture when the session ends, so
+                // its meta sidecar is written rather than left dangling.
+                if (e.Kind is ConnectionEventKind.Disconnected or ConnectionEventKind.Error
+                    && IsCapturing)
+                    StopCapture("disconnected");
             });
 
         // Auto-load every saved rule file into the live engines so anything
         // the user configured offline (via the Configuration dialog) is
         // immediately active. Then expose Highlights to the renderer.
         LoadSavedConfiguration(_core);
-        UserHighlights.Engine = _core.Highlights;
+        UserHighlights.Engine  = _core.Highlights;
+        UserHighlights.Metrics = _core.Metrics;   // time the render-path highlight pass
+
+        // ── Performance: attach the overlay + apply per-component safety ──────
+        // Push the user's current safety choices onto the freshly-built engines
+        // (defaults are ON), then hand the overlay this session's metrics.
+        _core.Triggers.SafetyEnabled    = TriggersSafety;
+        _core.Highlights.SafetyEnabled  = HighlightsSafety;
+        _core.Substitutes.SafetyEnabled = SubstitutesSafety;
+        _core.Gags.SafetyEnabled        = GagsSafety;
+        Perf.Attach(_core.Metrics);
+        // JS overlay: time the .js line-dispatch into the JavaScript stage, and
+        // feed the running-.js list. Record() no-ops when the overlay is hidden.
+        _core.Scripts.JsDispatchMsSink = ms =>
+            _core.Metrics.Record(Genie.Core.Diagnostics.PipelineStage.JavaScript, ms);
+        Perf.JsStatsProvider = () => _core.Scripts.JsRunningStats();
 
         // Wire <d cmd="..."> link clicks to the command pipeline so they
         // behave like the user typed the command. Mirror the ShowLinks
@@ -2001,21 +2390,6 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // toggles (Window → Game Window) — supply Display so it can read
         // ShowGameText / ShowEchoText / ShowScriptText at subscription time.
         GameText.DisplaySettings = Display;
-
-        // Timer-driven script tick so `pause`/`delay` (and the RT gate) unblock
-        // on their own schedule instead of waiting for the next server event.
-        // Without this, a paused script only resumes when game text/a prompt
-        // arrives — so a `pause 0.5` between idle commands stalls until DR's
-        // periodic keepalive prompt (~10s), crawling any pause-heavy script.
-        // One-shot DispatcherTimer per scheduled wake (UI thread, where Tick
-        // already marshals its echo/send callbacks).
-        _core.Scripts.ScheduleTick = delay =>
-        {
-            var timer = new Avalonia.Threading.DispatcherTimer { Interval = delay };
-            timer.Tick += (_, _) => { timer.Stop(); _core.Scripts.Tick(); };
-            timer.Start();
-        };
-
         GameText.Attach(_core);
         Vitals.Attach(_core);
         Room.Attach(_core);
@@ -2032,6 +2406,20 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         _core.Plugins.DiscoverAndLoad(_pluginsDir);
         RefreshPluginList();
         ScriptBar.Attach(_core);
+
+        // Analyst Capture: when a recipe's `.cmd` finishes, close the capture it
+        // opened so the meta/timings land without the user clicking Stop. Manual
+        // captures (no _activeCaptureScript) are unaffected — they stop on demand.
+        Observable.FromEvent<Action<string>, string>(
+                h => _core.Scripts.ScriptFinished += h,
+                h => _core.Scripts.ScriptFinished -= h)
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(name =>
+            {
+                if (IsCapturing && _activeCaptureScript is { } s &&
+                    string.Equals(s, name, StringComparison.OrdinalIgnoreCase))
+                    StopCapture("recipe complete");
+            });
 
         // Edit-in-editor requests come from two places, both routed to the
         // same handler: the Script Bar's pencil button (per-running-script),
@@ -2272,6 +2660,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // after the session ends just produces a file that trails off mid-tag.
         // The user can re-toggle Record Session on the next connect.
         Recorder.Stop();
+        Perf.Detach();              // stop the overlay timer + disable metrics collection
+        UserHighlights.Metrics = null;
         _scriptHeartbeat?.Stop();   // stop pumping Tick() once the session ends (#61)
         if (_core is not null)
             await _core.DisconnectAsync();

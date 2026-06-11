@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Media;
+using Genie.Core.Diagnostics;
 using Genie.Core.Events;
 using Genie.Core.Highlights;
 
@@ -165,23 +166,33 @@ public static class DefaultHighlights
         }
 
         // ── User-defined highlights from the live HighlightEngine ─────
+        // Timed into the Highlights stage (no-op overhead when the overlay is
+        // hidden). This is the render-path cost of user highlight rules.
         if (UserHighlights.Engine is { } engine)
         {
-            foreach (var rule in engine.Rules)
+            void ApplyUserHighlights()
             {
-                if (!rule.IsEnabled) continue;
-                if (engine.Classes is { } classes && !classes.IsActive(rule.ClassName)) continue;
-
-                var ruleBrush = GetUserBrush(rule.ForegroundColor);
-                if (ruleBrush is null) continue;
-
-                foreach (var (start, length) in rule.GetMatchPositions(text))
+                foreach (var rule in engine.Rules)
                 {
-                    var end = Math.Min(start + length, text.Length);
-                    for (int i = start; i < end; i++)
-                        if (brushes[i] is null) brushes[i] = ruleBrush;
+                    if (!rule.IsEnabled) continue;
+                    if (engine.Classes is { } classes && !classes.IsActive(rule.ClassName)) continue;
+
+                    var ruleBrush = GetUserBrush(rule.ForegroundColor);
+                    if (ruleBrush is null) continue;
+
+                    foreach (var (start, length) in rule.GetMatchPositions(text))
+                    {
+                        var end = Math.Min(start + length, text.Length);
+                        for (int i = start; i < end; i++)
+                            if (brushes[i] is null) brushes[i] = ruleBrush;
+                    }
                 }
             }
+
+            if (UserHighlights.Metrics is { } metrics)
+                metrics.Time(PipelineStage.Highlights, ApplyUserHighlights);
+            else
+                ApplyUserHighlights();
         }
 
         // Order link spans by start position so we can emit non-link runs

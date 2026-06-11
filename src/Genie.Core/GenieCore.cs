@@ -1,10 +1,12 @@
 using System.Reactive.Linq;
+using System.Reflection;
 using Genie.Core.AI;
 using Genie.Core.Aliases;
 using Genie.Core.Classes;
 using Genie.Core.Commanding;
 using Genie.Core.Config;
 using Genie.Core.Connection;
+using Genie.Core.Diagnostics;
 using Genie.Core.Events;
 using Genie.Core.Gags;
 using Genie.Core.GameState;
@@ -55,7 +57,32 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// <summary>Plugin-API contract version (bumped only on a breaking change
     /// to <see cref="Genie.Plugins.IGeniePlugin"/> / <see cref="Genie.Plugins.IPluginHost"/>).</summary>
     public const int PluginInterfaceVersion = 1;
-    private const string HostVersionString  = "5.0.0-alpha.3.5";
+
+    /// <summary>
+    /// App version string read from the running entry assembly's
+    /// <see cref="System.Reflection.AssemblyInformationalVersionAttribute"/>.
+    /// The csproj's <c>&lt;InformationalVersion&gt;</c> is the single source of
+    /// truth — every UI surface (title bar, Updates dialog, About box, plugin
+    /// host's <see cref="Genie.Plugins.IPluginHost.HostVersion"/>) reads back
+    /// to here, so a csproj bump propagates everywhere without touching code.
+    ///
+    /// Strips any <c>+commit-sha</c> suffix the .NET SDK appends when
+    /// <c>IncludeSourceRevisionInInformationalVersion</c> is on (false in our
+    /// csproj today, but defensive against future toggles).
+    ///
+    /// Falls back to <c>"(dev)"</c> when the entry assembly is missing the
+    /// attribute (unit tests, harness invocations).
+    /// </summary>
+    public static readonly string HostVersionString = ResolveHostVersion();
+
+    private static string ResolveHostVersion()
+    {
+        var attr = System.Reflection.Assembly.GetEntryAssembly()?
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>();
+        var raw = attr?.InformationalVersion ?? "(dev)";
+        var plus = raw.IndexOf('+');
+        return plus >= 0 ? raw[..plus] : raw;
+    }
 
     // ── Network / parser layer ─────────────────────────────────────────────────
     private readonly GameConnection    _connection;
@@ -93,6 +120,11 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     public GagEngine           Gags           { get; }
     public MacroEngine         Macros         { get; }
     public AutoMapperEngine    AutoMapper     { get; }
+
+    /// <summary>Live per-stage timing for the performance overlay. Collection is
+    /// gated by <see cref="Diagnostics.PipelineMetrics.Enabled"/> (off until the
+    /// overlay is shown); regex match-timeouts are always counted.</summary>
+    public Diagnostics.PipelineMetrics Metrics { get; } = new();
 
     /// <summary>Loaded plugins. Phase 1 = in-process registration; the DLL
     /// loader bolts discovery onto this same manager.</summary>
@@ -213,8 +245,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // (Plugin_EXPTrackerV5) loaded from {AppData}/Genie5/Plugins by the App
         // on connect. Drop the DLL there to enable exp tracking.
 
-        // Wire raw XML → parser
-        _parserFeed = _connection.RawXmlStream.Subscribe(_parser.Feed);
+        // Route caught regex match-timeouts (from the trigger/highlight/
+        // substitute/gag safety layer) into the metrics collector so the overlay
+        // can surface a per-component timeout count.
+        RegexSafety.TimeoutSink = Metrics.RecordTimeout;
+
+        // Wire raw XML → parser (timed as the Parse stage; no-op overhead when
+        // the overlay is hidden because Metrics.Enabled is false).
+        _parserFeed = _connection.RawXmlStream.Subscribe(
+            xml => Metrics.Time(PipelineStage.Parse, () => _parser.Feed(xml)));
 
         // ── Command pipeline ───────────────────────────────────────────────────
         _commandQueue = new CommandQueue();
@@ -333,12 +372,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             switch (evt)
             {
                 case TextEvent te:
-                    Scripts.OnGameLine(te.Text);   // match/waitfor + EXP/info trackers
-                    Triggers.ProcessLine(te.Text); // user-defined triggers
+                    // Each per-line consumer is timed into its own stage so the
+                    // overlay shows which feature is eating the frame. The Time
+                    // wrapper is a zero-overhead passthrough while disabled.
+                    Metrics.Time(PipelineStage.Scripts,  () => Scripts.OnGameLine(te.Text));   // match/waitfor + EXP/info trackers
+                    Metrics.Time(PipelineStage.Triggers, () => Triggers.ProcessLine(te.Text)); // user-defined triggers
                     // Plugins observe each line. Phase 1 ignores the transform
                     // return (display-pipeline rewrite/gag wiring is deferred);
                     // observe-only plugins return the text unchanged.
-                    Plugins.DispatchGameText(te.Text, te.Stream);
+                    Metrics.Time(PipelineStage.Plugins,  () => Plugins.DispatchGameText(te.Text, te.Stream));
                     break;
 
                 case PromptEvent:
@@ -354,7 +396,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
         // Plugins see raw XML chunks (Genie 4 ParseXML parity) for structured
         // data the typed events don't surface — e.g. <component id='exp X'>.
-        _pluginXmlSub = _connection.RawXmlStream.Subscribe(xml => Plugins.DispatchXml(xml));
+        _pluginXmlSub = _connection.RawXmlStream.Subscribe(
+            xml => Metrics.Time(PipelineStage.Plugins, () => Plugins.DispatchXml(xml)));
 
         // ── Ready-for-input signal ─────────────────────────────────────────────
         // StormFront / DevReplay: <settingsInfo/> is authoritative (see docs/SGE_PROTOCOL.md).

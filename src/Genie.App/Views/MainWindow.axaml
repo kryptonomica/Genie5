@@ -10,6 +10,15 @@
         Width="1280" Height="800"
         MinWidth="800" MinHeight="500">
 
+  <!-- Ctrl+Shift+C copies the entire visible game-text buffer to the OS
+       clipboard. Workaround for the Avalonia per-line SelectableTextBlock
+       limitation that drag-selection can't cross lines — see
+       GameTextViewModel.CopyAllCommand. Visual multi-line drag-select is on
+       the backlog. -->
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Ctrl+Shift+C" Command="{Binding GameText.CopyAllCommand}"/>
+  </Window.KeyBindings>
+
   <DockPanel>
 
     <!-- ── Menu bar ──────────────────────────────────────────────────────── -->
@@ -72,12 +81,22 @@
       </MenuItem>
       <MenuItem Header="_Window" SubmenuOpened="OnWindowMenuOpened">
 
-        <!-- ── Top / bottom chrome strips (not dockable tools) ──────────── -->
+        <!-- ── Hands strip (top / bottom chrome, not a dockable tool) ──── -->
+        <!-- All hands-strip controls grouped here so the user sees the toggle,
+             the variant toggle, and the two relevant Position submenus
+             contiguously. RT lives on the strip in the default arrangement
+             (or on the command bar — user's pick), so its Position submenu
+             belongs in this group, not floating among the chrome toggles. -->
         <MenuItem Header="Hands _Strip"
                   ToggleType="CheckBox"
                   IsChecked="{Binding Display.ShowHandsBar}"
                   Command="{Binding ToggleHandsBarCommand}"
                   ToolTip.Tip="Show/hide the hands &amp; prepared-spell strip"/>
+        <MenuItem Header="_Enhanced Hands Strip"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding Display.UseEnhancedHandsStrip}"
+                  Command="{Binding ToggleEnhancedHandsStripCommand}"
+                  ToolTip.Tip="Add the dylb0t-derived icon widgets (compass rose, posture sprite, status-effect strip) to the hands strip. Layered on top of the existing text widgets — see CREDITS.md for art attribution."/>
         <MenuItem Header="Hands Strip P_osition"
                   ToolTip.Tip="Where the hands strip docks. Top = just below the menu. Bottom = between the command bar and the vitals strip (Genie 4 muscle memory).">
           <MenuItem Header="_Top"
@@ -91,11 +110,6 @@
                     Command="{Binding HandsBarToBottomCommand}"
                     ToolTip.Tip="Dock the hands strip at the bottom of the window, just above the vitals strip — Genie 4 layout."/>
         </MenuItem>
-        <MenuItem Header="_Enhanced Hands Strip"
-                  ToggleType="CheckBox"
-                  IsChecked="{Binding Display.UseEnhancedHandsStrip}"
-                  Command="{Binding ToggleEnhancedHandsStripCommand}"
-                  ToolTip.Tip="Add the dylb0t-derived icon widgets (compass rose, posture sprite, status-effect strip) to the hands strip. Layered on top of the existing text widgets — see CREDITS.md for art attribution."/>
         <MenuItem Header="_Roundtime Position"
                   ToolTip.Tip="Where the &quot;⏱ N.Ns&quot; roundtime badge appears while you're locked in RT.">
           <MenuItem Header="_Command Bar"
@@ -109,6 +123,10 @@
                     Command="{Binding RoundTimeToHandsStripCommand}"
                     ToolTip.Tip="Show the RT badge as an inline R-badge on the L/R/S hands strip, so the &quot;what's locked&quot; indicators all live together."/>
         </MenuItem>
+
+        <Separator/>
+
+        <!-- ── Global chrome (not part of the hands strip) ──────────────── -->
         <MenuItem Header="Stat_us Bar"
                   ToggleType="CheckBox"
                   IsChecked="{Binding Display.ShowStatusBar}"
@@ -335,6 +353,59 @@
                   ToolTip.Tip="Open the per-character Scripts directory in your OS file browser (the folder where .cmd scripts are loaded from)."/>
       </MenuItem>
 
+      <!-- ── Analyst menu — redacted, analyst-readable session captures ────── -->
+      <!-- Policy-safe data gathering: redaction is ON by default (other         -->
+      <!-- players' speech stripped), captures are local-only, and recipes never -->
+      <!-- auto-run — the user starts each one. OFF by default each session.     -->
+      <MenuItem Header="_Analyst">
+        <MenuItem Header="_Enable Analyst Capture"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding AnalystCaptureEnabled, Mode=OneWay}"
+                  Command="{Binding ToggleAnalystCaptureCommand}"
+                  ToolTip.Tip="Capture a REDACTED copy of the session (other players' speech stripped) to a folder you choose, for parser / analysis work. Local-only; nothing is sent anywhere automatically. OFF by default each session."/>
+        <Separator/>
+        <MenuItem Header="_Run Capture Recipe"
+                  Classes="recipes-host"
+                  IsEnabled="{Binding AnalystCaptureEnabled}"
+                  ItemsSource="{Binding CaptureRecipes}"
+                  ToolTip.Tip="Run a predefined capture recipe. A confirmation dialog shows its preconditions and the exact commands it sends; capture runs while the recipe plays.">
+          <!-- Same container-style trick as Layout → Load (see that menu): the
+               :not(.recipes-host) selector styles only the generated child
+               items (each a RecipeMenuItem), not this host item. -->
+          <MenuItem.Styles>
+            <Style Selector="MenuItem:not(.recipes-host)">
+              <Setter Property="Header"           Value="{Binding Display}"/>
+              <Setter Property="Command"          Value="{Binding Command}"/>
+              <Setter Property="CommandParameter" Value="{Binding}"/>
+            </Style>
+          </MenuItem.Styles>
+        </MenuItem>
+        <MenuItem Header="_Start Manual Capture"
+                  Command="{Binding StartManualCaptureCommand}"
+                  IsEnabled="{Binding AnalystCaptureEnabled}"
+                  ToolTip.Tip="Begin a capture with no recipe — you drive the game, then Stop Capture when done."/>
+        <MenuItem Header="S_top Capture"
+                  Command="{Binding StopCaptureCommand}"
+                  IsEnabled="{Binding IsCapturing}"
+                  ToolTip.Tip="End the active capture and write its .meta.json sidecar."/>
+        <Separator/>
+        <MenuItem Header="_Open Capture Folder"
+                  Command="{Binding OpenCaptureFolderCommand}"
+                  ToolTip.Tip="Open the capture output folder in your file browser."/>
+        <MenuItem Header="Set _Capture Folder…"
+                  Command="{Binding SetCaptureFolderCommand}"
+                  ToolTip.Tip="Choose where captures are written — point this at a folder the analyst (or an AI assistant) can read directly."/>
+        <MenuItem Header="Set Recipe _Folder…"
+                  Command="{Binding SetRecipeFolderCommand}"
+                  ToolTip.Tip="Add a folder of your own .cmd + .json capture recipes, loaded alongside the built-ins."/>
+      </MenuItem>
+
+      <!-- ── Performance menu — live pipeline timing + regex safety ───────── -->
+      <!-- Safety (regex match-timeout + literal pre-filter) is ON by default    -->
+      <!-- and toggleable per component; the overlay shows per-stage timing and  -->
+      <!-- only collects metrics while it is open. The two axes are independent: -->
+      <!-- you can run a component safely without watching it, or watch it       -->
+      <!-- without the safety net.                                               -->
       <!-- ── Help menu (badge appears when UpdatesAvailable) ─────────────── -->
       <!-- Link set mirrors the Genie 4 Help menu (Forms/FormMain). Repo links   -->
       <!-- (Latest Release / GitHub / Wiki) point at GenieClient/Genie5; the      -->
@@ -356,6 +427,43 @@
         <MenuItem Header="_Wiki"
                   Command="{Binding OpenWikiCommand}"
                   ToolTip.Tip="Open the Genie 5 wiki — setup guides, scripting reference, and FAQ."/>
+        <Separator/>
+        <MenuItem Header="_Performance">
+          <MenuItem Header="Show Performance _Overlay"
+                    ToggleType="CheckBox"
+                    IsChecked="{Binding Perf.OverlayVisible, Mode=OneWay}"
+                    Command="{Binding TogglePerfOverlayCommand}"
+                    ToolTip.Tip="Show a live overlay of per-stage pipeline timing — parse, scripts, triggers, highlights, substitutes, gags, plugins — with average / peak ms and caught-timeout counts. Metrics are collected only while the overlay is shown."/>
+          <MenuItem Header="_Reset Counters"
+                    Command="{Binding Perf.ResetCommand}"
+                    ToolTip.Tip="Zero all timing samples and timeout counts for a fresh reading."/>
+          <Separator/>
+          <MenuItem Header="_Safety — regex timeout + pre-filter"
+                    ToolTip.Tip="Each engine's user regexes run with a match-timeout (a catastrophic pattern is caught and skipped, never hangs the feed) plus a literal pre-filter. ON by default; turn off per component only to reproduce a raw-regex issue.">
+            <MenuItem Header="_Triggers"    ToggleType="CheckBox" IsChecked="{Binding TriggersSafety}"
+                      ToolTip.Tip="Match-timeout + pre-filter for user triggers (runs on the read thread — the highest-value protection)."/>
+            <MenuItem Header="_Highlights"  ToggleType="CheckBox" IsChecked="{Binding HighlightsSafety}"
+                      ToolTip.Tip="Match-timeout + pre-filter for regex-type highlight rules (render path)."/>
+            <MenuItem Header="_Substitutes" ToggleType="CheckBox" IsChecked="{Binding SubstitutesSafety}"
+                      ToolTip.Tip="Match-timeout + pre-filter for substitute rules (display path)."/>
+            <MenuItem Header="_Gags"        ToggleType="CheckBox" IsChecked="{Binding GagsSafety}"
+                      ToolTip.Tip="Match-timeout + pre-filter for gag rules (display path)."/>
+          </MenuItem>
+          <MenuItem Header="Overlay _Components"
+                    Classes="perf-rows-host"
+                    ItemsSource="{Binding Perf.Rows}"
+                    ToolTip.Tip="Choose which pipeline stages appear in the overlay. Independent of safety — hiding a row doesn't change protection.">
+            <!-- Container style targets only the generated per-row items (each a
+                 PerfRowViewModel), not this host — same trick as Layout → Load. -->
+            <MenuItem.Styles>
+              <Style Selector="MenuItem:not(.perf-rows-host)">
+                <Setter Property="Header"     Value="{Binding Name}"/>
+                <Setter Property="ToggleType" Value="CheckBox"/>
+                <Setter Property="IsChecked"  Value="{Binding Visible}"/>
+              </Style>
+            </MenuItem.Styles>
+          </MenuItem>
+        </MenuItem>
         <Separator/>
         <MenuItem Header="_Community Links">
           <MenuItem Header="_Play.net"
@@ -1025,10 +1133,79 @@
     <!-- InitializeLayout="False": the VM/factory init the layout explicitly
          (BuildDefaultLayout / BuildLayout call InitLayout) so runtime layout
          swaps are deterministic and don't double-initialise. -->
-    <dockc:DockControl x:Name="MainDock"
-                       Layout="{Binding DockLayout}"
-                       Factory="{Binding DockFactory}"
-                       InitializeLayout="False"/>
+    <!-- Grid layers the live performance overlay above the dock content without
+         disturbing the docking layout. The overlay is top-right, click-through
+         to the dock is fine (it only shows numbers). -->
+    <Grid>
+      <dockc:DockControl x:Name="MainDock"
+                         Layout="{Binding DockLayout}"
+                         Factory="{Binding DockFactory}"
+                         InitializeLayout="False"/>
+
+      <!-- ── Live performance overlay ──────────────────────────────────────── -->
+      <Border IsVisible="{Binding Perf.OverlayVisible}"
+              HorizontalAlignment="Right" VerticalAlignment="Top"
+              Margin="0,8,12,0" Padding="9,7"
+              Background="#E6101418" BorderBrush="#FF3A4250" BorderThickness="1"
+              CornerRadius="6" BoxShadow="0 2 10 0 #80000000">
+        <StackPanel MinWidth="210">
+          <TextBlock Text="PERFORMANCE  (ms / line)"
+                     FontWeight="Bold" FontSize="11" Foreground="#FFE6E6E6" Margin="0,0,0,5"/>
+          <Grid ColumnDefinitions="84,52,52,Auto" Margin="0,0,0,2">
+            <TextBlock Grid.Column="1" Text="avg"  FontSize="10" TextAlignment="Right" Foreground="#FF8A93A0"/>
+            <TextBlock Grid.Column="2" Text="peak" FontSize="10" TextAlignment="Right" Foreground="#FF8A93A0"/>
+          </Grid>
+          <ItemsControl ItemsSource="{Binding Perf.Rows}">
+            <ItemsControl.Styles>
+              <!-- Peak cell turns red when the stage is "hot" (peak ≥ a 16 ms
+                   frame budget, or a regex timed out). -->
+              <Style Selector="Grid.hot TextBlock#PeakCell">
+                <Setter Property="Foreground" Value="#FFE05050"/>
+              </Style>
+            </ItemsControl.Styles>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:PerfRowViewModel">
+                <Grid IsVisible="{Binding Visible}" Classes.hot="{Binding Hot}"
+                      ColumnDefinitions="84,52,52,Auto" Margin="0,1">
+                  <TextBlock Grid.Column="0" Text="{Binding Name}"
+                             FontFamily="Consolas,Menlo,monospace" FontSize="11" Foreground="#FFB8C0CC"/>
+                  <TextBlock Grid.Column="1" Text="{Binding Avg}"
+                             FontFamily="Consolas,Menlo,monospace" FontSize="11" TextAlignment="Right" Foreground="#FFB8C0CC"/>
+                  <TextBlock Grid.Column="2" x:Name="PeakCell" Text="{Binding Peak}"
+                             FontFamily="Consolas,Menlo,monospace" FontSize="11" TextAlignment="Right" Foreground="#FFB8C0CC"/>
+                  <TextBlock Grid.Column="3" Text="{Binding Timeouts, StringFormat='  ⏱ {0}'}"
+                             IsVisible="{Binding HasTimeouts}"
+                             FontSize="11" Foreground="#FFE05050" ToolTip.Tip="Regex match-timeouts caught and skipped for this component"/>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- Running .js scripts (off-thread; name + wall-clock elapsed) -->
+          <StackPanel IsVisible="{Binding Perf.HasJsScripts}" Margin="0,6,0,0">
+            <Border Height="1" Background="#FF2A313C" Margin="0,0,0,5"/>
+            <TextBlock Text="RUNNING .js" FontWeight="Bold" FontSize="10"
+                       Foreground="#FF8A93A0" Margin="0,0,0,3"/>
+            <ItemsControl ItemsSource="{Binding Perf.JsScripts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:JsScriptRowViewModel">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+                    <TextBlock Grid.Column="0" Text="{Binding Name}"
+                               FontFamily="Consolas,Menlo,monospace" FontSize="11" Foreground="#FFB8C0CC"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                      <TextBlock Text="paused" IsVisible="{Binding Paused}"
+                                 FontSize="10" Foreground="#FFE0B050"/>
+                      <TextBlock Text="{Binding Elapsed}" FontFamily="Consolas,Menlo,monospace"
+                                 FontSize="11" TextAlignment="Right" Foreground="#FF8AC0A0"/>
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Grid>
 
   </DockPanel>
 </Window>

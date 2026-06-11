@@ -21,10 +21,20 @@ public sealed class TriggerEngineFinal
     public IReadOnlyList<TriggerRule> Triggers => _triggers;
     public ClassEngine? Classes { get; set; }
 
+    private bool _safetyEnabled = true;
+    /// <summary>When true, trigger regexes run with a match-timeout + literal
+    /// pre-filter — the main guard against a catastrophic user pattern freezing
+    /// the read thread. Toggling rebuilds every trigger's regex.</summary>
+    public bool SafetyEnabled
+    {
+        get => _safetyEnabled;
+        set { if (_safetyEnabled == value) return; _safetyEnabled = value; foreach (var t in _triggers) t.Rebuild(value); }
+    }
+
     public TriggerRule AddTrigger(string pattern, string action, bool caseSensitive = false,
                                   bool isEnabled = true, string className = "")
     {
-        var trigger = new TriggerRule(pattern, action, caseSensitive, isEnabled, className);
+        var trigger = new TriggerRule(pattern, action, caseSensitive, isEnabled, className, _safetyEnabled);
         _triggers.Add(trigger);
         if (!string.IsNullOrEmpty(className)) Classes?.Ensure(className);
         return trigger;
@@ -47,8 +57,7 @@ public sealed class TriggerEngineFinal
         {
             if (!trigger.IsEnabled) continue;
             if (Classes is not null && !Classes.IsActive(trigger.ClassName)) continue;
-            var match = trigger.Regex.Match(line);
-            if (!match.Success) continue;
+            if (trigger.SafeMatch(line) is not { } match) continue;
             var expandedAction = ExpandAction(trigger.Action, match);
             _commandEngine?.ProcessInput(expandedAction);
         }

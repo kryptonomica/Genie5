@@ -314,13 +314,23 @@ public sealed class GameConnection : IAsyncDisposable
     /// </summary>
     private void EmitChunks(StringBuilder pending)
     {
-        while (pending.Length > 0)
-        {
-            var raw = pending.ToString();
+        if (pending.Length == 0) return;
 
-            // Find the next natural split point: end of an XML tag or a newline.
-            int tagClose  = raw.IndexOf('>');
-            int lineBreak = raw.IndexOf('\n');
+        // Materialize the buffer ONCE per read and scan it with an advancing
+        // cursor. The previous version called pending.ToString() AND
+        // pending.Remove(0, n) on every chunk — both O(buffer length) — making a
+        // burst (login settings block, full inventory dump) O(n²). Here the
+        // whole pass is O(n): one ToString, IndexOf calls that advance with the
+        // cursor, and a single Clear+Append of the trailing remainder.
+        var raw = pending.ToString();
+        int pos = 0;
+
+        while (pos < raw.Length)
+        {
+            // Find the next natural split point at or after the cursor: end of an
+            // XML tag or a newline.
+            int tagClose  = raw.IndexOf('>',  pos);
+            int lineBreak = raw.IndexOf('\n', pos);
 
             int splitAt;
             if (tagClose >= 0 && (lineBreak < 0 || tagClose < lineBreak))
@@ -330,14 +340,19 @@ public sealed class GameConnection : IAsyncDisposable
             else
                 break;                           // no complete chunk yet — wait
 
-            var chunk = raw[..splitAt];
-            pending.Remove(0, splitAt);
+            var chunk = raw.Substring(pos, splitAt - pos);
+            pos = splitAt;
 
             // Skip empty / whitespace-only chunks
             if (string.IsNullOrWhiteSpace(chunk)) continue;
 
             Publish(chunk);
         }
+
+        // Retain only the unconsumed remainder (a partial tag / line) for the
+        // next read to complete.
+        pending.Clear();
+        if (pos < raw.Length) pending.Append(raw, pos, raw.Length - pos);
     }
 
     private void Publish(string chunk)
