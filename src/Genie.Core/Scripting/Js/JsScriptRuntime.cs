@@ -6,6 +6,9 @@ using Jint.Runtime;
 
 namespace Genie.Core.Scripting.Js;
 
+/// <summary>One running <c>.js</c> script's stats for the performance overlay.</summary>
+public readonly record struct JsScriptStat(string Name, double ElapsedSec, bool Paused);
+
 /// <summary>
 /// Owns the set of running <c>.js</c> scripts and the Jint engines that execute
 /// them. Sits beside the cooperative <see cref="ScriptEngine"/> tick loop: the
@@ -219,6 +222,13 @@ internal sealed class JsScriptRuntime
 
     // ── game-event fan-out (called on the game-event thread) ─────────────────
 
+    /// <summary>Optional sink for per-line JS dispatch time (ms) — waking
+    /// <c>waitFor</c>/<c>matchWait</c> waiters. Wired by the host (the origin
+    /// perf overlay) to <c>PipelineMetrics</c>; null = no timing, zero overhead.
+    /// The work it measures also runs inside the host's Scripts pass, so the
+    /// overlay labels the JavaScript row to make that nesting clear.</summary>
+    public Action<double>? DispatchMsSink;
+
     public void OnGameLine(string line)
     {
         JsScriptInstance[] snapshot;
@@ -227,7 +237,24 @@ internal sealed class JsScriptRuntime
             if (_instances.Count == 0) return;
             snapshot = _instances.ToArray();
         }
+        var sink  = DispatchMsSink;
+        var start = sink is null ? 0L : System.Diagnostics.Stopwatch.GetTimestamp();
         foreach (var i in snapshot) if (i.Running) i.FeedLine(line);
+        sink?.Invoke(start == 0L ? 0 : System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+    }
+
+    /// <summary>Snapshot of the currently-running <c>.js</c> scripts for the
+    /// performance overlay: name, wall-clock seconds since start, paused state.</summary>
+    public IReadOnlyList<JsScriptStat> RunningStats()
+    {
+        lock (_listGate)
+        {
+            var list = new List<JsScriptStat>(_instances.Count);
+            foreach (var i in _instances)
+                if (i.Running)
+                    list.Add(new JsScriptStat(i.Name, i.RunClock.Elapsed.TotalSeconds, i.Paused));
+            return list;
+        }
     }
 
     public void OnPrompt()

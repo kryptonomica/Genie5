@@ -48,6 +48,10 @@ internal sealed class JsScriptInstance
 
     public JsScriptInstance(string name) => Name = name;
 
+    /// <summary>Wall-clock since this script was created (≈ since it started) —
+    /// surfaced in the performance overlay's running-<c>.js</c> list.</summary>
+    public readonly System.Diagnostics.Stopwatch RunClock = System.Diagnostics.Stopwatch.StartNew();
+
     public bool Paused => !_resume.IsSet;
     public void Pause()  => _resume.Reset();
     public void Resume() => _resume.Set();

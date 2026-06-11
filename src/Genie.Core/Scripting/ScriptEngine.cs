@@ -167,6 +167,15 @@ public sealed class ScriptEngine
     public bool IsJavaScript(string name) =>
         _js.RunningNames().Any(n => n.Equals(name, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Wire (or clear) the JS line-dispatch timing sink — used by the
+    /// performance overlay to time the JavaScript stage. Stays null (no-op) on a
+    /// build with no overlay.</summary>
+    public Action<double>? JsDispatchMsSink { set => _js.DispatchMsSink = value; }
+
+    /// <summary>Stats for the currently-running <c>.js</c> scripts (name, elapsed
+    /// seconds, paused) — surfaced in the performance overlay's running-.js list.</summary>
+    public IReadOnlyList<Js.JsScriptStat> JsRunningStats() => _js.RunningStats();
+
     /// <summary>Fired when a script finishes (done or stopped). Arg is the script name.</summary>
     public event Action<string>? ScriptFinished;
 
