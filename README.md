@@ -35,7 +35,10 @@ The Genie 4 codebase is WinForms + Windows-only and hasn't kept pace with modern
 | ~~LAMP 2.0 cross-platform updater~~ | ❌ Canceled — superseded by the in-app updater below |
 | In-app updater (Velopack) — Core / Maps / Plugins update tabs, Help-menu badge, startup background check | ✅ Working (macOS/Linux Core packaging on the roadmap) |
 | Plugin host — `IGeniePlugin`/`IPluginHost` contract, per-plugin assembly-load-context (load/unload/reload), Plugins menu + `#plugin` command, first external plugin (`Plugin_EXPTrackerV5`) | ✅ Working (marketplace + plugin signing/trust on the roadmap) |
-| JavaScript script support (`.js` array scripts) | 🚧 Roadmap |
+| JavaScript (`.js`) array scripts via Jint — `genie.*` API (put/waitFor/matchWait/pause/timers/vars), coexists with `.cmd`, memory + runaway-loop guards | ✅ Working |
+| `#connect` / `#reconnect` / `#lichconnect` — typed/scripted login (Genie 4 parity; saved-profile, explicit, and reconnect forms; password-masked) | ✅ Working |
+| Analyst Capture — redacted, recipe-driven session capture for parser/analysis (other-player speech stripped by default) | ✅ Working |
+| Performance overlay — live per-stage pipeline timing + running-`.js` list, behind the Performance menu | ✅ Working |
 | Visual trigger / flow designer | 🚧 Roadmap |
 | AI-assisted automation (advisor-only mode) | 🚧 Roadmap |
 

@@ -4,7 +4,33 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.3.6 — scripting, docking & UI polish
+## Latest: v5.0.0-alpha.4 — JavaScript scripting, typed login & dev tools
+
+The biggest alpha to walk the lands of Elanthia yet: `.js` scripting, connect-by-typing, and two new tools for the tinkering adventurer — plus a satchel of scripting and mapper fixes to ease the road ahead.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.4** as a delta.
+
+**Scripting**
+
+- **JavaScript (`.js`) array scripts** — run `.js` scripts alongside `.cmd`, on a pure-C# [Jint](https://github.com/sebastienros/jint) engine (no native deps; identical on Windows/macOS/Linux). A `genie.*` API covers `put`/`send`, `waitFor`/`waitForRe`/`matchWait`, `pause`, timers, and session/script vars — straight-line procedural code with real blocking calls. Memory + runaway-loop guards included ([#21](https://github.com/GenieClient/Genie5/issues/21)).
+- **`#connect` / `#reconnect` / `#lichconnect`** — log in by typing or from a script (Genie 4 parity): saved-profile, explicit, and reconnect-last forms, plus the Lich variant; passwords masked in history ([#46](https://github.com/GenieClient/Genie5/issues/46)).
+- **New reserved variables** — `$gamehost` / `$gameport` (resolved game endpoint), `$roomnote`; `$zoneid` now reads `0` off-map ([#45](https://github.com/GenieClient/Genie5/issues/45)).
+
+**Tools**
+
+- **Analyst Capture** — a redacted, recipe-driven session capture (raw XML + parsed streams + a meta sidecar) for parser/analysis work; other players' speech is stripped by default.
+- **Performance overlay** — live per-stage pipeline timing (Parse / Scripts / JavaScript / Triggers / Highlights / …) plus a running-`.js` list, behind the Performance menu.
+
+**Fixes**
+
+- **`#goto` no longer floods the game** — it waits for a confirmed room change between moves instead of overrunning the typeahead buffer ([#69](https://github.com/GenieClient/Genie5/issues/69)).
+- **Mapper** — auto-hiding Details flyout; the Mapper floats by default; a new top-level **Maps** menu.
+- **Docking** — blank tool panels after a close/reopen are fixed.
+- **Connect errors** are now immediate and specific (bad password, character already in game) instead of a ~50-second retry loop.
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.4)
+
+## v5.0.0-alpha.3.6 — scripting, docking & UI polish
 
 A quality-of-life batch that closes a run of community-reported issues, plus mapper-aware scripting.
 
