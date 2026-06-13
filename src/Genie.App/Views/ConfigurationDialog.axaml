@@ -98,6 +98,10 @@
         <views:AliasesPanel     Name="AliasesPanelCtrl"/>
       </TabItem>
 
+      <TabItem Header="Scripts">
+        <views:ScriptsPanel   Name="ScriptsPanelCtrl"/>
+      </TabItem>
+
       <TabItem Header="Macros">
         <views:MacrosPanel    Name="MacrosPanelCtrl"/>
       </TabItem>

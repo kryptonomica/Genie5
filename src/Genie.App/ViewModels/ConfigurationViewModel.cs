@@ -6,6 +6,7 @@ using Genie.App.Highlighting;
 using Genie.Core;
 using Genie.Core.Aliases;
 using Genie.Core.Classes;
+using Genie.Core.Config;
 using Genie.Core.Gags;
 using Genie.Core.Highlights;
 using Genie.Core.Layout;
@@ -126,6 +127,15 @@ public class ConfigurationViewModel : ReactiveObject
     /// </summary>
     public WindowSettingsStore WindowSettings => _windowSettings;
 
+    /// <summary>
+    /// Global script-engine settings (script/command characters, timeout,
+    /// GoSub depth, connect script, …). These live on <see cref="GenieConfig"/>
+    /// in <c>settings.cfg</c> — app-wide, not per-profile — so the value is the
+    /// same regardless of <see cref="SelectedProfile"/>. Null until a core is
+    /// connected; the Scripts panel disables itself in that case.
+    /// </summary>
+    public GenieConfig? ScriptConfig => _core?.Config;
+
     // ── Persistence hooks (called by every panel after an edit) ──────────────
 
     public void OnHighlightsChanged()
@@ -193,6 +203,16 @@ public class ConfigurationViewModel : ReactiveObject
     public void OnWindowSettingsChanged()
     {
         TrySave(() => _persistence.SaveWindowSettings(PathFor("windows.json"), _windowSettings));
+    }
+
+    /// <summary>Persist global script settings to <c>settings.cfg</c>. The
+    /// panel mutates the live <see cref="GenieConfig"/> directly (so changes
+    /// take effect immediately); this just flushes them to disk.</summary>
+    public void OnScriptSettingsChanged()
+    {
+        var config = _core?.Config;
+        if (config is null) return;
+        TrySave(() => config.Save());
     }
 
     private static void TrySave(Action save)

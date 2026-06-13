@@ -57,5 +57,10 @@ public partial class ConfigurationDialog : ReactiveWindow<ConfigurationViewModel
         // WindowSettingsStore is always present — it's app-level state, not
         // per-profile, so no nullability check.
         LayoutPanelCtrl.Initialize(vm.WindowSettings, vm.OnWindowSettingsChanged);
+
+        // Script settings live on the global GenieConfig (settings.cfg), so
+        // they're profile-independent. ScriptConfig is null pre-connect — the
+        // panel disables itself and shows a hint in that case.
+        ScriptsPanelCtrl.Initialize(vm.ScriptConfig, vm.OnScriptSettingsChanged);
     }
 }

@@ -1,0 +1,102 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Genie.App.Views.ScriptsPanel">
+
+  <!-- Script-engine settings live on the global GenieConfig (settings.cfg),
+       not per-profile like the rule engines, so this tab is profile-independent
+       — the banner below makes that explicit. Form follows LayoutPanel's
+       named-control + Apply/Reset + persistence-callback idiom. -->
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" Padding="4">
+    <Grid ColumnDefinitions="Auto,*"
+          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+          Margin="4">
+
+      <!-- Scope banner — these settings are app-wide, shared by every profile. -->
+      <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
+              Background="#0e2438" CornerRadius="3" Padding="8,4" Margin="0,0,0,8">
+        <TextBlock Text="Script settings are global (settings.cfg) — they apply to every profile."
+                   Foreground="#9bcbe8" TextWrapping="Wrap"/>
+      </Border>
+
+      <!-- ── Script execution ──────────────────────────────────────────── -->
+      <TextBlock Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
+                 Text="Script execution" FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Script character:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="2" Grid.Column="1" Name="ScriptCharBox" MaxLength="1" Width="60"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Single character that runs a script from the command bar (e.g. '.' → .hunt)."/>
+
+      <TextBlock Grid.Row="3" Grid.Column="0" Text="Script file extension:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="3" Grid.Column="1" Name="ScriptExtensionBox" Width="120"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Default extension assumed when a script is run without one (default: cmd)."/>
+
+      <TextBlock Grid.Row="4" Grid.Column="0" Text="Script timeout (ms):" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="4" Grid.Column="1" Name="ScriptTimeoutBox" Width="120"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="How long a WAITFOR / MATCH waits before timing out, in milliseconds."/>
+
+      <TextBlock Grid.Row="5" Grid.Column="0" Text="Max GoSub depth:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="5" Grid.Column="1" Name="MaxGoSubDepthBox" Width="120"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Maximum nesting depth for GOSUB/RETURN — guards against runaway recursion."/>
+
+      <CheckBox  Grid.Row="6" Grid.Column="1" Name="AbortDupeScriptCheck"
+                 Content="Abort a script if the same script is already running"
+                 Margin="0,2,0,4"
+                 ToolTip.Tip="When on, re-running an already-running script aborts the existing instance instead of starting a second copy."/>
+
+      <TextBlock Grid.Row="7" Grid.Column="0" Text="Connect script:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="7" Grid.Column="1" Name="ConnectScriptBox" Margin="0,0,0,4"
+                 Watermark="(none)"
+                 ToolTip.Tip="Script name to run automatically after connecting to the game. Leave blank for none."/>
+
+      <!-- ── Command parsing ───────────────────────────────────────────── -->
+      <TextBlock Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2"
+                 Text="Command parsing" FontWeight="SemiBold" Margin="0,8,0,4"/>
+
+      <TextBlock Grid.Row="9" Grid.Column="0" Text="Command separator:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="9" Grid.Column="1" Name="SeparatorCharBox" MaxLength="1" Width="60"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Character that splits one input line into multiple commands (default: ;)."/>
+
+      <TextBlock Grid.Row="10" Grid.Column="0" Text="Genie command character:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="10" Grid.Column="1" Name="CommandCharBox" MaxLength="1" Width="60"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Prefix for built-in Genie commands (default: #)."/>
+
+      <TextBlock Grid.Row="11" Grid.Column="0" Text="User command character:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="11" Grid.Column="1" Name="MyCommandCharBox" MaxLength="1" Width="60"
+                 HorizontalAlignment="Left" Margin="0,0,0,4"
+                 ToolTip.Tip="Prefix for user-defined commands / aliases (default: /)."/>
+
+      <CheckBox  Grid.Row="12" Grid.Column="1" Name="TriggerOnInputCheck"
+                 Content="Fire triggers on text you type (not just game output)"
+                 Margin="0,2,0,4"
+                 ToolTip.Tip="When on, triggers also match against your own input lines."/>
+
+      <!-- ── Locations ─────────────────────────────────────────────────── -->
+      <TextBlock Grid.Row="13" Grid.Column="0" Grid.ColumnSpan="2"
+                 Text="Locations" FontWeight="SemiBold" Margin="0,8,0,4"/>
+
+      <TextBlock Grid.Row="14" Grid.Column="0" Text="Script directory:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="14" Grid.Column="1" Name="ScriptDirBox" Margin="0,0,0,4"
+                 ToolTip.Tip="Folder scripts are loaded from, relative to the Genie data root (default: Scripts)."/>
+
+      <TextBlock Grid.Row="15" Grid.Column="0" Text="Script repository URL:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBox   Grid.Row="15" Grid.Column="1" Name="ScriptRepoBox" Margin="0,0,0,4"
+                 Watermark="(none)"
+                 ToolTip.Tip="Optional URL used by the script updater. Leave blank for none."/>
+
+      <!-- Buttons + status -->
+      <StackPanel Grid.Row="16" Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,8,0,0">
+        <Button Content="Apply" Click="OnApply"/>
+        <Button Content="Reset" Click="OnReset"/>
+        <TextBlock Name="StatusText" VerticalAlignment="Center" Margin="8,0,0,0"
+                   Foreground="Gray" FontStyle="Italic"/>
+      </StackPanel>
+
+    </Grid>
+  </ScrollViewer>
+</UserControl>
