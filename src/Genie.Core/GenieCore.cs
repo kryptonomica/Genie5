@@ -335,6 +335,10 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             echo:          msg => ScriptOutputLine?.Invoke(msg),
             handleHashCmd: cmd => Commands.ProcessInput(cmd));
 
+        // Live config for the runtime script settings (ScriptTimeout,
+        // MaxGoSubDepth, AbortDupeScript, ScriptExtension).
+        Scripts.Config = Config;
+
         // Wire game-state callbacks for RT-gated script pausing
         Scripts.InRoundtime              = () => state.Combat.InRoundTime;
         Scripts.RoundTimeRemainingSeconds = () => (int)Math.Ceiling(state.Combat.RoundTimeRemaining);
@@ -407,14 +411,14 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             _settingsInfoSub = _connection.StateStream
                 .Where(e => e.Kind == ConnectionEventKind.Connected)
                 .Take(1)
-                .Subscribe(_ => { var __ = _connection.SendCommandAsync("look"); });
+                .Subscribe(_ => OnConnectReady());
         }
         else
         {
             _settingsInfoSub = _parser.GameEvents
                 .OfType<SettingsInfoEvent>()
                 .Take(1)
-                .Subscribe(_ => { var __ = _connection.SendCommandAsync("look"); });
+                .Subscribe(_ => OnConnectReady());
         }
 
         // ── $gamehost / $gameport ──────────────────────────────────────────────
@@ -508,6 +512,25 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         var parts = ArgumentParser.ParseArgs(text);
         if (parts.Count == 0) return;
         Scripts.TryStart(parts[0], [.. parts.Skip(1)]);
+    }
+
+    /// <summary>
+    /// Server-ready handler (fires once per connect: on <c>&lt;settingsInfo/&gt;</c>
+    /// for StormFront/DevReplay, on TCP Connected for Wizard mode). Sends the
+    /// initial <c>look</c>, then launches <see cref="GenieConfig.ConnectScript"/>
+    /// if one is configured (Genie 4 parity). A bad/missing connect-script name
+    /// must never break the connect, so failures are swallowed.
+    /// </summary>
+    private void OnConnectReady()
+    {
+        var __ = _connection.SendCommandAsync("look");
+
+        var connectScript = Config.ConnectScript;
+        if (!string.IsNullOrWhiteSpace(connectScript))
+        {
+            try { Scripts.TryStart(connectScript.Trim(), Array.Empty<string>()); }
+            catch { /* never let a connect-script error abort the session */ }
+        }
     }
 
     void ICommandHost.StopScript(string? name)
@@ -765,7 +788,18 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// alias expansion → separator split → #cmd routing → game send.
     /// </summary>
     public void ProcessInput(string input, string? echoOverride = null)
-        => Commands.ProcessInput(input, echoOverride);
+    {
+        // TriggerOnInput (Genie 4 parity): evaluate triggers against the user's
+        // typed line itself, not just game output, when enabled. Fired here at
+        // the genuine user-input entry point — programmatic sends (scripts,
+        // aliases, trigger actions, autowalk, mapper) call Commands.ProcessInput
+        // directly and are intentionally NOT re-triggered, which also prevents
+        // a trigger action from looping back into its own pattern.
+        if ((Config?.TriggerOnInput ?? false) && !string.IsNullOrWhiteSpace(input))
+            Triggers.ProcessLine(input);
+
+        Commands.ProcessInput(input, echoOverride);
+    }
 
     public Task DisconnectAsync()
         => _connection.DisconnectAsync();

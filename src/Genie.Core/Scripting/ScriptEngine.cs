@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Genie.Core.Config;
 using Genie.Core.Extensions;
 using Genie.Core.Extensions.Builtin;
 using Genie.Core.Scripting.Js;
@@ -102,6 +103,18 @@ public sealed class ScriptEngine
     /// registered at construction; future plugins will register here too.
     /// </summary>
     public ExtensionManager Extensions { get; }
+
+    /// <summary>
+    /// Optional live config, wired by <c>GenieCore</c>. Supplies the runtime
+    /// script settings (timeout / GoSub depth / dupe-abort / default extension).
+    /// Null in headless tests — the per-setting fallbacks below then apply.
+    /// </summary>
+    public GenieConfig? Config { get; set; }
+
+    private int    ScriptTimeoutMs => Config?.ScriptTimeout   ?? 5000;
+    private int    GoSubDepthLimit  => Config?.MaxGoSubDepth   ?? 50;
+    private bool   AbortDupeScript  => Config?.AbortDupeScript ?? true;
+    private string DefaultScriptExt => Config?.ScriptExtension ?? "cmd";
 
     public ScriptEngine(string scriptsDir, TypeAheadSession typeAhead,
                         Action<string> sendCommand, Action<string> echo,
@@ -235,7 +248,7 @@ public sealed class ScriptEngine
         // loop. Everything downstream (this method's reload/var seeding) is
         // .cmd-specific, so dispatch before any of it.
         if (path.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
-            return _js.TryStart(name, args, path);
+            return _js.TryStart(name, args, path, AbortDupeScript);
 
         ScriptInstance inst;
         try
@@ -248,23 +261,28 @@ public sealed class ScriptEngine
             return false;
         }
 
-        // Reload semantics: starting a script that's already running stops
-        // the existing instance and replaces it with the new one. Matches
-        // Genie4's behaviour and avoids two copies fighting over the same
-        // game state, action triggers, and type-ahead budget.
+        // Reload semantics (gated by AbortDupeScript, default true): starting a
+        // script that's already running stops the existing instance and replaces
+        // it with the new one. Matches Genie 4's behaviour and avoids two copies
+        // fighting over the same game state, action triggers, and type-ahead
+        // budget. With AbortDupeScript=false the existing instance is left
+        // running and a second copy starts alongside it (Genie 4 parity).
         //
         // Important: do NOT fire ScriptFinished for the killed instance.
         // The caller initiated the reload and doesn't expect a "finished"
         // callback for the corpse — and downstream listeners (e.g. the
         // mapper's OnAutoMapperScriptFinished, which replans on finish)
         // would re-enter TryStart and spin in an infinite loop.
-        for (int i = _instances.Count - 1; i >= 0; i--)
+        if (AbortDupeScript)
         {
-            if (string.Equals(_instances[i].Name, name, StringComparison.OrdinalIgnoreCase))
+            for (int i = _instances.Count - 1; i >= 0; i--)
             {
-                _instances[i].Running = false;
-                _instances.RemoveAt(i);
-                _echo($"[script] {name} reloaded (previous instance stopped)");
+                if (string.Equals(_instances[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    _instances[i].Running = false;
+                    _instances.RemoveAt(i);
+                    _echo($"[script] {name} reloaded (previous instance stopped)");
+                }
             }
         }
 
@@ -290,7 +308,12 @@ public sealed class ScriptEngine
 
     private string? ResolveScriptPath(string name)
     {
-        foreach (var ext in new[] { "", ".cmd", ".inc", ".js" })
+        // Try the configured default extension first (Genie 4 ScriptExtension),
+        // then the standard fallbacks. "" handles a name given with an extension.
+        var exts = new List<string> { "", "." + DefaultScriptExt };
+        foreach (var e in new[] { ".cmd", ".inc", ".js" })
+            if (!exts.Contains(e, StringComparer.OrdinalIgnoreCase)) exts.Add(e);
+        foreach (var ext in exts)
         {
             var p = Path.Combine(_scriptsDir, name + ext);
             if (File.Exists(p)) return p;
@@ -479,10 +502,33 @@ public sealed class ScriptEngine
         // still plenty for any sane MUD script (interactive scripts pause
         // / wait every few statements); runaway loops just resume on the
         // next Tick call instead of monopolizing this one.
-        bool progress = true;
-        int  guard    = 0;
+        var  tickStart = DateTime.UtcNow;
+        bool progress  = true;
+        int  guard     = 0;
+        ScriptInstance? hot = null;   // last instance to execute a line this turn
         while (progress && guard++ < 1_000)
         {
+            // ScriptTimeout (Genie 4 parity): a single processing turn that runs
+            // longer than the configured timeout without yielding is treated as a
+            // possible infinite loop — warn, stop the offending script, and bail.
+            // The guard++ < 1_000 cap below still shields the UI thread from fast
+            // spins; this catches the genuinely runaway / heavy non-yielding loop
+            // Genie 4 warned about, and never affects WAITFOR/MATCH blocking.
+            if (ScriptTimeoutMs > 0 &&
+                (DateTime.UtcNow - tickStart).TotalMilliseconds > ScriptTimeoutMs)
+            {
+                var who = hot?.Name ?? "(script)";
+                _echo($"[script] {who}: possible infinite loop — exceeded script timeout " +
+                      $"({ScriptTimeoutMs}ms) without a pause/wait. Stopped. Add a pause/wait, " +
+                      $"or raise it with #config scripttimeout.");
+                if (hot is not null)
+                {
+                    hot.Running = false;
+                    try { ScriptFinished?.Invoke(hot.Name); } catch { /* never rethrow from cleanup */ }
+                }
+                break;
+            }
+
             progress = false;
             for (int i = _instances.Count - 1; i >= 0; i--)
             {
@@ -583,7 +629,7 @@ public sealed class ScriptEngine
                 // engine — and the app — alive.
                 try
                 {
-                    if (StepOne(inst)) progress = true;
+                    if (StepOne(inst)) { progress = true; hot = inst; }
                 }
                 catch (Exception ex)
                 {
@@ -1070,6 +1116,15 @@ public sealed class ScriptEngine
                 }
                 if (!inst.Labels.TryGetValue(label.Trim(), out var ss))
                 { _echo($"[script] unknown label: {label}"); inst.Running = false; return false; }
+                // MaxGoSubDepth (Genie 4 parity): guard against runaway recursion
+                // (e.g. a missing RETURN). Stop the script when the call stack
+                // would exceed the configured depth.
+                if (inst.GosubStack.Count >= GoSubDepthLimit)
+                {
+                    _echo($"[script] {inst.Name}: maximum GOSUB depth ({GoSubDepthLimit}) exceeded at '{label.Trim()}'. Stopped — check for a missing RETURN or runaway recursion.");
+                    inst.Running = false;
+                    return false;
+                }
                 inst.GosubStack.Push(inst.Pc);
                 inst.Pc = ss + 1;
                 DbgEcho(inst, 1, $"gosub {label.Trim()} → line {ss + 1}" +

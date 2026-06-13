@@ -76,15 +76,17 @@ internal sealed class JsScriptRuntime
 
     // ── lifecycle ───────────────────────────────────────────────────────────
 
-    public bool TryStart(string name, IReadOnlyList<string> args, string path)
+    public bool TryStart(string name, IReadOnlyList<string> args, string path, bool abortDupe = true)
     {
         string source;
         try { source = File.ReadAllText(path); }
         catch (Exception ex) { _echo($"[script] cannot read {name}: {ex.Message}"); return false; }
 
-        // Reload semantics: stop a same-named instance first, silently (no
-        // finished-event for the corpse — same caution as the .cmd engine).
-        StopInternal(name, suppressFinish: true);
+        // Reload semantics (gated by AbortDupeScript, default true): stop a
+        // same-named instance first, silently (no finished-event for the corpse
+        // — same caution as the .cmd engine). With it off, a second copy runs.
+        if (abortDupe)
+            StopInternal(name, suppressFinish: true);
 
         var inst = new JsScriptInstance(name);
         for (int i = 0; i < args.Count; i++) inst.Locals[(i + 1).ToString()] = args[i];
