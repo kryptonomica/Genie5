@@ -344,6 +344,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // Wire game-state callbacks for RT-gated script pausing
         Scripts.InRoundtime              = () => state.Combat.InRoundTime;
         Scripts.RoundTimeRemainingSeconds = () => (int)Math.Ceiling(state.Combat.RoundTimeRemaining);
+        // $spelltime — seconds since the current spell was prepared (Genie 4).
+        Scripts.SpellTimeSeconds          = () => (int)state.Combat.SpellTimeSeconds;
         Scripts.EchoTo                   = (msg, win, color) => EchoToWindow?.Invoke(msg, win, color);
 
         // Mirror live game state into Scripts.Globals so community scripts
@@ -611,7 +613,12 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                 j++;
             if (j == i + 1) { sb.Append(c); continue; }  // bare $ with no identifier
             var name = text[(i + 1)..j];
-            if (Scripts.Globals.TryGetValue(name, out var liveVal))
+            if (name.Equals("spelltime", StringComparison.OrdinalIgnoreCase))
+            {
+                // Live countup (Genie 4) — not a stored global.
+                sb.Append(((int)State.Combat.SpellTimeSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            else if (Scripts.Globals.TryGetValue(name, out var liveVal))
             {
                 sb.Append(liveVal ?? string.Empty);
             }

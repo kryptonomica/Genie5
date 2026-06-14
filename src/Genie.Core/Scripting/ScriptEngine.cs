@@ -64,6 +64,11 @@ public sealed class ScriptEngine
     /// </summary>
     public Func<int>? RoundTimeRemainingSeconds { get; set; }
 
+    /// <summary>Seconds since the current spell was prepared (Genie 4
+    /// <c>$spelltime</c>). Set by the host; computed live so the reserved
+    /// variable counts up. 0 when no spell is prepared.</summary>
+    public Func<int>? SpellTimeSeconds { get; set; }
+
     /// <summary>
     /// Schedule a <see cref="Tick"/> call after the given delay. Set by the
     /// UI layer (e.g. a DispatcherTimer) so that time-based unblocks (delay,
@@ -1958,6 +1963,11 @@ public sealed class ScriptEngine
             // $name: locals first (when non-empty), then globals.
             if (inst.Vars.TryGetValue(name, out var sv) && !string.IsNullOrEmpty(sv))
             { value = sv; return true; }
+            // $spelltime — seconds since the current spell was prepared
+            // (Genie 4). Computed live so it counts up; resolved before globals
+            // (no stored snapshot).
+            if (name.Equals("spelltime", StringComparison.OrdinalIgnoreCase))
+            { value = (SpellTimeSeconds?.Invoke() ?? 0).ToString(CultureInfo.InvariantCulture); return true; }
             if (Globals.TryGetValue(name, out var gv))
             { value = gv ?? string.Empty; return true; }
             // $scriptlist — '|'-separated names of running scripts, or "none"

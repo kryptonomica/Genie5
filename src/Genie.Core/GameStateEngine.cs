@@ -93,8 +93,22 @@ public sealed class GameStateEngine : IDisposable
 
             // ── Spell ─────────────────────────────────────────────────────
             case SpellEvent spell:
-                _state.Combat.PreparedSpell = spell.SpellName;
+            {
+                var newName = spell.SpellName ?? string.Empty;
+                var isNone  = newName.Trim().Length == 0
+                              || newName.Equals("None", StringComparison.OrdinalIgnoreCase);
+                var changed = !string.Equals(newName, _state.Combat.PreparedSpell,
+                                             StringComparison.OrdinalIgnoreCase);
+                _state.Combat.PreparedSpell = newName;
+                // Stamp the prep-time start on a new/changed spell (Genie 4
+                // SetSpellTime); clear it when nothing is prepared. A duplicate
+                // refresh of the same spell keeps the original start.
+                if (isNone)
+                    _state.Combat.SpellTimeStart = null;
+                else if (changed || _state.Combat.SpellTimeStart is null)
+                    _state.Combat.SpellTimeStart = DateTimeOffset.UtcNow;
                 break;
+            }
 
             // ── Navigation ────────────────────────────────────────────────
             case NavEvent nav:

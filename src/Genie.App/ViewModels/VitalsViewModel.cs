@@ -28,6 +28,11 @@ public class VitalsViewModel : ReactiveObject
     /// prepared. Matches Genie 4's <c>LabelSpellC</c> formatting.</summary>
     [Reactive] public string PreparedSpellLabel { get; private set; } = "";
 
+    /// <summary>Whether the prepared-spell timer display is shown — gated by the
+    /// Genie 4 <c>ShowSpellTimer</c> setting (<c>#config spelltimer</c>). Read
+    /// from config on <see cref="Attach"/>; default on.</summary>
+    [Reactive] public bool   IsSpellTimerVisible { get; private set; } = true;
+
     /// <summary>Whole seconds remaining until the magenta prep bar hits zero —
     /// derived from <c>castTime − promptTime</c>, decremented locally between
     /// server pushes. Zero whenever prep is complete or no spell is held.</summary>
@@ -123,6 +128,9 @@ public class VitalsViewModel : ReactiveObject
 
     public void Attach(GenieCore core)
     {
+        // ShowSpellTimer (Genie 4): gate the prepared-spell timer display.
+        IsSpellTimerVisible = core.Config?.ShowSpellTimer ?? true;
+
         core.GameEvents.OfType<ProgressBarEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>

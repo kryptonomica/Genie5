@@ -620,7 +620,8 @@
           <TextBlock Text="DEF" Foreground="#40d060" FontSize="10" FontWeight="SemiBold"/>
         </Border>
 
-        <StackPanel Orientation="Horizontal" Spacing="6">
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding Vitals.IsSpellTimerVisible}">
           <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
             <TextBlock Text="S" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"
                        ToolTip.Tip="Prepared spell. (N) is seconds since prep started."/>
@@ -911,7 +912,8 @@
           <TextBlock Text="DEF" Foreground="#40d060" FontSize="10" FontWeight="SemiBold"/>
         </Border>
 
-        <StackPanel Orientation="Horizontal" Spacing="6">
+        <StackPanel Orientation="Horizontal" Spacing="6"
+                    IsVisible="{Binding Vitals.IsSpellTimerVisible}">
           <Border Background="#2a2a2a" CornerRadius="2" Padding="6,1">
             <TextBlock Text="S" Foreground="#aaa" FontWeight="SemiBold" FontSize="11"
                        ToolTip.Tip="Prepared spell. (N) is seconds since prep started."/>

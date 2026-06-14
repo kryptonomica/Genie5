@@ -83,11 +83,19 @@ public sealed class CombatState
     public DateTimeOffset   RoundTimeEnd{ get; set; }
     public DateTimeOffset   CastTimeEnd { get; set; }
     public string           PreparedSpell { get; set; } = "";
+    /// <summary>Wall-clock instant the current spell was prepared (null = none).
+    /// Backs the Genie 4 <c>$spelltime</c> countup.</summary>
+    public DateTimeOffset?  SpellTimeStart { get; set; }
     public Stance           Stance      { get; set; } = Stance.Neutral;
     public bool             InRoundTime => DateTimeOffset.UtcNow < RoundTimeEnd;
     public bool             InCastTime  => DateTimeOffset.UtcNow < CastTimeEnd;
     public double           RoundTimeRemaining =>
         Math.Max(0, (RoundTimeEnd - DateTimeOffset.UtcNow).TotalSeconds);
+
+    /// <summary>Seconds since the current spell was prepared (Genie 4
+    /// <c>$spelltime</c>); 0 when no spell is prepared.</summary>
+    public double           SpellTimeSeconds =>
+        SpellTimeStart is { } t ? Math.Max(0, (DateTimeOffset.UtcNow - t).TotalSeconds) : 0;
 }
 
 // ── Inventory ────────────────────────────────────────────────────────────────
