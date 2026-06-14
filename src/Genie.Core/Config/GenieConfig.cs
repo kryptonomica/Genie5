@@ -20,7 +20,11 @@ public sealed class GenieConfig
     public char CommandChar { get; set; } = '#';
     public char MyCommandChar { get; set; } = '/';
     public bool TriggerOnInput { get; set; } = true;
-    public int BufferLineSize { get; set; } = 5;
+    /// <summary>Game-window scrollback cap — how many rendered lines to keep
+    /// before trimming the oldest. Genie 5 setting (the Genie 4 <c>maxrowbuffer</c>
+    /// was a WinForms paint-batch knob with no Avalonia equivalent). Clamped to
+    /// [100, 100000] on set.</summary>
+    public int ScrollbackLines { get; set; } = 2000;
     public bool ShowSpellTimer { get; set; } = true;
     public bool AutoLog { get; set; } = true;
     public bool ClassicConnect { get; set; } = true;
@@ -210,7 +214,7 @@ public sealed class GenieConfig
         ("commandchar", CommandChar.ToString()),
         ("mycommandchar", MyCommandChar.ToString()),
         ("triggeroninput", TriggerOnInput.ToString()),
-        ("maxrowbuffer", BufferLineSize.ToString()),
+        ("scrollbacklines", ScrollbackLines.ToString()),
         ("spelltimer", ShowSpellTimer.ToString()),
         ("autolog", AutoLog.ToString()),
         ("automapper", AutoMapper.ToString()),
@@ -273,7 +277,7 @@ public sealed class GenieConfig
     public static readonly IReadOnlySet<string> ReservedKeys =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "mycommandchar", "maxrowbuffer",
+            "mycommandchar",
             "automapperalpha", "promptbreak", "promptforce", "condensed",
             "monstercountignorelist", "muted", "showimages",
         };
@@ -307,7 +311,7 @@ public sealed class GenieConfig
                 case "commandchar": CommandChar = FirstCharOrDefault(value, CommandChar); break;
                 case "mycommandchar": MyCommandChar = FirstCharOrDefault(value, MyCommandChar); break;
                 case "triggeroninput": TriggerOnInput = ToBool(value); break;
-                case "maxrowbuffer": BufferLineSize = UtilityCore.StringToInteger(value); break;
+                case "scrollbacklines": ScrollbackLines = Math.Clamp(UtilityCore.StringToInteger(value), 100, 100000); break;
                 case "spelltimer": ShowSpellTimer = ToBool(value); break;
                 case "autolog": AutoLog = ToBool(value); Notify(ConfigFieldUpdated.Autolog); break;
                 case "classicconnect": ClassicConnect = ToBool(value); Notify(ConfigFieldUpdated.ClassicConnect); break;

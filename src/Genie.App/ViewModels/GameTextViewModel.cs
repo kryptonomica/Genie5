@@ -15,7 +15,10 @@ namespace Genie.App.ViewModels;
 
 public class GameTextViewModel : ReactiveObject
 {
-    private const int MaxLines = 2000;
+    // Scrollback cap — how many rendered lines to keep before trimming the
+    // oldest. Set from GenieConfig.ScrollbackLines on Attach (default 2000);
+    // the config value is already clamped to [100, 100000].
+    private int _maxLines = 2000;
 
     public ObservableCollection<TextLine> Lines { get; } = [];
 
@@ -61,6 +64,9 @@ public class GameTextViewModel : ReactiveObject
 
     public void Attach(GenieCore core)
     {
+        // Scrollback cap from config (already clamped to [100, 100000]).
+        _maxLines = core.Config?.ScrollbackLines ?? 2000;
+
         // ── Main-stream game text ──────────────────────────────────────────
         // Genie 4 applies the substitute pass first, then the gag check —
         // so a substitute can rewrite a line to one that a gag matches
@@ -165,7 +171,7 @@ public class GameTextViewModel : ReactiveObject
                          IReadOnlyList<BoldSpan>? bolds = null)
     {
         Lines.Add(new TextLine(text, color, links, bolds));
-        while (Lines.Count > MaxLines)
+        while (Lines.Count > _maxLines)
             Lines.RemoveAt(0);
     }
 
