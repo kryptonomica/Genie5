@@ -66,12 +66,6 @@
                  HorizontalAlignment="Left" Margin="0,0,0,4"
                  ToolTip.Tip="Prefix for built-in Genie commands (default: #)."/>
 
-      <TextBlock Grid.Row="11" Grid.Column="0" Text="User command character:" VerticalAlignment="Center" Margin="0,0,8,4"
-                 Foreground="#888" ToolTip.Tip="Reserved — not wired yet."/>
-      <TextBox   Grid.Row="11" Grid.Column="1" Name="MyCommandCharBox" MaxLength="1" Width="60"
-                 HorizontalAlignment="Left" Margin="0,0,0,4"
-                 ToolTip.Tip="Prefix for user-defined commands / aliases (default: /). Reserved — not yet wired."/>
-
       <CheckBox  Grid.Row="12" Grid.Column="1" Name="TriggerOnInputCheck"
                  Content="Fire triggers on text you type (not just game output)"
                  Margin="0,2,0,4"

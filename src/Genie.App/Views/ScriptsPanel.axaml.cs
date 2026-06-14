@@ -60,7 +60,6 @@ public partial class ScriptsPanel : UserControl
 
         SeparatorCharBox.Text    = c.SeparatorChar.ToString();
         CommandCharBox.Text      = c.CommandChar.ToString();
-        MyCommandCharBox.Text    = c.MyCommandChar.ToString();
         TriggerOnInputCheck.IsChecked = c.TriggerOnInput;
 
         ScriptDirBox.Text        = c.ScriptDirRaw;
@@ -79,8 +78,6 @@ public partial class ScriptsPanel : UserControl
         { StatusText.Text = "Command separator must be a single character."; return; }
         if (!TryReadChar(CommandCharBox.Text, out var commandChar))
         { StatusText.Text = "Genie command character must be a single character."; return; }
-        if (!TryReadChar(MyCommandCharBox.Text, out var myCommandChar))
-        { StatusText.Text = "User command character must be a single character."; return; }
 
         // ── Validate the integer fields. ───────────────────────────────────
         if (!int.TryParse(ScriptTimeoutBox.Text?.Trim(), out var timeout) || timeout < 0)
@@ -94,7 +91,6 @@ public partial class ScriptsPanel : UserControl
         _config.ScriptChar      = scriptChar;
         _config.SeparatorChar   = separatorChar;
         _config.CommandChar     = commandChar;
-        _config.MyCommandChar   = myCommandChar;
         _config.ScriptTimeout   = timeout;
         _config.MaxGoSubDepth   = depth;
         _config.AbortDupeScript = AbortDupeScriptCheck.IsChecked == true;

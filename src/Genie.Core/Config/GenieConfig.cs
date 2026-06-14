@@ -18,7 +18,6 @@ public sealed class GenieConfig
     public char ScriptChar { get; set; } = '.';
     public char SeparatorChar { get; set; } = ';';
     public char CommandChar { get; set; } = '#';
-    public char MyCommandChar { get; set; } = '/';
     public bool TriggerOnInput { get; set; } = true;
     /// <summary>Game-window scrollback cap — how many rendered lines to keep
     /// before trimming the oldest. Genie 5 setting (the Genie 4 <c>maxrowbuffer</c>
@@ -212,7 +211,6 @@ public sealed class GenieConfig
         ("scriptchar", ScriptChar.ToString()),
         ("separatorchar", SeparatorChar.ToString()),
         ("commandchar", CommandChar.ToString()),
-        ("mycommandchar", MyCommandChar.ToString()),
         ("triggeroninput", TriggerOnInput.ToString()),
         ("scrollbacklines", ScrollbackLines.ToString()),
         ("spelltimer", ShowSpellTimer.ToString()),
@@ -277,7 +275,6 @@ public sealed class GenieConfig
     public static readonly IReadOnlySet<string> ReservedKeys =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "mycommandchar",
             "automapperalpha", "promptbreak", "promptforce", "condensed",
             "showimages",
         };
@@ -309,7 +306,6 @@ public sealed class GenieConfig
                 case "scriptchar": ScriptChar = FirstCharOrDefault(value, ScriptChar); break;
                 case "separatorchar": SeparatorChar = FirstCharOrDefault(value, SeparatorChar); break;
                 case "commandchar": CommandChar = FirstCharOrDefault(value, CommandChar); break;
-                case "mycommandchar": MyCommandChar = FirstCharOrDefault(value, MyCommandChar); break;
                 case "triggeroninput": TriggerOnInput = ToBool(value); break;
                 case "scrollbacklines": ScrollbackLines = Math.Clamp(UtilityCore.StringToInteger(value), 100, 100000); break;
                 case "spelltimer": ShowSpellTimer = ToBool(value); break;
