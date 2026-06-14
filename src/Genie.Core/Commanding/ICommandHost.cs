@@ -149,6 +149,14 @@ public interface ICommandHost
     void MapperGoto(string args);
 
     /// <summary>
+    /// Play a sound effect by name (trigger/highlight SFX and the <c>#play</c>
+    /// family). The host applies the <c>PlaySounds</c> gate + SoundDir/.wav
+    /// resolution and dispatches to the platform audio backend; the Console
+    /// build with no audio is a no-op. A blank name is ignored.
+    /// </summary>
+    void PlaySound(string soundName);
+
+    /// <summary>
     /// Handle a <c>#connect</c> / <c>#reconnect</c> / <c>#lichconnect</c> command
     /// (Genie 4 parity). The connection lifecycle, saved profiles, and the
     /// Connect dialog all live in the App layer, so <see cref="Genie.Core"/>

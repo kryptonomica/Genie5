@@ -719,6 +719,30 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// </summary>
     public event Action<string>? MapperGotoRequested;
 
+    void ICommandHost.PlaySound(string soundName) => PlaySound(soundName);
+
+    /// <summary>
+    /// Play a sound effect by name. Central gate + resolution for ALL SFX
+    /// (trigger/highlight sounds, <c>#play</c>): honors the <c>PlaySounds</c>
+    /// config, resolves a bare name against <see cref="GenieConfig.SoundDir"/>
+    /// and appends <c>.wav</c> when no extension is given (Genie 4 convention),
+    /// then raises <see cref="SoundRequested"/> with the absolute path. The App
+    /// plays it; Console builds with no handler are a silent no-op.
+    /// </summary>
+    public void PlaySound(string soundName)
+    {
+        if (!Config.PlaySounds || string.IsNullOrWhiteSpace(soundName)) return;
+        var name = soundName.Trim();
+        var path = Path.IsPathRooted(name) ? name : Path.Combine(Config.SoundDir, name);
+        if (!Path.HasExtension(path)) path += ".wav";
+        SoundRequested?.Invoke(path);
+    }
+
+    /// <summary>Raised with an absolute, gate-passed sound-file path whenever a
+    /// sound should play. The App subscribes and dispatches to its audio
+    /// backend.</summary>
+    public event Action<string>? SoundRequested;
+
     void ICommandHost.Connect(ConnectRequest request)
     {
         // The connection lifecycle, saved profiles, and the Connect dialog all

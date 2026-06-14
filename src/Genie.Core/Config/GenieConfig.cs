@@ -279,7 +279,7 @@ public sealed class GenieConfig
         {
             "mycommandchar",
             "automapperalpha", "promptbreak", "promptforce", "condensed",
-            "muted", "showimages",
+            "showimages",
         };
 
     /// <summary>True if <paramref name="key"/> is persisted/editable but not yet

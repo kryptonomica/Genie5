@@ -32,9 +32,9 @@ public sealed class TriggerEngineFinal
     }
 
     public TriggerRule AddTrigger(string pattern, string action, bool caseSensitive = false,
-                                  bool isEnabled = true, string className = "")
+                                  bool isEnabled = true, string className = "", string soundFile = "")
     {
-        var trigger = new TriggerRule(pattern, action, caseSensitive, isEnabled, className, _safetyEnabled);
+        var trigger = new TriggerRule(pattern, action, caseSensitive, isEnabled, className, _safetyEnabled, soundFile);
         _triggers.Add(trigger);
         if (!string.IsNullOrEmpty(className)) Classes?.Ensure(className);
         return trigger;
@@ -58,6 +58,9 @@ public sealed class TriggerEngineFinal
             if (!trigger.IsEnabled) continue;
             if (Classes is not null && !Classes.IsActive(trigger.ClassName)) continue;
             if (trigger.SafeMatch(line) is not { } match) continue;
+            // Optional per-trigger SFX (host applies the PlaySounds gate).
+            if (!string.IsNullOrEmpty(trigger.SoundFile))
+                _host?.PlaySound(trigger.SoundFile);
             var expandedAction = ExpandAction(trigger.Action, match);
             _commandEngine?.ProcessInput(expandedAction);
         }

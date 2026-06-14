@@ -56,6 +56,14 @@ public static class DefaultHighlights
     public static System.Action<string>? OnUrlClicked;
 
     /// <summary>
+    /// Sound dispatcher for highlight SFX. Set by <c>MainWindowViewModel</c> at
+    /// connect time to route to <c>GenieCore.PlaySound</c> (which applies the
+    /// PlaySounds gate + SoundDir resolution). Invoked once per line that a
+    /// sound-carrying highlight matches. Null until connect → no sound.
+    /// </summary>
+    public static System.Action<string>? OnHighlightSound;
+
+    /// <summary>
     /// Master toggle that mirrors <c>GenieConfig.ShowLinks</c>. When false,
     /// link spans render as ordinary text (no underline, no cursor change,
     /// no click handler) — useful for users who find the underlines noisy.
@@ -177,15 +185,21 @@ public static class DefaultHighlights
                     if (!rule.IsEnabled) continue;
                     if (engine.Classes is { } classes && !classes.IsActive(rule.ClassName)) continue;
 
+                    // A rule may carry a colour, a sound, or both — so we detect
+                    // the match even with no brush (sound-only highlight).
                     var ruleBrush = GetUserBrush(rule.ForegroundColor);
-                    if (ruleBrush is null) continue;
-
+                    var matched   = false;
                     foreach (var (start, length) in rule.GetMatchPositions(text))
                     {
+                        matched = true;
+                        if (ruleBrush is null) continue;   // no colour → match-only (for sound)
                         var end = Math.Min(start + length, text.Length);
                         for (int i = start; i < end; i++)
                             if (brushes[i] is null) brushes[i] = ruleBrush;
                     }
+                    // Optional per-highlight SFX, once per matching line.
+                    if (matched && !string.IsNullOrEmpty(rule.SoundFile))
+                        OnHighlightSound?.Invoke(rule.SoundFile);
                 }
             }
 

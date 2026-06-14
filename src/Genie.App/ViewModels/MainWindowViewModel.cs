@@ -467,6 +467,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// the current capture (null for a manual capture, which the user stops).</summary>
     private string? _activeCaptureScript;
 
+    /// <summary>Cross-platform SFX backend for trigger/highlight sounds and
+    /// <c>#play</c>. Fed gate-passed absolute paths via GenieCore.SoundRequested.</summary>
+    private readonly Services.AudioService _audio = new();
+
     /// <summary>True once the one-time "what Analyst Capture does" explainer has
     /// been shown this session, so enabling it again doesn't re-nag.</summary>
     private bool _captureExplained;
@@ -2422,6 +2426,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 ErrorLog.Log("OnUrlClicked", ex);
             }
         };
+
+        // Highlight SFX → route through GenieCore.PlaySound (gate + resolve),
+        // which raises SoundRequested for the audio backend below.
+        Highlighting.DefaultHighlights.OnHighlightSound = name => _core?.PlaySound(name);
+
+        // SFX backend: play gate-passed absolute paths from trigger/highlight
+        // sounds and #play.
+        _core.SoundRequested += path => _audio.Play(path);
 
         // GameText filters lines based on the user's per-tag visibility
         // toggles (Window → Game Window) — supply Display so it can read

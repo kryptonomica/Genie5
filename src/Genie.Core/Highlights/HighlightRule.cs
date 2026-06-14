@@ -14,7 +14,7 @@ public sealed class HighlightRule
     public HighlightRule(string pattern, string foregroundColor, string backgroundColor = "",
                          HighlightMatchType matchType = HighlightMatchType.String,
                          bool caseSensitive = false, bool isEnabled = true, string className = "",
-                         bool safe = true)
+                         bool safe = true, string soundFile = "")
     {
         Pattern         = pattern;
         ForegroundColor = foregroundColor;
@@ -23,6 +23,7 @@ public sealed class HighlightRule
         CaseSensitive   = caseSensitive;
         IsEnabled       = isEnabled;
         ClassName       = className;
+        SoundFile       = soundFile;
         Rebuild(safe);
     }
 
@@ -33,6 +34,9 @@ public sealed class HighlightRule
     public bool               CaseSensitive   { get; }
     public bool               IsEnabled       { get; set; }
     public string             ClassName       { get; set; }
+    /// <summary>Optional sound played when this highlight matches a line
+    /// (resolved against SoundDir). Empty = silent.</summary>
+    public string             SoundFile       { get; set; }
 
     public bool Matches(string line)
     {

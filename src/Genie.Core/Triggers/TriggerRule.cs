@@ -10,13 +10,15 @@ public sealed class TriggerRule
     private readonly StringComparison _cmp;
 
     public TriggerRule(string pattern, string action, bool caseSensitive = false,
-                       bool isEnabled = true, string className = "", bool safe = true)
+                       bool isEnabled = true, string className = "", bool safe = true,
+                       string soundFile = "")
     {
         Pattern       = pattern;
         Action        = action;
         CaseSensitive = caseSensitive;
         IsEnabled     = isEnabled;
         ClassName     = className;
+        SoundFile     = soundFile;
         _cmp          = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
         Rebuild(safe);
     }
@@ -25,6 +27,9 @@ public sealed class TriggerRule
     public bool   CaseSensitive { get; }
     public bool   IsEnabled     { get; set; }
     public string ClassName     { get; set; }
+    /// <summary>Optional sound played when this trigger fires (resolved against
+    /// SoundDir). Empty = silent.</summary>
+    public string SoundFile     { get; set; }
     public Regex  Regex         { get; private set; } = null!;
 
     public bool IsMatch(string line) => IsEnabled && SafeMatch(line) is { Success: true };
