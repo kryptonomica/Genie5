@@ -275,8 +275,7 @@ public sealed class GenieConfig
         {
             "mycommandchar", "maxrowbuffer", "spelltimer", "autolog",
             "automapperalpha", "promptbreak", "promptforce", "condensed",
-            "monstercountignorelist", "roundtimeoffset", "ignoreclosealert",
-            "muted", "parsegameonly", "showimages", "weblinksafety",
+            "monstercountignorelist", "muted", "showimages",
         };
 
     /// <summary>True if <paramref name="key"/> is persisted/editable but not yet

@@ -141,7 +141,11 @@ public class VitalsViewModel : ReactiveObject
             .ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>
             {
-                _rtExpiresAt = e.ExpiresAt;
+                // RoundTimeOffset: extend the displayed RT by the configured
+                // margin so the badge matches the script-gating end (which the
+                // GameStateEngine also offsets). Read live; default 0 = no-op.
+                var rtOffset = core.Config?.RoundTimeOffset ?? 0;
+                _rtExpiresAt = rtOffset != 0 ? e.ExpiresAt.AddSeconds(rtOffset) : e.ExpiresAt;
                 RecomputeRt();
                 StartTickerIfNeeded();
             });

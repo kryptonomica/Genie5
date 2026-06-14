@@ -1,3 +1,4 @@
+using Genie.Core.Config;
 using Genie.Core.Events;
 using Genie.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -18,6 +19,15 @@ public sealed class GameStateEngine : IDisposable
     private readonly IDisposable             _subscription;
 
     public Models.GameState State => _state;
+
+    /// <summary>
+    /// Optional live config, wired by <c>GenieCore</c>. Supplies
+    /// <see cref="GenieConfig.RoundTimeOffset"/> — a client-side timing margin
+    /// added to each roundtime so scripts (and the RT display) treat RT as
+    /// lasting a little longer, guarding against server/network lag. Read live,
+    /// so a <c>#config roundtimeoffset</c> change applies to the next RT.
+    /// </summary>
+    public GenieConfig? Config { get; set; }
 
     public GameStateEngine(
         IObservable<GameEvent> gameEvents,
@@ -50,7 +60,12 @@ public sealed class GameStateEngine : IDisposable
 
             // ── Round / cast time ─────────────────────────────────────────
             case RoundTimeEvent rt:
-                _state.Combat.RoundTimeEnd = rt.ExpiresAt;
+                // RoundTimeOffset (Genie 4 parity): extend the RT end by the
+                // configured seconds so RT-gating waits a safety margin past the
+                // server's stated end. Default 0 → no change.
+                var rtOffset = Config?.RoundTimeOffset ?? 0;
+                _state.Combat.RoundTimeEnd =
+                    rtOffset != 0 ? rt.ExpiresAt.AddSeconds(rtOffset) : rt.ExpiresAt;
                 break;
 
             case CastTimeEvent ct:

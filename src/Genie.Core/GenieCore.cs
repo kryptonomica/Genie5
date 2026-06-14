@@ -235,6 +235,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         var state    = new Models.GameState();
         _stateEngine = new GameStateEngine(_parser.GameEvents, state,
             lf.CreateLogger<GameStateEngine>());
+        // Live config for RoundTimeOffset (applied to each RoundTimeEvent).
+        _stateEngine.Config = Config;
 
         // Plugin layer — read-only state view + manager (this GenieCore is the
         // IPluginHost). Must exist before the game-event subscription below
@@ -380,7 +382,14 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                     // overlay shows which feature is eating the frame. The Time
                     // wrapper is a zero-overhead passthrough while disabled.
                     Metrics.Time(PipelineStage.Scripts,  () => Scripts.OnGameLine(te.Text));   // match/waitfor + EXP/info trackers
-                    Metrics.Time(PipelineStage.Triggers, () => Triggers.ProcessLine(te.Text)); // user-defined triggers
+                    // ParseGameOnly (Genie 4 parity): when on, fire triggers only on
+                    // the main game stream, not secondary stream-windows (thoughts,
+                    // logons, combat, …). Default off → triggers see every stream.
+                    Metrics.Time(PipelineStage.Triggers, () =>
+                    {
+                        if (!(Config?.ParseGameOnly ?? false) || te.Stream == "main")
+                            Triggers.ProcessLine(te.Text);                                     // user-defined triggers
+                    });
                     // Plugins observe each line. Phase 1 ignores the transform
                     // return (display-pipeline rewrite/gag wiring is deferred);
                     // observe-only plugins return the text unchanged.

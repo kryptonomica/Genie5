@@ -2380,9 +2380,29 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // Hand them off to the OS shell so the user's default browser opens
         // the URL. UseShellExecute=true is required by .NET for URL strings
         // (the runtime won't launch them as raw filenames).
-        Highlighting.DefaultHighlights.OnUrlClicked = url =>
+        Highlighting.DefaultHighlights.OnUrlClicked = async url =>
         {
             if (string.IsNullOrWhiteSpace(url)) return;
+
+            // WebLinkSafety (Genie 4 parity + anti-phishing): confirm before
+            // opening an external URL, showing the FULL destination so a
+            // disguised link can't smuggle the user somewhere unexpected. Only
+            // real http(s) links reach here — game-command links (<d cmd>) are
+            // dispatched separately and are never affected.
+            if (_core?.Config.WebLinkSafety == true)
+            {
+                var owner = (Avalonia.Application.Current?.ApplicationLifetime
+                                as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+                if (owner is not null)
+                {
+                    var ok = await new Views.ConfirmDialog(
+                        "Open external link?",
+                        $"This will open the following address in your web browser:\n\n{url}\n\nOnly continue if you trust it.")
+                        .ShowDialog<bool>(owner);
+                    if (!ok) return;
+                }
+            }
+
             try
             {
                 System.Diagnostics.Process.Start(

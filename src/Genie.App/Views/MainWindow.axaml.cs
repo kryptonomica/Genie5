@@ -321,6 +321,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
         if (e.Cancel)            return;   // something upstream already vetoed
         if (_closeConfirmed)     return;   // second pass after user said Yes
         if (ViewModel?.IsConnected != true) return;
+        // IgnoreCloseAlert (Genie 4 parity): user opted out of the
+        // "still connected, really close?" prompt — let the close proceed.
+        if (ViewModel?.Core?.Config.IgnoreCloseAlert == true) return;
 
         e.Cancel = true;
         ShowConfirmAndMaybeReclose();
