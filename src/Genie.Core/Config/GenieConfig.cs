@@ -40,10 +40,6 @@ public sealed class GenieConfig
     public bool ParseGameOnly { get; set; }
     public bool AutoMapper { get; set; } = true;
     public int AutoMapperAlpha { get; set; } = 255;
-    public int ServerActivityTimeout { get; set; } = 180;
-    public string ServerActivityCommand { get; set; } = "fatigue";
-    public int UserActivityTimeout { get; set; } = 300;
-    public string UserActivityCommand { get; set; } = "quit";
 
     /// <summary>
     /// Optional safeguard for click-to-walk / <c>#goto</c> traversal: when
@@ -89,11 +85,6 @@ public sealed class GenieConfig
     public string ConfigDirRaw { get; set; } = "Config";
     public string ProfileConfigDirRaw { get; set; } = "Config";
     public string LogDirRaw { get; set; } = "Logs";
-    public string ArtDirRaw { get; set; } = "Art";
-    public string ScriptRepo { get; set; } = string.Empty;
-    public string ArtRepo { get; set; } = string.Empty;
-    public string MapRepo { get; set; } = string.Empty;
-    public string PluginRepo { get; set; } = string.Empty;
 
     public string ScriptDir => _localDirectory.Current.ResolvePath(ScriptDirRaw);
     public string SoundDir => _localDirectory.Current.ResolvePath(SoundDirRaw);
@@ -112,7 +103,6 @@ public sealed class GenieConfig
     public string ConfigDir => _localDirectory.Current.ResolvePath(ConfigDirRaw);
     public string ConfigProfileDir => _localDirectory.Current.ResolvePath(ProfileConfigDirRaw);
     public string LogDir => _localDirectory.Current.ResolvePath(LogDirRaw);
-    public string ArtDir => _localDirectory.Current.ResolvePath(ArtDirRaw);
 
     /// <summary>
     /// Switch <see cref="ConfigProfileDir"/> to a per-character path of the form
@@ -234,15 +224,10 @@ public sealed class GenieConfig
         ("scripttimeout", ScriptTimeout.ToString()),
         ("maxgosubdepth", MaxGoSubDepth.ToString()),
         ("roundtimeoffset", RoundTimeOffset.ToString()),
-        ("artdir", ArtDirRaw),
-        ("artrepo", ArtRepo),
         ("scriptdir", ScriptDirRaw),
-        ("scriptrepo", ScriptRepo),
         ("sounddir", SoundDirRaw),
         ("mapdir", MapDirRaw),
-        ("maprepo", MapRepo),
         ("plugindir", PluginDirRaw),
-        ("pluginrepo", PluginRepo),
         ("configdir", ConfigDirRaw),
         ("logdir", LogDirRaw),
         ("updatemapperscripts", UpdateMapperScripts.ToString()),
@@ -253,10 +238,6 @@ public sealed class GenieConfig
         ("muted", (!PlaySounds).ToString()),
         ("abortdupescript", AbortDupeScript.ToString()),
         ("parsegameonly", ParseGameOnly.ToString()),
-        ("servertimeout", ServerActivityTimeout.ToString()),
-        ("servertimeoutcommand", ServerActivityCommand),
-        ("usertimeout", UserActivityTimeout.ToString()),
-        ("usertimeoutcommand", UserActivityCommand),
         ("autowalkpauseonunfocus", AutoWalkPauseOnUnfocus.ToString()),
         ("autowalkunfocusseconds", AutoWalkUnfocusSeconds.ToString()),
         ("showlinks", ShowLinks.ToString()),
@@ -281,6 +262,26 @@ public sealed class GenieConfig
                 return v;
         return null;
     }
+
+    /// <summary>
+    /// settings.cfg keys that persist + can be edited (Scripts tab / <c>#config</c>)
+    /// but are <b>not yet acted on</b> by Genie 5 — the feature they configure
+    /// isn't built. <c>#config list</c> and the Scripts tab flag these as
+    /// "(reserved)" so users aren't misled. <b>Remove a key here when you wire
+    /// its behaviour.</b>
+    /// </summary>
+    public static readonly IReadOnlySet<string> ReservedKeys =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "mycommandchar", "maxrowbuffer", "spelltimer", "autolog",
+            "automapperalpha", "promptbreak", "promptforce", "condensed",
+            "monstercountignorelist", "roundtimeoffset", "ignoreclosealert",
+            "muted", "parsegameonly", "showimages", "weblinksafety",
+        };
+
+    /// <summary>True if <paramref name="key"/> is persisted/editable but not yet
+    /// wired to any behaviour — see <see cref="ReservedKeys"/>.</summary>
+    public static bool IsReserved(string key) => ReservedKeys.Contains(key);
 
     public bool Load(string fileName = "settings.cfg")
     {
@@ -320,15 +321,10 @@ public sealed class GenieConfig
                 case "scripttimeout": ScriptTimeout = (int)UtilityCore.StringToDouble(value); break;
                 case "maxgosubdepth": MaxGoSubDepth = int.TryParse(value, out var mgd) ? mgd : MaxGoSubDepth; break;
                 case "roundtimeoffset": RoundTimeOffset = UtilityCore.StringToDouble(value); break;
-                case "artdir": ArtDirRaw = SetDir(value); break;
-                case "artrepo": ArtRepo = value; break;
                 case "scriptdir": ScriptDirRaw = SetDir(value); break;
-                case "scriptrepo": ScriptRepo = value; break;
                 case "sounddir": SoundDirRaw = SetDir(value); break;
                 case "mapdir": MapDirRaw = SetDir(value); break;
-                case "maprepo": MapRepo = value; break;
                 case "plugindir": PluginDirRaw = SetDir(value); break;
-                case "pluginrepo": PluginRepo = value; break;
                 case "configdir": ConfigDirRaw = SetDir(value); break;
                 case "logdir": LogDirRaw = SetDir(value); Notify(ConfigFieldUpdated.LogDir); break;
                 case "reconnect": Reconnect = ToBool(value); Notify(ConfigFieldUpdated.Reconnect); break;
@@ -345,10 +341,6 @@ public sealed class GenieConfig
                 case "updatemapperscripts": UpdateMapperScripts = ToBool(value); Notify(ConfigFieldUpdated.UpdateMapperScripts); break;
                 case "alwaysontop": AlwaysOnTop = ToBool(value); Notify(ConfigFieldUpdated.AlwaysOnTop); break;
                 case "weblinksafety": WebLinkSafety = ToBool(value); break;
-                case "servertimeout": ServerActivityTimeout = (int)UtilityCore.StringToDouble(value); break;
-                case "usertimeout": UserActivityTimeout = (int)UtilityCore.StringToDouble(value); break;
-                case "servertimeoutcommand": ServerActivityCommand = value; break;
-                case "usertimeoutcommand": UserActivityCommand = value; break;
                 case "autowalkpauseonunfocus": AutoWalkPauseOnUnfocus = ToBool(value); break;
                 case "autowalkunfocusseconds":
                     AutoWalkUnfocusSeconds = Math.Max(60, (int)UtilityCore.StringToDouble(value));

@@ -2960,10 +2960,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 break;
 
             case "list":
-                // #config list → dump every key and its current value.
-                GameText.AddSystemLine("[config] current settings (settings.cfg):");
+                // #config list → dump every key and its current value. Keys whose
+                // feature isn't wired yet are flagged "(reserved)" so the listing
+                // doesn't imply they do something. See GenieConfig.ReservedKeys.
+                GameText.AddSystemLine("[config] current settings (settings.cfg) — (reserved) = not yet wired:");
                 foreach (var (k, v) in config.ToConfigPairs())
-                    GameText.AddSystemLine($"  {k} = {v}");
+                    GameText.AddSystemLine(
+                        Genie.Core.Config.GenieConfig.IsReserved(k) ? $"  {k} = {v}  (reserved)"
+                                                                    : $"  {k} = {v}");
                 break;
 
             case "edit":
@@ -2976,9 +2980,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 if (rest.Length == 0)
                 {
                     var current = config.GetSetting(sub);
+                    var reserved = Genie.Core.Config.GenieConfig.IsReserved(verb) ? "  (reserved — not yet wired)" : "";
                     GameText.AddSystemLine(current is null
                         ? $"[config] Unknown setting '{sub}'. Try #config list."
-                        : $"[config] {verb} = {current}");
+                        : $"[config] {verb} = {current}{reserved}");
                 }
                 else
                 {
@@ -2986,7 +2991,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                     {
                         config.SetSetting(sub, rest);   // throws on an unrecognized key
                         config.Save();
-                        GameText.AddSystemLine($"[config] {verb} = {config.GetSetting(sub)}  (saved)");
+                        var reserved = Genie.Core.Config.GenieConfig.IsReserved(verb) ? "  (reserved — saved, but not yet wired)" : "  (saved)";
+                        GameText.AddSystemLine($"[config] {verb} = {config.GetSetting(sub)}{reserved}");
                     }
                     catch
                     {

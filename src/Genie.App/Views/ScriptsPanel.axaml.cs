@@ -64,7 +64,6 @@ public partial class ScriptsPanel : UserControl
         TriggerOnInputCheck.IsChecked = c.TriggerOnInput;
 
         ScriptDirBox.Text        = c.ScriptDirRaw;
-        ScriptRepoBox.Text       = c.ScriptRepo;
     }
 
     private void OnApply(object? sender, RoutedEventArgs e)
@@ -107,7 +106,6 @@ public partial class ScriptsPanel : UserControl
 
         var dir = ScriptDirBox.Text?.Trim();
         _config.ScriptDirRaw    = string.IsNullOrWhiteSpace(dir) ? "Scripts" : dir;
-        _config.ScriptRepo      = ScriptRepoBox.Text?.Trim() ?? string.Empty;
 
         // Reflect any normalization (blank → default) back into the form.
         LoadForm(_config);

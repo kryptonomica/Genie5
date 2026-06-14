@@ -66,10 +66,11 @@
                  HorizontalAlignment="Left" Margin="0,0,0,4"
                  ToolTip.Tip="Prefix for built-in Genie commands (default: #)."/>
 
-      <TextBlock Grid.Row="11" Grid.Column="0" Text="User command character:" VerticalAlignment="Center" Margin="0,0,8,4"/>
+      <TextBlock Grid.Row="11" Grid.Column="0" Text="User command character:" VerticalAlignment="Center" Margin="0,0,8,4"
+                 Foreground="#888" ToolTip.Tip="Reserved — not wired yet."/>
       <TextBox   Grid.Row="11" Grid.Column="1" Name="MyCommandCharBox" MaxLength="1" Width="60"
                  HorizontalAlignment="Left" Margin="0,0,0,4"
-                 ToolTip.Tip="Prefix for user-defined commands / aliases (default: /)."/>
+                 ToolTip.Tip="Prefix for user-defined commands / aliases (default: /). Reserved — not yet wired."/>
 
       <CheckBox  Grid.Row="12" Grid.Column="1" Name="TriggerOnInputCheck"
                  Content="Fire triggers on text you type (not just game output)"
@@ -83,11 +84,6 @@
       <TextBlock Grid.Row="14" Grid.Column="0" Text="Script directory:" VerticalAlignment="Center" Margin="0,0,8,4"/>
       <TextBox   Grid.Row="14" Grid.Column="1" Name="ScriptDirBox" Margin="0,0,0,4"
                  ToolTip.Tip="Folder scripts are loaded from, relative to the Genie data root (default: Scripts)."/>
-
-      <TextBlock Grid.Row="15" Grid.Column="0" Text="Script repository URL:" VerticalAlignment="Center" Margin="0,0,8,4"/>
-      <TextBox   Grid.Row="15" Grid.Column="1" Name="ScriptRepoBox" Margin="0,0,0,4"
-                 Watermark="(none)"
-                 ToolTip.Tip="Optional URL used by the script updater. Leave blank for none."/>
 
       <!-- Buttons + status -->
       <StackPanel Grid.Row="16" Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="0,8,0,0">
