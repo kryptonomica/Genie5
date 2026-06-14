@@ -52,6 +52,11 @@ public sealed class GameStateEngine : IDisposable
                 _log.LogTrace("Resource {Id}={Value}", res.ResourceId, res.Value);
                 break;
 
+            case RoomImageEvent img:
+                // "0" = no artwork → store empty so consumers read "no image".
+                _state.Room.ImageId = img.PictureId == "0" ? "" : img.PictureId;
+                break;
+
             // ── Named components (room, status text strings) ──────────────
             case ComponentEvent comp:
                 _state.Components[comp.ComponentId] = comp.Content;

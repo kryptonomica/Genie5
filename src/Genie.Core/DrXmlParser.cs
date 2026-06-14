@@ -569,8 +569,16 @@ public sealed class DrXmlParser : IDisposable
             // ── Resource bar (mana, spirit, stamina absolute values) ─────
             case "resource":
             {
+                // <resource picture="N"/> — DR room/scene art id ("0" = none).
+                // Surface the raw id (incl. "0", so the Scene panel can clear);
+                // display + showimages gating live in the App layer.
+                if (r["picture"] is { } picture)
+                {
+                    _events.OnNext(new RoomImageEvent(picture));
+                    break;
+                }
                 var id = r["id"] ?? "";
-                if (id.Length == 0) break; // <resource picture="0"/> is a UI image hint
+                if (id.Length == 0) break;
                 var value = int.TryParse(r["value"], out var v) ? v : 0;
                 _events.OnNext(new ResourceEvent(id, value));
                 break;

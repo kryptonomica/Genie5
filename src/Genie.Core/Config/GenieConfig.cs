@@ -83,6 +83,7 @@ public sealed class GenieConfig
 
     public string ScriptDirRaw { get; set; } = "Scripts";
     public string SoundDirRaw { get; set; } = "Sounds";
+    public string ArtDirRaw { get; set; } = "Art";
     public string PluginDirRaw { get; set; } = "Plugins";
     public string MapDirRaw { get; set; } = "Maps";
     public string ConfigDirRaw { get; set; } = "Config";
@@ -91,6 +92,9 @@ public sealed class GenieConfig
 
     public string ScriptDir => _localDirectory.Current.ResolvePath(ScriptDirRaw);
     public string SoundDir => _localDirectory.Current.ResolvePath(SoundDirRaw);
+    /// <summary>Local cache dir for DR room/scene art (downloaded JPGs). Backs
+    /// <c>showimages</c> / the Scene panel.</summary>
+    public string ArtDir => _localDirectory.Current.ResolvePath(ArtDirRaw);
 
     /// <summary>
     /// Maps and Plugins are shared resources — community map data and installed
@@ -228,6 +232,7 @@ public sealed class GenieConfig
         ("roundtimeoffset", RoundTimeOffset.ToString()),
         ("scriptdir", ScriptDirRaw),
         ("sounddir", SoundDirRaw),
+        ("artdir", ArtDirRaw),
         ("mapdir", MapDirRaw),
         ("plugindir", PluginDirRaw),
         ("configdir", ConfigDirRaw),
@@ -273,10 +278,7 @@ public sealed class GenieConfig
     /// its behaviour.</b>
     /// </summary>
     public static readonly IReadOnlySet<string> ReservedKeys =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "showimages",
-        };
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>True if <paramref name="key"/> is persisted/editable but not yet
     /// wired to any behaviour — see <see cref="ReservedKeys"/>.</summary>
@@ -321,6 +323,7 @@ public sealed class GenieConfig
                 case "roundtimeoffset": RoundTimeOffset = UtilityCore.StringToDouble(value); break;
                 case "scriptdir": ScriptDirRaw = SetDir(value); break;
                 case "sounddir": SoundDirRaw = SetDir(value); break;
+                case "artdir": ArtDirRaw = SetDir(value); break;
                 case "mapdir": MapDirRaw = SetDir(value); break;
                 case "plugindir": PluginDirRaw = SetDir(value); break;
                 case "configdir": ConfigDirRaw = SetDir(value); break;

@@ -79,6 +79,10 @@ public sealed class RoomState
     public int      RoomId      { get; set; }
     /// <summary>Space-separated exit directions from &lt;compass&gt; (e.g. "north south east").</summary>
     public string   CompassExits { get; set; } = "";
+    /// <summary>DR room/scene art id from &lt;resource picture="..."/&gt;. Empty when
+    /// the room has no artwork ("0"). Backs the Scene panel (App, gated by
+    /// <c>showimages</c>).</summary>
+    public string   ImageId     { get; set; } = "";
 }
 
 // ── Combat state ─────────────────────────────────────────────────────────────

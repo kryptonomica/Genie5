@@ -183,6 +183,7 @@ public class GenieDockFactory : Factory
         var itemlog  = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool(_vm.Experience,          ws.Get("experience"));
         var scripts    = new ScriptsTool   (_vm.Scripts,            ws.Get("scripts"));
+        var scene      = new SceneTool     (_vm.Scene,              ws.Get("scene"));
 
         // ── Default ship layout — three vertical columns ─────────────────
         //   ┌──────────┬─────────────────────┬──────────┐
@@ -328,6 +329,9 @@ public class GenieDockFactory : Factory
         // Scripts: registered but hidden by default (like Vitals/Experience) —
         // re-opens beside the Backpack via Window → Scripts.
         _tools[scripts.Id]    = (scripts,    backpackDock.Id);
+        // Scene: room/scene artwork — also hidden by default (re-open via
+        // Window → Scene). Lives beside the Backpack when shown.
+        _tools[scene.Id]      = (scene,      backpackDock.Id);
 
         // ── Home-dock recreation map ─────────────────────────────────────
         // Mirrors the proportions/alignments set on the ToolDocks above so a
@@ -389,6 +393,7 @@ public class GenieDockFactory : Factory
         var log        = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
         var itemlog    = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool  (_vm.Experience,          ws.Get("experience"));
+        var scene      = new SceneTool        (_vm.Scene,              ws.Get("scene"));
 
         // Every MDI panel in canonical order, paired with its id.
         var panels = new (string Id, IDockable Dockable)[]
@@ -396,7 +401,7 @@ public class GenieDockFactory : Factory
             ("game-text", gameText), ("room", room), ("mapper", mapper), ("backpack", backpack),
             ("logons", logons), ("talk", talk), ("whispers", whispers), ("thoughts", thoughts),
             ("combat", combat), ("log", log), ("itemlog", itemlog),
-            ("vitals", vitals), ("experience", experience),
+            ("vitals", vitals), ("experience", experience), ("scene", scene),
         };
 
         // Which panels open as windows. Default mirrors the tabbed layout

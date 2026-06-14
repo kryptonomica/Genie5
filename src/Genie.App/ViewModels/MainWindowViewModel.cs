@@ -44,6 +44,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// <see cref="ScriptBar"/>, which is the always-on bottom strip.</summary>
     public ScriptsViewModel    Scripts    { get; } = new();
 
+    /// <summary>Backs the dockable Scene panel — DR room/scene artwork
+    /// (<c>&lt;resource picture&gt;</c>), gated by <c>showimages</c>.</summary>
+    public SceneViewModel      Scene      { get; } = new();
+
     /// <summary>
     /// Global layout presets, shared across every character —
     /// <c>{AppData}/Genie5/Layouts/</c>. Always present.
@@ -321,6 +325,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool LogVisible      { get; private set; } = true;
     [Reactive] public bool ItemLogVisible  { get; private set; } = true;
     [Reactive] public bool ScriptsVisible  { get; private set; }   // hidden by default (opt-in)
+    [Reactive] public bool SceneVisible    { get; private set; }   // hidden by default (opt-in)
 
     // ── Toggle commands (one per dockable) ───────────────────────────────────
     public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
@@ -337,6 +342,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleLogCommand      { get; }
     public ReactiveCommand<Unit, Unit> ToggleItemLogCommand  { get; }
     public ReactiveCommand<Unit, Unit> ToggleScriptsCommand  { get; }
+    public ReactiveCommand<Unit, Unit> ToggleSceneCommand    { get; }
 
     // ── Core ──────────────────────────────────────────────────────────────────
 
@@ -637,6 +643,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("mapper",    "Mapper");
         WindowSettings.Register("experience", "Experience");
         WindowSettings.Register("scripts",   "Scripts");
+        WindowSettings.Register("scene",     "Scene");
 
         // ── Global → per-window propagation ─────────────────────────────
         // When the user changes DisplaySettings (color, font, etc.), the
@@ -1143,6 +1150,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleLogCommand      = MakeToggleCommand("log",       v => LogVisible      = v);
         ToggleItemLogCommand  = MakeToggleCommand("itemlog",   v => ItemLogVisible  = v);
         ToggleScriptsCommand  = MakeToggleCommand("scripts",   v => ScriptsVisible  = v);
+        ToggleSceneCommand    = MakeToggleCommand("scene",     v => SceneVisible    = v);
 
         // (ResetLayoutCommand is assigned earlier — using ApplyLayout() with a
         // SavedLayout that goes through factory.BuildDefaultLayout(). A second
@@ -1978,6 +1986,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("log",       factory.IsToolVisible("log"));
         SetVisibilityBool("itemlog",   factory.IsToolVisible("itemlog"));
         SetVisibilityBool("scripts",   factory.IsToolVisible("scripts"));
+        SetVisibilityBool("scene",     factory.IsToolVisible("scene"));
     }
 
     // ── Plugin-created windows ───────────────────────────────────────────────
@@ -1998,7 +2007,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         new(StringComparer.OrdinalIgnoreCase)
         {
             "experience", "main", "game", "game-text", "room", "vitals",
-            "backpack", "mapper", "scripts",
+            "backpack", "mapper", "scripts", "scene",
             "logons", "talk", "whispers", "thoughts", "combat",
             "log", "itemlog",
         };
@@ -2297,6 +2306,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "log":       ForceSet(visible, v => LogVisible      = v, () => LogVisible);      break;
             case "itemlog":   ForceSet(visible, v => ItemLogVisible  = v, () => ItemLogVisible);  break;
             case "scripts":   ForceSet(visible, v => ScriptsVisible  = v, () => ScriptsVisible);  break;
+            case "scene":     ForceSet(visible, v => SceneVisible    = v, () => SceneVisible);    break;
         }
 
         static void ForceSet(bool target, Action<bool> set, Func<bool> get)
@@ -2458,6 +2468,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         StreamTabs.Attach(_core);
         Experience.Attach(_core);
         Scripts.Attach(_core);
+        Scene.Attach(_core);
         AttachPluginWindows(_core);
 
         // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin

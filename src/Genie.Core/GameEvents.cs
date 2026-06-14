@@ -78,6 +78,15 @@ public sealed record ProgressBarEvent(
 /// </summary>
 public sealed record ResourceEvent(string ResourceId, int Value) : GameEvent;
 
+/// <summary>
+/// &lt;resource picture="3025"/&gt; — DR room/scene art id. DR sends this alongside
+/// room output for locations that have artwork; <c>"0"</c> means "no image"
+/// (clear). Core only surfaces the id — fetching <c>DR-art/{id}.jpg</c> from
+/// play.net and displaying it is an App-layer concern, gated by
+/// <c>showimages</c>. The Scene panel dedups and clears on <c>"0"</c>.
+/// </summary>
+public sealed record RoomImageEvent(string PictureId) : GameEvent;
+
 // ── Action timing ────────────────────────────────────────────────────────────
 
 /// <summary>&lt;roundTime value="unix_timestamp"/&gt; — when the next action will be free.</summary>

@@ -172,6 +172,20 @@
       </ScrollViewer>
     </DataTemplate>
 
+    <!-- ── Scene ─────────────────────────────────────────────────────────── -->
+    <!-- DR room/scene artwork (the <resource picture> image). Empty for rooms
+         without art (most), so a placeholder fills the panel until one loads. -->
+    <DataTemplate DataType="docking:SceneTool">
+      <Grid Margin="6">
+        <TextBlock Text="No scene image for this room."
+                   Foreground="#777" FontSize="11" TextWrapping="Wrap"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   IsVisible="{Binding !ViewModel.HasImage}"/>
+        <Image Source="{Binding ViewModel.Image}" Stretch="Uniform"
+               IsVisible="{Binding ViewModel.HasImage}"/>
+      </Grid>
+    </DataTemplate>
+
     <!-- ── Mapper ────────────────────────────────────────────────────────── -->
     <!-- Map-dominant layout:                                                 -->
     <!--   row 0: thin toolbar (zone + level + zoom + pop-out)                -->

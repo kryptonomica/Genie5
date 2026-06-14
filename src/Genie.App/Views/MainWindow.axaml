@@ -237,6 +237,11 @@
                   IsChecked="{Binding ScriptsVisible, Mode=OneWay}"
                   Command="{Binding ToggleScriptsCommand}"
                   ToolTip.Tip="Running scripts (.cmd and .js) with per-script Stop, a Start… file picker, and the script output log."/>
+        <MenuItem Header="Sce_ne"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding SceneVisible, Mode=OneWay}"
+                  Command="{Binding ToggleSceneCommand}"
+                  ToolTip.Tip="DR room/scene artwork for locations that have it. Requires #config showimages true (default). Empty for rooms without art."/>
 
         <!-- ── Plugin-created windows (dynamic) ─────────────────────────── -->
         <!-- Populated at runtime from the dock factory whenever a plugin     -->
