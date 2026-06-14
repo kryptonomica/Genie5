@@ -90,6 +90,11 @@ public class GameTextViewModel : ReactiveObject
                                              () => core.Substitutes.Apply(e.Text));
                 if (core.Metrics.Time(Genie.Core.Diagnostics.PipelineStage.Gags,
                                       () => core.Gags.ShouldGag(text))) return;
+                // Condensed mode (Genie 4): drop blank / whitespace-only lines
+                // from the main window so output reads compact. Read live so a
+                // #config condensed change applies immediately. Room text is on
+                // its own stream, so it's naturally exempt (Genie 4 kept it).
+                if (core.Config?.Condensed == true && string.IsNullOrWhiteSpace(text)) return;
                 // Substituting shifts offsets, so drop spans if a sub fired —
                 // they refer to positions in the original text. Same rule for
                 // link and bold spans.
