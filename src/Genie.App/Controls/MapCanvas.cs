@@ -142,6 +142,17 @@ public class MapCanvas : Control
     public static readonly StyledProperty<IBrush?> MapBackgroundBrushProperty =
         AvaloniaProperty.Register<MapCanvas, IBrush?>(nameof(MapBackgroundBrush));
 
+    /// <summary>
+    /// Opacity (0–255) of the "ghost" rooms drawn for the floors directly above
+    /// and below the current level — Genie 4's <c>AutoMapperAlpha</c>. Bound from
+    /// <see cref="ViewModels.MapperViewModel.AutoMapperAlpha"/> ←
+    /// <c>GenieConfig.AutoMapperAlpha</c>. 0 = off-level rooms hidden (pure
+    /// single-level view); 255 = fully opaque grey ghosts.
+    /// </summary>
+    public static readonly StyledProperty<int> AutoMapperAlphaProperty =
+        AvaloniaProperty.Register<MapCanvas, int>(nameof(AutoMapperAlpha), defaultValue: 255,
+            coerce: (_, v) => Math.Clamp(v, 0, 255));
+
     // ── Editor styled properties (Genie 4 AutoMapper edit toolbar) ─────────
 
     /// <summary>When true, left-click selects a node and drag moves it
@@ -205,6 +216,7 @@ public class MapCanvas : Control
     public double    Zoom               { get => GetValue(ZoomProperty);               set => SetValue(ZoomProperty, value); }
     public IBrush?   CurrentRoomBrush   { get => GetValue(CurrentRoomBrushProperty);   set => SetValue(CurrentRoomBrushProperty, value); }
     public IBrush?   MapBackgroundBrush { get => GetValue(MapBackgroundBrushProperty); set => SetValue(MapBackgroundBrushProperty, value); }
+    public int       AutoMapperAlpha    { get => GetValue(AutoMapperAlphaProperty);    set => SetValue(AutoMapperAlphaProperty, value); }
     public ICommand? EditExitCommand    { get => GetValue(EditExitCommandProperty);    set => SetValue(EditExitCommandProperty, value); }
 
     // ── Hover state (internal, drives the tooltip paint) ──────────────────
@@ -235,6 +247,7 @@ public class MapCanvas : Control
         // Any of these changing means we need to repaint AND recompute size.
         AffectsRender<MapCanvas>(ZoneProperty, CurrentNodeProperty, LevelProperty, RenderTickProperty,
                                  ZoomProperty, CurrentRoomBrushProperty, MapBackgroundBrushProperty,
+                                 AutoMapperAlphaProperty,
                                  EditModeProperty, SelectedNodeProperty, FullLabelsProperty);
         AffectsMeasure<MapCanvas>(ZoneProperty, LevelProperty, RenderTickProperty, ZoomProperty);
 
@@ -361,6 +374,28 @@ public class MapCanvas : Control
         {
             DrawCenteredMessage(context, $"No rooms on level {Level}.");
             return;
+        }
+
+        // ── Pass 0: off-level "ghost" rooms (floors directly above/below) ──────
+        // Drawn first (under everything current) as faded grey squares so a
+        // multi-floor zone shows where the adjacent levels extend. Grey so they
+        // always read as "another floor" regardless of alpha; AutoMapperAlpha
+        // (Genie 4) tunes how visible they are. 0 = hidden (pure single level).
+        // Rooms share the X/Y grid across Z, so they align under the current
+        // floor and only peek out where this floor has no room. Edges/labels
+        // are intentionally omitted — ghosts are context, not detail.
+        if (AutoMapperAlpha > 0)
+        {
+            var a         = (byte)AutoMapperAlpha;
+            var ghostFill = new SolidColorBrush(Color.FromArgb(a, 0x88, 0x88, 0x88));
+            var ghostPen  = new Pen(new SolidColorBrush(Color.FromArgb(a, 0x55, 0x55, 0x55)), 1.0);
+            foreach (var node in Zone.Nodes.Values)
+            {
+                if (Math.Abs(node.Z - Level) != 1) continue;   // adjacent floors only
+                var rect = NodeRect(node, minX, minY);
+                context.FillRectangle(ghostFill, rect);
+                context.DrawRectangle(ghostPen, rect);
+            }
         }
 
         // ── Pass 1: edges (under the nodes so they don't paint over the squares) ──

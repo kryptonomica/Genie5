@@ -126,6 +126,12 @@ public class MapperViewModel : ReactiveObject
     /// <summary>Z-level the canvas should display. Editable by the UI.</summary>
     [Reactive] public int     Level        { get; set; }
 
+    /// <summary>Opacity (0–255) of the ghost rooms drawn for the floors directly
+    /// above/below the current level (Genie 4 <c>AutoMapperAlpha</c>). Read from
+    /// <c>GenieConfig.AutoMapperAlpha</c> on <see cref="Attach"/>; bound to
+    /// <c>MapCanvas.AutoMapperAlpha</c>. 0 = single-level view.</summary>
+    [Reactive] public int     AutoMapperAlpha { get; private set; } = 255;
+
     /// <summary>
     /// Scale factor for the map canvas, bound to <c>MapCanvas.Zoom</c>.
     /// Coerced to [0.4, 4.0] inside the control; we let the user push freely
@@ -604,6 +610,9 @@ public class MapperViewModel : ReactiveObject
         _engine   = core.AutoMapper;
         _zoneRepo = core.ZoneRepository;
         _commands = core.Commands;
+
+        // Ghost-floor opacity for the multi-level map view (Genie 4 parity).
+        AutoMapperAlpha = core.Config.AutoMapperAlpha;
 
         // Auto-walk runs through the same command pipeline as user input
         // (alias expansion / RT gating). The service owns the session

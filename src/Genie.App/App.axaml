@@ -390,6 +390,7 @@
                                     RenderTick="{Binding ViewModel.RenderTick}"
                                     Zoom="{Binding ViewModel.ZoomLevel}"
                                     MapBackgroundBrush="{Binding ViewModel.MapBackgroundBrush}"
+                                    AutoMapperAlpha="{Binding ViewModel.AutoMapperAlpha}"
                                     NodeClickedCommand="{Binding ViewModel.GotoNodeCommand}"
                                     EditExitCommand="{Binding ViewModel.EditExitCommand}"
                                     EditMode="{Binding ViewModel.EditMode}"
