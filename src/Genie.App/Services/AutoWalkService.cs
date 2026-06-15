@@ -120,6 +120,17 @@ public sealed class AutoWalkService : ReactiveObject
 
     private DispatcherTimer? _unfocusTimer;
 
+    // Per-step watchdog: after a move is dispatched we expect a confirmed room
+    // change within this window. If none arrives (DR rejected the verb with
+    // "Please rephrase…", a closed gate, an obstacle, or the planned path
+    // desynced past a zone boundary), the walk is stuck — emit MOVEMENT FAILED
+    // so #goto-driven scripts recover instead of hanging in their matchwait,
+    // and cancel. Generous enough to clear normal roundtime + lag; cross-zone
+    // wait steps (ferries, minutes-long) are exempt — the wait countdown owns
+    // those.
+    private DispatcherTimer? _stepTimer;
+    private const int StepTimeoutSeconds = 15;
+
     /// <summary>
     /// Id of the room we were standing in when the most recent move was
     /// dispatched — i.e. the room we expect this step to take us OUT of. The
@@ -246,6 +257,7 @@ public sealed class AutoWalkService : ReactiveObject
         IsCurrentPaused = false;
         StopUnfocusTimer();
         StopWaitCountdown();
+        StopStepWatchdog();
     }
 
     /// <summary>
@@ -260,6 +272,7 @@ public sealed class AutoWalkService : ReactiveObject
         Current.StatusMessage = $"Paused — {reason} (Resume / Cancel)";
         IsCurrentPaused = true;
         _sessionChanges.OnNext(Current);
+        StopStepWatchdog();   // not expecting a move while paused; Resume re-arms
         // Don't kill the wait countdown on pause — the boat doesn't
         // stop because the user alt-tabbed. The bar keeps ticking;
         // when they Resume the walker is just waiting for the room
@@ -319,6 +332,30 @@ public sealed class AutoWalkService : ReactiveObject
         _unfocusTimer = null;
     }
 
+    /// <summary>(Re)arm the per-step watchdog after dispatching a move. A real
+    /// room change restarts it (next step); a timeout means the move stuck.
+    /// Cross-zone wait steps are exempt — the wait countdown handles those.</summary>
+    private void StartStepWatchdog()
+    {
+        StopStepWatchdog();
+        if (IsWaitingForCrossZone) return;
+        _stepTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(StepTimeoutSeconds) };
+        _stepTimer.Tick += (_, _) =>
+        {
+            StopStepWatchdog();
+            if (Current is null || Current.State != AutoWalkState.Active) return;
+            EmitAutomapperSignal("AUTOMAPPER MOVEMENT FAILED");
+            Cancel("no room change after move (stuck)");
+        };
+        _stepTimer.Start();
+    }
+
+    private void StopStepWatchdog()
+    {
+        _stepTimer?.Stop();
+        _stepTimer = null;
+    }
+
     private void OnRoomChanged()
     {
         if (Current is null || Current.State != AutoWalkState.Active) return;
@@ -352,6 +389,7 @@ public sealed class AutoWalkService : ReactiveObject
             Current = null;
             _departureNodeId = null;
             StopUnfocusTimer();
+            StopStepWatchdog();
             // Signal automapper-driven scripts that the #goto leg finished.
             EmitAutomapperSignal("YOU HAVE ARRIVED!");
             return;
@@ -418,6 +456,10 @@ public sealed class AutoWalkService : ReactiveObject
         // confirmed room change above — one move per room — so it stays
         // responsive to the game rather than bursting the whole path.
         _core.Commands.ProcessInput(step.Verb);
+
+        // Arm the watchdog — a confirmed room change (OnRoomChanged) restarts it
+        // for the next step; no change in time means this move stuck.
+        StartStepWatchdog();
     }
 
     /// <summary>
