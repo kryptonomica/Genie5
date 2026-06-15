@@ -451,11 +451,21 @@ public sealed class AutoWalkService : ReactiveObject
         // send: this is the room the next move takes us out of.
         _departureNodeId = _mapEngine.CurrentNode?.Id;
 
+        // Map arcs may carry the Genie 4 automapper "rt" prefix
+        // (e.g. move="rt north") — a directive meaning "wait for roundtime,
+        // then move", NOT a literal command. Sending "rt north" to DR returns
+        // "Please rephrase that command." Strip it: movement is already paced
+        // one-move-per-room, and DR's typeahead queues a move issued during RT,
+        // so the real verb alone honours the intent.
+        var verb = step.Verb;
+        if (verb.StartsWith("rt ", StringComparison.OrdinalIgnoreCase))
+            verb = verb[3..].TrimStart();
+
         // Send through ProcessInput so the same alias / trigger / command
         // pipeline runs as if the user typed it. Movement is paced by the
         // confirmed room change above — one move per room — so it stays
         // responsive to the game rather than bursting the whole path.
-        _core.Commands.ProcessInput(step.Verb);
+        _core.Commands.ProcessInput(verb);
 
         // Arm the watchdog — a confirmed room change (OnRoomChanged) restarts it
         // for the next step; no change in time means this move stuck.
