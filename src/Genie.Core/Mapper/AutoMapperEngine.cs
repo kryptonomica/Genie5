@@ -691,9 +691,11 @@ public sealed class AutoMapperEngine
                 if (!req.IsMet(Skills, CharacterClass, CharacterLevel))
                     continue;  // skill-gated, character can't take this exit
 
-                // Baseline cost = 1 per room. Future: factor in wait times
-                // for boats / cross-zone connections (Phase 4 territory).
-                int edgeCost = 1;
+                // Effort-weighted cost: baseline 1 per room plus a penalty for
+                // high-RT terrain (open-water swimming, cliff/wall climbs) and
+                // scheduled waits (boats), so a longer dry route beats a brutal
+                // swim/climb shortcut on raw hop count. See EdgeCost.
+                int edgeCost = EdgeCost(exit);
                 int newDist  = currentDist + edgeCost;
 
                 if (!distances.TryGetValue(destId, out var existingDist)
@@ -772,7 +774,7 @@ public sealed class AutoMapperEngine
                 if (!ExitRequirement.Parse(exit.Requires).IsMet(Skills, CharacterClass, CharacterLevel))
                     continue;                                            // skill-gated, skip
 
-                int newDist = currentDist + 1;                          // same baseline as FindPath
+                int newDist = currentDist + EdgeCost(exit);             // same cost model as FindPath
                 if (!distances.TryGetValue(destId, out var existing) || newDist < existing)
                 {
                     distances[destId] = newDist;
@@ -781,6 +783,77 @@ public sealed class AutoMapperEngine
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Effort-weighted cost of traversing <paramref name="exit"/>, in
+    /// baseline-hop units (1 = one ordinary room step). Adds a penalty so the
+    /// weighted Dijkstra avoids high-roundtime terrain and long scheduled waits
+    /// when a faster route exists:
+    /// <list type="bullet">
+    ///   <item>Authored <see cref="MapExit.RtCost"/> (seconds) → +rt/2 hops.</item>
+    ///   <item>Otherwise the effort is inferred from the move verb
+    ///         (<see cref="MoveEffortPenalty"/>) — community maps don't populate
+    ///         RtCost, but they do encode "swim north" / "climb cliff".</item>
+    ///   <item>Scheduled <see cref="MapExit.WaitMin"/>/<see cref="MapExit.WaitMax"/>
+    ///         (boats etc.) → +wait/30 hops.</item>
+    /// </list>
+    /// A brutal one-hop swim that floods 15s of roundtime per stroke now costs
+    /// as much as ~8 dry rooms, so a nearby bridge or gate wins the route.
+    /// </summary>
+    private static int EdgeCost(MapExit exit)
+    {
+        int cost = 1;
+
+        if (exit.RtCost is int rt && rt > 0)
+            cost += (rt + 1) / 2;                       // authored seconds → hops
+        else
+            cost += MoveEffortPenalty(exit.MoveCommand); // infer from the move verb
+
+        int waitLo  = exit.WaitMin ?? 0;
+        int waitHi  = exit.WaitMax ?? waitLo;
+        int waitAvg = (waitLo + waitHi) / 2;
+        if (waitAvg > 0) cost += waitAvg / 30;          // scheduled wait → hops
+
+        return cost;
+    }
+
+    /// <summary>
+    /// Heuristic extra cost (baseline-hop units) for a move verb that implies a
+    /// high roundtime or skill check. Used when the map arc carries no authored
+    /// <see cref="MapExit.RtCost"/> (the common case for community maps).
+    /// <para>
+    /// Open-water swimming floods ~15s of "flounder" roundtime per stroke when
+    /// swimming skill is low, so it is penalised hardest. Natural-terrain climbs
+    /// (wall, cliff, steep slope, embrasure) carry real roundtime and skill
+    /// gates. Built structures — stairs, ladders, steps — climb in ~0 roundtime
+    /// and are NOT penalised, so ordinary indoor traversal is unaffected.
+    /// </para>
+    /// </summary>
+    private static int MoveEffortPenalty(string move)
+    {
+        if (string.IsNullOrWhiteSpace(move)) return 0;
+        var m = move.ToLowerInvariant();
+
+        // Open-water swimming — the worst offender (floundering RT).
+        if (m.Contains("swim")) return 8;
+
+        if (m.Contains("climb"))
+        {
+            // Built structures climb in ~0 RT — leave normal traversal alone.
+            if (m.Contains("stair") || m.Contains("ladder") ||
+                m.Contains("step")  || m.Contains("rung"))
+                return 0;
+            // Natural terrain / fortifications: real RT + skill gate.
+            return 6;
+        }
+
+        // Fording, wading, crawling, squeezing, diving: moderate effort.
+        if (m.Contains("ford") || m.Contains("wade")  || m.Contains("crawl") ||
+            m.Contains("squeeze") || m.Contains("dive"))
+            return 4;
+
+        return 0;
     }
 
     private int NextNodeId()
