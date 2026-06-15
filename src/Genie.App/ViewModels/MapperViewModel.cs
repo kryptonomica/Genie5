@@ -690,11 +690,17 @@ public class MapperViewModel : ReactiveObject
             var n = _engine?.CurrentNode;
             _audit?.Note("ROOM",
                 $"node={(n is null ? "LOST" : n.Id.ToString())} zone='{_engine?.ActiveZone?.Name}' title='{n?.Title}'");
+            MaybeFollowZoneNote(n);
         });
         _engine.MapChanged         += () => Dispatcher.UIThread.Post(Refresh);
         _engine.RoomNotFoundInZone += (serverId, title, exits) =>
         {
             _audit?.Note("MISS", $"engine can't place \"{title}\" in '{_engine?.ActiveZone?.Name}' → trying auto-load");
+            // First: a boundary stub in THIS zone with this title may name the
+            // destination zone (the map's own cross-zone link) — definitive, no
+            // fingerprint ambiguity. Fall back to the server-id/fingerprint
+            // auto-detect only if there's no such note.
+            if (TryFollowZoneNoteByTitle(title)) return;
             TryAutoLoadZoneFor(serverId, title, exits);
         };
 
@@ -717,6 +723,66 @@ public class MapperViewModel : ReactiveObject
         // and JSON-parsing every zone file is non-trivial, so don't block
         // the UI thread — auto-detect will simply skip until the index lands.
         _ = RebuildServerIdIndexAsync();
+    }
+
+    /// <summary>
+    /// Cross-zone transition via a boundary room's map note. Genie 4 maps
+    /// annotate a shared boundary room with the adjacent zone file it belongs
+    /// to, e.g. <c>note="Map7_Northern_Trade_Road.xml|NE Gate|NTR"</c>. When the
+    /// mapper lands on such a node, switch to that zone — the same room is a
+    /// full node there (with the real forward exits), so <c>$zoneid</c> advances
+    /// and a <c>$zoneid</c>-driven script (travel.cmd) can continue across the
+    /// boundary. This is the disambiguation a room shared by several maps needs:
+    /// the map data itself names the destination zone, removing the ambiguity
+    /// that title/fingerprint matching can't resolve.
+    /// </summary>
+    private void MaybeFollowZoneNote(MapNode? node) => FollowZoneNote(node);
+
+    /// <summary>Switch zones if <paramref name="node"/>'s note names an adjacent
+    /// zone file (and we're not already on it). Returns true when the note was
+    /// handled (switched, or already on the noted zone) so callers can stop.</summary>
+    private bool FollowZoneNote(MapNode? node)
+    {
+        if (node is null || string.IsNullOrEmpty(node.Notes)) return false;
+
+        foreach (var token in node.Notes.Split('|'))
+        {
+            var t = token.Trim();
+            if (!t.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var basename = Path.GetFileNameWithoutExtension(t);
+            // Already on it — handled (also stops re-switch flapping).
+            if (string.Equals(basename, SelectedZoneFile, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (!AvailableZones.Contains(basename))
+            {
+                _audit?.Note("XZONE", $"boundary note → '{basename}' but that zone isn't available");
+                return false;
+            }
+
+            _audit?.Note("XZONE", $"boundary note: switching '{SelectedZoneFile}' → '{basename}'");
+            // Setting this triggers WhenAnyValue → LoadSelectedZone → engine
+            // LoadZone + Recalculate, which re-resolves the current room in the
+            // new zone. The re-resolved node is the room's home node and won't
+            // carry a .xml note, so this fires once, not in a loop.
+            SelectedZoneFile = basename;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>MISS path: the engine couldn't place the live room in the active
+    /// zone, but the active zone may still hold a boundary STUB node with this
+    /// title whose note names the destination zone — follow it. Covers the case
+    /// where you walk through a gate normally (no graph-walk match) rather than
+    /// arriving at the boundary stub via an in-zone arc.</summary>
+    private bool TryFollowZoneNoteByTitle(string title)
+    {
+        if (_engine?.ActiveZone?.Nodes is null || string.IsNullOrWhiteSpace(title)) return false;
+        foreach (var node in _engine.ActiveZone.Nodes.Values)
+            if (string.Equals(node.Title, title, StringComparison.OrdinalIgnoreCase) && FollowZoneNote(node))
+                return true;
+        return false;
     }
 
     /// <summary>
