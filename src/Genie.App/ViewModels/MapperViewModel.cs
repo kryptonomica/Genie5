@@ -1229,6 +1229,11 @@ public class MapperViewModel : ReactiveObject
         if (target is null)
         {
             LoadStatus = $"#goto: no room matching '{arg}' in zone '{_engine.ActiveZone.Name}'.";
+            // Signal automapper-driven scripts (travel.cmd, …) that this #goto
+            // can't be resolved — they matchwait on "DESTINATION NOT FOUND" and
+            // would otherwise hang. Common when a script fires a roomid for a
+            // zone that isn't the currently loaded one.
+            AutoWalk?.EmitAutomapperSignal("DESTINATION NOT FOUND");
             return;
         }
         GotoNode(target);

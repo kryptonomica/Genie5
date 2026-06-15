@@ -164,6 +164,18 @@ public sealed class AutoWalkService : ReactiveObject
     }
 
     /// <summary>
+    /// Emit a Genie 4 automapper protocol line into the script match pipeline.
+    /// Scripts that drive movement with <c>#goto</c> (travel.cmd, hunt.cmd, …)
+    /// fire the goto and then <c>matchwait</c> on these exact lines —
+    /// <c>YOU HAVE ARRIVED!</c> on success, <c>AUTOMAPPER MOVEMENT FAILED</c> /
+    /// <c>DESTINATION NOT FOUND</c> on failure. Without these the script hangs
+    /// in its matchwait forever (the walk completes but nothing signals it).
+    /// Fed through OnGameLine so <c>matchre</c>/<c>matchwait</c> see it exactly
+    /// as if the server had emitted it.
+    /// </summary>
+    public void EmitAutomapperSignal(string line) => _core.Scripts.OnGameLine(line);
+
+    /// <summary>
     /// Plan a route from origin to destination and begin walking. Returns
     /// false if there's already an active walk, no path exists, or the
     /// destination is the current room.
@@ -181,6 +193,7 @@ public sealed class AutoWalkService : ReactiveObject
         if (origin.Id == destination.Id)
         {
             FlashStatus("Already here.");
+            EmitAutomapperSignal("YOU HAVE ARRIVED!");   // #goto to the current room
             return false;
         }
 
@@ -188,11 +201,13 @@ public sealed class AutoWalkService : ReactiveObject
         if (moves is null)
         {
             FlashStatus($"No path to '{destination.Title}'.");
+            EmitAutomapperSignal("DESTINATION NOT FOUND");
             return false;
         }
         if (moves.Count == 0)
         {
             FlashStatus("Already here.");
+            EmitAutomapperSignal("YOU HAVE ARRIVED!");   // #goto to the current room
             return false;
         }
 
@@ -333,6 +348,8 @@ public sealed class AutoWalkService : ReactiveObject
             Current = null;
             _departureNodeId = null;
             StopUnfocusTimer();
+            // Signal automapper-driven scripts that the #goto leg finished.
+            EmitAutomapperSignal("YOU HAVE ARRIVED!");
             return;
         }
 
@@ -348,6 +365,7 @@ public sealed class AutoWalkService : ReactiveObject
         {
             // Plan exhausted but we didn't match destination — must have
             // wandered off. Cancel rather than send arbitrary commands.
+            EmitAutomapperSignal("AUTOMAPPER MOVEMENT FAILED");
             Cancel("walked past destination");
             return;
         }
