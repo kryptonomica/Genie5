@@ -8,6 +8,18 @@
         CanResize="False"
         WindowStartupLocation="CenterOwner">
 
+  <Window.Styles>
+    <!-- Section card — matches the read-only header card so each bucket
+         (Skill / Environment / Guild / Notes) reads as a distinct group. -->
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1a1a1a"/>
+      <Setter Property="BorderBrush" Value="#333"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="12,10"/>
+    </Style>
+  </Window.Styles>
+
   <Grid RowDefinitions="Auto,*,Auto" Margin="16">
 
     <!-- ── Context row (read-only header) ─────────────────────────────── -->
@@ -39,6 +51,7 @@
       <StackPanel Spacing="16">
 
         <!-- ── SKILL REQUIREMENTS ─────────────────────────────────────── -->
+        <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Text="SKILL REQUIREMENTS" Foreground="#7a92a8" FontSize="10"
                      FontWeight="SemiBold"/>
@@ -84,8 +97,10 @@
                   FontSize="11" Padding="8,3"
                   ToolTip.Tip="Add another (skill, min-rank) requirement. ANDed against the previous rows."/>
         </StackPanel>
+        </Border>
 
         <!-- ── ENVIRONMENT ────────────────────────────────────────────── -->
+        <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Text="ENVIRONMENT" Foreground="#7a92a8" FontSize="10"
                      FontWeight="SemiBold"/>
@@ -135,8 +150,10 @@
           <TextBlock Text="Use Wait min/max for boats and scheduled departures. The pathfinder averages the two."
                      Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0"/>
         </StackPanel>
+        </Border>
 
         <!-- ── GUILD ──────────────────────────────────────────────────── -->
+        <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Text="GUILD" Foreground="#7a92a8" FontSize="10"
                      FontWeight="SemiBold"/>
@@ -162,8 +179,10 @@
                            HorizontalAlignment="Stretch"/>
           </Grid>
         </StackPanel>
+        </Border>
 
         <!-- ── NOTES section ──────────────────────────────────────────── -->
+        <Border Classes="card">
         <StackPanel Spacing="4">
           <TextBlock Text="NOTES" Foreground="#7a92a8" FontSize="10"
                      FontWeight="SemiBold" Margin="0,0,0,4"/>
@@ -174,6 +193,7 @@
           <TextBlock Text="e.g. &quot;rope needed for ascent&quot; · &quot;only available at night&quot; · &quot;requires beggar disguise&quot;"
                      Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0"/>
         </StackPanel>
+        </Border>
 
       </StackPanel>
     </ScrollViewer>
