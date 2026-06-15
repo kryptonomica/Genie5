@@ -80,9 +80,18 @@ public sealed class CommandEngine
     /// (they have their own echo semantics; overriding there could mask which
     /// alias actually ran).
     /// </summary>
+    /// <summary>Observe the top-level command issued (user / script / trigger),
+    /// before it fans out into aliases/separators. Wired to the Live Audit so a
+    /// diagnostic log shows exactly what a script fired (e.g. <c>#goto 171</c>).</summary>
+    public Action<string>? CommandObserved { get; set; }
+
     public void ProcessInput(string input, string? echoOverride = null)
     {
         if (string.IsNullOrWhiteSpace(input)) return;
+
+        // Live Audit: surface the top-level command only (depth 0) — recursive
+        // alias/separator expansion below would otherwise flood the log.
+        if (_processInputDepth == 0) CommandObserved?.Invoke(input);
 
         // Re-entrancy guard (#40): abort a runaway alias/trigger recursion
         // before it StackOverflows and silently kills the client.

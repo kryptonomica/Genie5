@@ -381,6 +381,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             System.IO.Path.Combine(Config.LogDir, "live_audit.log"),
             RawXmlStream, GameEvents,
             name => Scripts.Globals.TryGetValue(name, out var v) ? v : "");
+        // Log every top-level command (incl. script-fired #goto) to the audit.
+        Commands.CommandObserved = cmd => _liveAudit.Note("CMD", cmd);
 
         // ── Game event routing ─────────────────────────────────────────────────
         // Note: Scripts.OnGameLine already calls Extensions.DispatchGameLine internally —
