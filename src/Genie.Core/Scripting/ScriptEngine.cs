@@ -1535,7 +1535,9 @@ public sealed class ScriptEngine
             // forwards them to the host (→ CommandEngine → MapperGoto → the
             // App's mapper walk). Don't handle them here.
             case "#mapper":
-                // No-op for now; mapper reset is informational only.
+                // Forward to the command engine so a script-issued #mapper reset
+                // reaches the same handler as a typed one (was a no-op stub).
+                _handleHashCmd?.Invoke(text);
                 return;
             case "#parse":
                 // Inject fake game text — feeds match/action/waitfor pipelines

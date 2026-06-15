@@ -710,6 +710,14 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             MapperGotoRequested.Invoke(args);
     }
 
+    void ICommandHost.MapperReset()
+    {
+        // The AutoMapper engine is shared with the App's MapperViewModel, so a
+        // direct re-resolve here repaints the UI + refreshes $roomid/$zoneid via
+        // the existing CurrentNodeChanged subscription — no App round-trip.
+        AutoMapper.Reset();
+    }
+
     /// <summary>
     /// Raised by <c>#goto</c> / <c>#go2</c> from the command bar or a script.
     /// Carries the raw destination argument (numeric id, note label, or title

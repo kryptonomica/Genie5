@@ -170,6 +170,23 @@ public sealed class AutoMapperEngine
         OnStateChanged();
     }
 
+    /// <summary>
+    /// Re-resolve the current room from scratch (<c>#mapper reset</c>, Genie 3/4
+    /// parity). Clears <see cref="CurrentNode"/> FIRST so the graph-walk /
+    /// reverse-arc / fingerprint tiers can't bias back to a wrong node, then
+    /// re-runs the resolver against the latest room data — letting an ambiguous
+    /// same-title/description room re-lock by server id or a clean fingerprint
+    /// match without the player having to move. Unlike Genie 4 we do NOT clear
+    /// the loaded map (the mapper is lookup-only by default); only the location
+    /// is re-resolved. Fires <see cref="CurrentNodeChanged"/> via the re-resolve
+    /// so the UI + script globals refresh.
+    /// </summary>
+    public void Reset()
+    {
+        CurrentNode = null;
+        Recalculate();
+    }
+
     public MapZone NewZone(string name)
     {
         var zone = new MapZone { Name = name };

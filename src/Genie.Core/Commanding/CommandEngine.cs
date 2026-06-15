@@ -256,6 +256,21 @@ public sealed class CommandEngine
                 else
                     _host.Echo("Usage: #goto <room id | label | title>");
                 break;
+            case "mapper":
+            {
+                // #mapper reset — re-resolve the current room (Genie 3/4 parity).
+                // Unknown/empty subcommands echo usage rather than reaching the
+                // game, so a stray "#mapper foo" never leaks to the server.
+                var sub = parts.Count > 1 ? parts[1].ToLowerInvariant() : "";
+                if (sub == "reset")
+                {
+                    _host.Echo("[mapper] Re-resolving current room…");
+                    _host.MapperReset();
+                }
+                else
+                    _host.Echo("Usage: #mapper reset");
+                break;
+            }
             // Genie 4 parity (#connect / #reconnect / #lichconnect). Args are
             // already $variable-expanded by ProcessInput, so a login script's
             // `#connect $acct $pw Char DR` arrives literal. The App owns the

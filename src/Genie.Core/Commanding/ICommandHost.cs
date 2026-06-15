@@ -149,6 +149,14 @@ public interface ICommandHost
     void MapperGoto(string args);
 
     /// <summary>
+    /// Re-resolve the mapper's current room from scratch (<c>#mapper reset</c>,
+    /// Genie 3/4 parity). Used when the mapper loses track — notably across
+    /// rooms that share a description — to re-lock location without the player
+    /// having to move. Does not alter the loaded map.
+    /// </summary>
+    void MapperReset();
+
+    /// <summary>
     /// Play a sound effect by name (trigger/highlight SFX and the <c>#play</c>
     /// family). The host applies the <c>PlaySounds</c> gate + SoundDir/.wav
     /// resolution and dispatches to the platform audio backend; the Console
