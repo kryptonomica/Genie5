@@ -62,7 +62,9 @@ public sealed class TriggerEngineFinal
             if (!string.IsNullOrEmpty(trigger.SoundFile))
                 _host?.PlaySound(trigger.SoundFile);
             var expandedAction = ExpandAction(trigger.Action, match);
-            _commandEngine?.ProcessInput(expandedAction);
+            // Automated (game-text-driven) — not interactive, so a #var/#tvar in
+            // the action sets silently instead of echoing "Variable set:".
+            _commandEngine?.ProcessInput(expandedAction, interactive: false);
         }
     }
 

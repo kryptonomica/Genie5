@@ -32,6 +32,17 @@ public sealed class CommandEngine
     // legitimate alias/trigger nesting (which is single-digit) yet far below
     // the frame count that would overflow.
     private int _processInputDepth;
+
+    /// <summary>
+    /// Whether the current outermost <see cref="ProcessInput"/> call was
+    /// interactive (the user typed it) vs automated (fired by a trigger or
+    /// script). Set once at depth 0; nested alias/separator expansions inherit
+    /// it. Used by <c>#var</c> / <c>#tvar</c> to print a "Variable set:"
+    /// confirmation only for a directly-typed command — Genie 4 parity, where
+    /// automation sets variables silently (community report: trigger-fired
+    /// `#var RP OFF` spamming "Variable set: RP=OFF").
+    /// </summary>
+    private bool _interactive = true;
     private const int MaxProcessInputDepth = 100;
 
     // ── Engines wired after construction ─────────────────────────────────────
@@ -85,13 +96,19 @@ public sealed class CommandEngine
     /// diagnostic log shows exactly what a script fired (e.g. <c>#goto 171</c>).</summary>
     public Action<string>? CommandObserved { get; set; }
 
-    public void ProcessInput(string input, string? echoOverride = null)
+    public void ProcessInput(string input, string? echoOverride = null, bool interactive = true)
     {
         if (string.IsNullOrWhiteSpace(input)) return;
 
         // Live Audit: surface the top-level command only (depth 0) — recursive
-        // alias/separator expansion below would otherwise flood the log.
-        if (_processInputDepth == 0) CommandObserved?.Invoke(input);
+        // alias/separator expansion below would otherwise flood the log. The
+        // outermost call also fixes whether this whole expansion is interactive
+        // (user typed it) or automated (trigger/script); nested calls inherit it.
+        if (_processInputDepth == 0)
+        {
+            CommandObserved?.Invoke(input);
+            _interactive = interactive;
+        }
 
         // Re-entrancy guard (#40): abort a runaway alias/trigger recursion
         // before it StackOverflows and silently kills the client.
@@ -379,7 +396,8 @@ public sealed class CommandEngine
                     var tname  = parts[1];
                     var tvalue = string.Join(" ", parts.Skip(2));
                     _host.SetGlobalVariable(tname, tvalue);
-                    _host.Echo($"Global variable set: {tname}={tvalue}");
+                    if (_processInputDepth == 1 && _interactive)
+                        _host.Echo($"Global variable set: {tname}={tvalue}");
                 }
                 else if (parts.Count == 2)
                 {
@@ -775,14 +793,16 @@ public sealed class CommandEngine
             var name  = parts[2];
             var value = string.Join(" ", parts.Skip(3));
             Variables.Store.Set(name, value);
-            _host.Echo($"Variable set: {name}={value}");
+            if (_processInputDepth == 1 && _interactive)
+                _host.Echo($"Variable set: {name}={value}");
             return;
         }
 
         var implicitName  = parts[1];
         var implicitValue = string.Join(" ", parts.Skip(2));
         Variables.Store.Set(implicitName, implicitValue);
-        _host.Echo($"Variable set: {implicitName}={implicitValue}");
+        if (_processInputDepth == 1 && _interactive)
+            _host.Echo($"Variable set: {implicitName}={implicitValue}");
     }
 
     private void ListVars(string? filter)

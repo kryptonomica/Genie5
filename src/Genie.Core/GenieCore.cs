@@ -336,7 +336,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                                _ = _connection.SendCommandAsync(cmd);
                            },
             echo:          msg => ScriptOutputLine?.Invoke(msg),
-            handleHashCmd: cmd => Commands.ProcessInput(cmd));
+            handleHashCmd: cmd => Commands.ProcessInput(cmd, interactive: false));
 
         // Live config for the runtime script settings (ScriptTimeout,
         // MaxGoSubDepth, AbortDupeScript, ScriptExtension).
