@@ -1140,7 +1140,21 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleVitalsCommand   = MakeToggleCommand("vitals",    v => VitalsVisible   = v);
         ToggleRoomCommand     = MakeToggleCommand("room",      v => RoomVisible     = v);
         ToggleBackpackCommand = MakeToggleCommand("backpack",  v => BackpackVisible = v);
-        ToggleMapperCommand   = MakeToggleCommand("mapper",    v => MapperVisible   = v);
+        // Mapper gets a bespoke toggle: when shown and the user hasn't pinned
+        // its placement via a default layout, open it as a FLOATING window
+        // (its natural V5 home — matches the startup auto-float) rather than
+        // docked at the centre-bottom. A user with a saved default layout keeps
+        // their docked placement.
+        ToggleMapperCommand   = ReactiveCommand.Create(() =>
+        {
+            if (DockFactory is not GenieDockFactory factory) return;
+            var newVisible = !factory.IsToolVisible("mapper");
+            if (newVisible && !HasUserDefinedDefaultLayout())
+                factory.ShowToolFloating("mapper");
+            else
+                factory.SetToolVisibility("mapper", newVisible);
+            MapperVisible = newVisible;
+        });
         ToggleExperienceCommand = MakeToggleCommand("experience", v => ExperienceVisible = v);
         ToggleLogonsCommand   = MakeToggleCommand("logons",    v => LogonsVisible   = v);
         ToggleTalkCommand     = MakeToggleCommand("talk",      v => TalkVisible     = v);

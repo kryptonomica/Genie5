@@ -1090,6 +1090,25 @@ public class GenieDockFactory : Factory
     }
 
     /// <summary>
+    /// Show a registered tool as a floating window when it isn't already in the
+    /// tree. Unlike <see cref="FloatTool"/> (which floats a tool that's already
+    /// docked), this is the "open it floated" path for a closed tool — it inits
+    /// the registered dockable against the root and floats it. Idempotent: if
+    /// the tool is already visible anywhere (docked or floating) it's a no-op,
+    /// which also avoids spawning a duplicate instance.
+    /// </summary>
+    public void ShowToolFloating(string id)
+    {
+        if (_root is null) return;
+        if (FindByIdInTree(_root, id) is not null) return;   // already shown
+        if (!_tools.TryGetValue(id, out var entry)) return;
+
+        var dockable = entry.Dockable;
+        InitDockable(dockable, _root);
+        FloatDockable(dockable);
+    }
+
+    /// <summary>
     /// Record the dockable's current parent + index in
     /// <see cref="_lastKnownPositions"/>, along with the grandparent + parent
     /// alignment / proportion so we can rebuild the parent ToolDock if it
