@@ -42,8 +42,17 @@ public sealed class EditExitViewModel : ReactiveObject
     /// exact-name match would silently ignore).</summary>
     public IReadOnlyList<string> AvailableSkills => Genie.Core.Skills.DrSkills.All;
 
+    /// <summary>DR player guilds backing the Guild dropdown (Thief, Trader,
+    /// Ranger, Moon Mage, …) for guild-restricted routes.</summary>
+    public IReadOnlyList<string> AvailableGuilds => Genie.Core.Skills.DrGuilds.All;
+
+    /// <summary>Suggested Environment values (Bridge, Boat, Rope, …) backing
+    /// the Environment dropdown — free-text, so a custom value is allowed.</summary>
+    public IReadOnlyList<string> AvailableEnvironments => Genie.Core.Mapper.ExitEnvironments.All;
+
     [Reactive] public string RequiredClass { get; set; } = "";
     [Reactive] public int?   MinLevel      { get; set; }
+    [Reactive] public string Environment   { get; set; } = "";
     [Reactive] public int?   RtCost        { get; set; }
     [Reactive] public int?   WaitMin       { get; set; }
     [Reactive] public int?   WaitMax       { get; set; }
@@ -73,6 +82,7 @@ public sealed class EditExitViewModel : ReactiveObject
             SkillRequirements.Add(new SkillRequirementRow { Skill = skill, MinRank = min });
         RequiredClass = req.RequiredClass ?? "";
         MinLevel      = req.MinLevel;
+        Environment   = exit.Environment;
         RtCost        = exit.RtCost;
         WaitMin       = exit.WaitMin;
         WaitMax       = exit.WaitMax;
@@ -108,11 +118,12 @@ public sealed class EditExitViewModel : ReactiveObject
         if (MinLevel.HasValue && MinLevel.Value > 0)
             pieces.Add($"level>={MinLevel.Value}");
 
-        _exit.Requires = string.Join(", ", pieces);
-        _exit.RtCost   = RtCost;
-        _exit.WaitMin  = WaitMin;
-        _exit.WaitMax  = WaitMax;
-        _exit.Notes    = (Notes ?? "").Trim();
+        _exit.Requires    = string.Join(", ", pieces);
+        _exit.Environment = (Environment ?? "").Trim();
+        _exit.RtCost      = RtCost;
+        _exit.WaitMin     = WaitMin;
+        _exit.WaitMax     = WaitMax;
+        _exit.Notes       = (Notes ?? "").Trim();
 
         return true;
     }

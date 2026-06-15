@@ -46,6 +46,17 @@ public sealed class MapExit
     public int? WaitMax { get; set; }
 
     /// <summary>
+    /// Physical aid / transit kind this exit uses — "Bridge", "Boat", "Rope",
+    /// "Ladder", "Ford", "Climb", etc. (see
+    /// <see cref="ExitEnvironments"/>). Descriptive metadata that groups the
+    /// timing fields (<see cref="RtCost"/> / <see cref="WaitMin"/>) under a
+    /// recognisable label in the Edit Exit dialog and lets the community
+    /// classify how a link is traversed. Empty = an ordinary walked step.
+    /// Round-tripped as the <c>env</c> attribute; old Genie 4 clients ignore it.
+    /// </summary>
+    public string Environment { get; set; } = string.Empty;
+
+    /// <summary>
     /// Free-form notes from the community Maps repo: prerequisites the
     /// pathfinder can't model ("rope needed", "only at night", etc.).
     /// Surfaces as a tooltip on the Less Obvious Paths button.

@@ -127,6 +127,8 @@ public static class Genie4MapExporter
                 writer.WriteAttributeString("wait_min", exit.WaitMin.Value.ToString());
             if (exit.WaitMax.HasValue)
                 writer.WriteAttributeString("wait_max", exit.WaitMax.Value.ToString());
+            if (!string.IsNullOrEmpty(exit.Environment))
+                writer.WriteAttributeString("env", exit.Environment);
             if (!string.IsNullOrEmpty(exit.Notes))
                 writer.WriteAttributeString("notes", exit.Notes);
             writer.WriteEndElement();

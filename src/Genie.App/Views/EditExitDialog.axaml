@@ -4,7 +4,7 @@
         x:Class="Genie.App.Views.EditExitDialog"
         x:DataType="vm:EditExitViewModel"
         Title="Edit Exit"
-        Width="560" Height="620"
+        Width="560" Height="660"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
 
@@ -36,12 +36,14 @@
     <!-- ── Editable fields ───────────────────────────────────────────── -->
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Spacing="14">
+      <StackPanel Spacing="16">
 
-        <!-- ── REQUIREMENTS section ───────────────────────────────────── -->
+        <!-- ── SKILL REQUIREMENTS ─────────────────────────────────────── -->
         <StackPanel Spacing="4">
-          <TextBlock Text="REQUIREMENTS" Foreground="#7a92a8" FontSize="10"
-                     FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock Text="SKILL REQUIREMENTS" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold"/>
+          <TextBlock Text="Trained skill ranks needed to take this exit."
+                     Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,2"/>
 
           <!-- Skill rows -->
           <ItemsControl ItemsSource="{Binding SkillRequirements}">
@@ -81,31 +83,25 @@
                   HorizontalAlignment="Left" Margin="0,4,0,0"
                   FontSize="11" Padding="8,3"
                   ToolTip.Tip="Add another (skill, min-rank) requirement. ANDed against the previous rows."/>
-
-          <Separator Margin="0,8,0,4"/>
-
-          <Grid ColumnDefinitions="100,*">
-            <TextBlock Grid.Column="0" Text="Required class:" VerticalAlignment="Center"
-                       Foreground="#888" FontSize="12"/>
-            <TextBox Grid.Column="1" Text="{Binding RequiredClass}"
-                     Watermark="(any) — or e.g. Thief, Empath, Moon Mage"
-                     FontSize="12"/>
-          </Grid>
-
-          <Grid ColumnDefinitions="100,*">
-            <TextBlock Grid.Column="0" Text="Min level:" VerticalAlignment="Center"
-                       Foreground="#888" FontSize="12"/>
-            <NumericUpDown Grid.Column="1" Value="{Binding MinLevel}"
-                           Minimum="0" Maximum="200" Increment="1"
-                           FormatString="0" FontSize="12"
-                           HorizontalAlignment="Stretch"/>
-          </Grid>
         </StackPanel>
 
-        <!-- ── TIMING section ─────────────────────────────────────────── -->
+        <!-- ── ENVIRONMENT ────────────────────────────────────────────── -->
         <StackPanel Spacing="4">
-          <TextBlock Text="TIMING" Foreground="#7a92a8" FontSize="10"
-                     FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock Text="ENVIRONMENT" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold"/>
+          <TextBlock Text="How the exit is traversed — ropes, bridges, boats — and its time cost."
+                     Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,2"/>
+          <Grid ColumnDefinitions="100,*">
+            <TextBlock Grid.Column="0" Text="Type:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <AutoCompleteBox Grid.Column="1" Text="{Binding Environment, Mode=TwoWay}"
+                             ItemsSource="{Binding AvailableEnvironments}"
+                             FilterMode="Contains"
+                             MinimumPrefixLength="0"
+                             Watermark="(none) — or Bridge, Boat, Rope, Ladder, Ford…"
+                             FontSize="12"
+                             ToolTip.Tip="What physical aid or transit this exit uses. Free-text — a value not in the list is allowed."/>
+          </Grid>
           <Grid ColumnDefinitions="100,*,40">
             <TextBlock Grid.Column="0" Text="RT cost:" VerticalAlignment="Center"
                        Foreground="#888" FontSize="12"/>
@@ -138,6 +134,33 @@
           </Grid>
           <TextBlock Text="Use Wait min/max for boats and scheduled departures. The pathfinder averages the two."
                      Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- ── GUILD ──────────────────────────────────────────────────── -->
+        <StackPanel Spacing="4">
+          <TextBlock Text="GUILD" Foreground="#7a92a8" FontSize="10"
+                     FontWeight="SemiBold"/>
+          <TextBlock Text="Guild-restricted routes — Trader caravans, Thief passages, Ranger trails, Moon Mage portals."
+                     Foreground="#668" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,2"/>
+          <Grid ColumnDefinitions="100,*">
+            <TextBlock Grid.Column="0" Text="Guild:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <AutoCompleteBox Grid.Column="1" Text="{Binding RequiredClass, Mode=TwoWay}"
+                             ItemsSource="{Binding AvailableGuilds}"
+                             FilterMode="Contains"
+                             MinimumPrefixLength="0"
+                             Watermark="(any) — or Thief, Trader, Ranger, Moon Mage…"
+                             FontSize="12"
+                             ToolTip.Tip="Restrict this route to a single guild. Leave blank for no guild restriction."/>
+          </Grid>
+          <Grid ColumnDefinitions="100,*">
+            <TextBlock Grid.Column="0" Text="Min level:" VerticalAlignment="Center"
+                       Foreground="#888" FontSize="12"/>
+            <NumericUpDown Grid.Column="1" Value="{Binding MinLevel}"
+                           Minimum="0" Maximum="200" Increment="1"
+                           FormatString="0" FontSize="12"
+                           HorizontalAlignment="Stretch"/>
+          </Grid>
         </StackPanel>
 
         <!-- ── NOTES section ──────────────────────────────────────────── -->

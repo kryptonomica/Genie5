@@ -125,6 +125,7 @@ public static class Genie4MapImporter
                 var rtStr       = arcEl.GetAttribute("rt");
                 var waitMinStr  = arcEl.GetAttribute("wait_min");
                 var waitMaxStr  = arcEl.GetAttribute("wait_max");
+                var envStr      = arcEl.GetAttribute("env");
                 var notesStr    = arcEl.GetAttribute("notes");
 
                 var dir = DirectionHelper.Parse(exitStr);
@@ -142,6 +143,7 @@ public static class Genie4MapImporter
                     RtCost        = int.TryParse(rtStr,      out var rt)      ? rt      : null,
                     WaitMin       = int.TryParse(waitMinStr, out var waitMin) ? waitMin : null,
                     WaitMax       = int.TryParse(waitMaxStr, out var waitMax) ? waitMax : null,
+                    Environment   = envStr?.Trim() ?? string.Empty,
                     Notes         = notesStr?.Trim() ?? string.Empty,
                 });
             }
