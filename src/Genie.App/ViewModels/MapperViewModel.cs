@@ -680,10 +680,23 @@ public class MapperViewModel : ReactiveObject
 
         // Dispatch to UI thread — engine events can fire from the parser
         // observable's thread.
-        _engine.CurrentNodeChanged += () => Dispatcher.UIThread.Post(Refresh);
+        _engine.CurrentNodeChanged += () => Dispatcher.UIThread.Post(() =>
+        {
+            Refresh();
+            // Live Audit: log the mapper's resolved room/zone on EVERY room
+            // change — including "(**)" rooms that carry no server id and so
+            // produce no NAV line. This is what reveals a cross-zone stall
+            // (the mapper staying on the old zone past a boundary).
+            var n = _engine?.CurrentNode;
+            _audit?.Note("ROOM",
+                $"node={(n is null ? "LOST" : n.Id.ToString())} zone='{_engine?.ActiveZone?.Name}' title='{n?.Title}'");
+        });
         _engine.MapChanged         += () => Dispatcher.UIThread.Post(Refresh);
-        _engine.RoomNotFoundInZone += (serverId, title, exits)
-            => TryAutoLoadZoneFor(serverId, title, exits);
+        _engine.RoomNotFoundInZone += (serverId, title, exits) =>
+        {
+            _audit?.Note("MISS", $"engine can't place \"{title}\" in '{_engine?.ActiveZone?.Name}' → trying auto-load");
+            TryAutoLoadZoneFor(serverId, title, exits);
+        };
 
         // Toggle binding → engine.IsEnabled. WhenAnyValue emits initial value
         // on subscribe; the engine starts disabled so we mirror that here.

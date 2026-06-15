@@ -173,7 +173,11 @@ public sealed class AutoWalkService : ReactiveObject
     /// Fed through OnGameLine so <c>matchre</c>/<c>matchwait</c> see it exactly
     /// as if the server had emitted it.
     /// </summary>
-    public void EmitAutomapperSignal(string line) => _core.Scripts.OnGameLine(line);
+    public void EmitAutomapperSignal(string line)
+    {
+        _core.Audit.Note("GOTO", line);   // visible in the Live Audit log
+        _core.Scripts.OnGameLine(line);
+    }
 
     /// <summary>
     /// Plan a route from origin to destination and begin walking. Returns
