@@ -701,7 +701,14 @@ public sealed class DrXmlParser : IDisposable
 
             // ── Room navigation ──────────────────────────────────────────────
             case "nav":
-                _events.OnNext(new NavEvent(r["rm"] ?? ""));
+                // Modern DR sends a BARE <nav/>; the server room id arrives via
+                // the room streamWindow subtitle "(NNNNN)" (handled in the
+                // streamwindow case). Only emit a NavEvent when rm is actually
+                // present — an empty one would fire an early fingerprint
+                // re-resolve against the not-yet-updated room title, transiently
+                // landing on the wrong node before the subtitle uid corrects it.
+                if (r["rm"] is { Length: > 0 } navRm)
+                    _events.OnNext(new NavEvent(navRm));
                 break;
 
             // ── Inventory container declaration ──────────────────────────────
