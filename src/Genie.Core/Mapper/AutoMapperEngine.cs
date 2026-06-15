@@ -61,6 +61,18 @@ public sealed class AutoMapperEngine
     private string    _pendingMoveCommand = string.Empty;
 
     public MapNode?  CurrentNode  { get; private set; }
+
+    /// <summary>
+    /// The live server room id (<c>&lt;nav rm="…"/&gt;</c> / streamWindow uid)
+    /// for the room the player is currently in, or empty if unknown (WIZ mode,
+    /// pre-login). Unlike <see cref="CurrentNode"/>.Id — a mapper node that can
+    /// collide across identical-looking rooms (Lava Field, marsh) and stay
+    /// pinned — this changes on every physical room the server reports. The
+    /// auto-walker uses it as a movement signal so it can pace through
+    /// same-description areas the map can't tell apart.
+    /// </summary>
+    public string CurrentServerRoomId => _state?.ServerRoomId ?? string.Empty;
+
     public MapZone   ActiveZone   => _zone;
     public bool      IsEnabled    { get; set; } = false;
 

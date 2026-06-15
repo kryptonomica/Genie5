@@ -149,6 +149,18 @@ public sealed class AutoWalkService : ReactiveObject
     private int? _departureNodeId;
 
     /// <summary>
+    /// The server room uid (<c>&lt;nav rm="…"/&gt;</c>) we were standing in when
+    /// the most recent move was dispatched. Backstop pacing signal for
+    /// same-description areas (Lava Field, marsh): when the map pins several
+    /// identical rooms to one node, <see cref="_departureNodeId"/> never changes
+    /// and the step pump would stall the full 15s watchdog on every room. The
+    /// server uid changes on every physical room, so a uid change confirms the
+    /// move even when the node id can't. Empty in WIZ mode / pre-nav, where we
+    /// fall back to node-only pacing.
+    /// </summary>
+    private string? _departureServerRoomId;
+
+    /// <summary>
     /// Cancel the current walk. Wired to the Cancel button in the indicator
     /// strip; also fires from Esc handler in MainWindow code-behind.
     /// </summary>
@@ -233,7 +245,8 @@ public sealed class AutoWalkService : ReactiveObject
         IsCurrentPaused = false;
         // Seed the departure room so the first dispatched move is gated
         // against the origin, not against a stale id from a prior walk (#69).
-        _departureNodeId = origin.Id;
+        _departureNodeId       = origin.Id;
+        _departureServerRoomId = _mapEngine.CurrentServerRoomId;
 
         // Kick off the first step. Subsequent steps fire from OnRoomChanged
         // when the player arrives at the expected next room.
@@ -254,6 +267,7 @@ public sealed class AutoWalkService : ReactiveObject
         _sessionChanges.OnNext(Current);
         Current = null;
         _departureNodeId = null;
+        _departureServerRoomId = null;
         IsCurrentPaused = false;
         StopUnfocusTimer();
         StopWaitCountdown();
@@ -370,7 +384,21 @@ public sealed class AutoWalkService : ReactiveObject
         // moved; everything else is a repeat/partial fire and must NOT pump
         // another move (doing so floods DR's typeahead buffer and stalls).
         if (node is null) return;
-        if (_departureNodeId is { } fromId && node.Id == fromId) return;
+
+        // Confirm a REAL move before advancing. Normally the mapper node id
+        // changing is the signal. But in same-description areas (Lava Field,
+        // marsh) the map pins many identical rooms to one node, so node.Id
+        // stays put and the walk would stall the full 15s watchdog per room.
+        // The live server room uid changes on every physical room the server
+        // reports, so a uid change rescues pacing when the node id can't.
+        // Either signal counts as "we moved"; if both are unchanged it's a
+        // repeat/partial CurrentNodeChanged fire and we must not pump a move.
+        var nodeUnchanged = _departureNodeId is { } fromId && node.Id == fromId;
+        var srvUid        = _mapEngine.CurrentServerRoomId;
+        var uidChanged    = !string.IsNullOrEmpty(srvUid)
+                            && !string.IsNullOrEmpty(_departureServerRoomId)
+                            && !string.Equals(srvUid, _departureServerRoomId, StringComparison.OrdinalIgnoreCase);
+        if (nodeUnchanged && !uidChanged) return;
 
         // Any room-change implicitly clears a pending cross-zone wait —
         // either we arrived at the target zone, or we landed somewhere
@@ -449,7 +477,8 @@ public sealed class AutoWalkService : ReactiveObject
         // can tell a real arrival from the repeat/partial CurrentNodeChanged
         // fires DR emits for a single transition (#69). Captured BEFORE the
         // send: this is the room the next move takes us out of.
-        _departureNodeId = _mapEngine.CurrentNode?.Id;
+        _departureNodeId       = _mapEngine.CurrentNode?.Id;
+        _departureServerRoomId = _mapEngine.CurrentServerRoomId;
 
         // Map arcs may carry the Genie 4 automapper "rt" prefix
         // (e.g. move="rt north") — a directive meaning "wait for roundtime,
