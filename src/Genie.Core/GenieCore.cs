@@ -145,6 +145,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     // ── Scripting ──────────────────────────────────────────────────────────────
     private readonly TypeAheadSession _typeAhead;
     private readonly ScriptGlobalsSync _globalsSync;
+    private readonly Diagnostics.LiveAudit _liveAudit;
 
     /// <summary>.cmd script runner. Includes built-in EXP and info trackers.</summary>
     public ScriptEngine Scripts { get; }
@@ -371,6 +372,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // write is safe against script-thread reads.
         SyncMapperGlobals();
         AutoMapper.CurrentNodeChanged += SyncMapperGlobals;
+
+        // ── Live Audit (developer troubleshooting) ────────────────────────────
+        // Off until `#audit on`. Tees raw XML + parsed events + live zone/room
+        // into <LogDir>/live_audit.log so a collaborator can follow the session
+        // without the user pasting XML/screenshots.
+        _liveAudit = new Diagnostics.LiveAudit(
+            System.IO.Path.Combine(Config.LogDir, "live_audit.log"),
+            RawXmlStream, GameEvents,
+            name => Scripts.Globals.TryGetValue(name, out var v) ? v : "");
 
         // ── Game event routing ─────────────────────────────────────────────────
         // Note: Scripts.OnGameLine already calls Extensions.DispatchGameLine internally —
@@ -890,8 +900,24 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         Scripts.Globals["roomnote"] = node?.Notes ?? string.Empty;
     }
 
+    /// <summary>
+    /// Toggle the Live Audit diagnostic log (the <c>#audit</c> command). When
+    /// on, raw XML + parsed events + live zone/room are tee'd to
+    /// <c>&lt;LogDir&gt;/live_audit.log</c>. Returns the log path.
+    /// </summary>
+    public string SetLiveAudit(bool on)
+    {
+        if (on) _liveAudit.Enable(); else _liveAudit.Disable();
+        return _liveAudit.Path;
+    }
+
+    /// <summary>The Live Audit sink — exposed so the App can annotate it (e.g.
+    /// the mapper's LoadStatus) into the same chronological stream.</summary>
+    public Diagnostics.LiveAudit Audit => _liveAudit;
+
     public async ValueTask DisposeAsync()
     {
+        _liveAudit.Dispose();
         AutoMapper.CurrentNodeChanged -= SyncMapperGlobals;
         _gameEventSub.Dispose();
         _pluginXmlSub.Dispose();

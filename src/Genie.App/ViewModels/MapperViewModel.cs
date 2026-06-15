@@ -300,6 +300,7 @@ public class MapperViewModel : ReactiveObject
     public Action? FloatRequested { get; set; }
 
     private AutoMapperEngine?  _engine;
+    private Genie.Core.Diagnostics.LiveAudit? _audit;
     private MapZoneRepository? _zoneRepo;
     private CommandEngine?     _commands;
     private DisplaySettings?   _display;
@@ -610,6 +611,13 @@ public class MapperViewModel : ReactiveObject
         _engine   = core.AutoMapper;
         _zoneRepo = core.ZoneRepository;
         _commands = core.Commands;
+
+        // Tee the auto-load diagnostic (LoadStatus) into the Live Audit log so a
+        // zone-edge stall shows WHY ("No local zone contains…" / "Engine can't
+        // match…") inline with the raw stream. Note() is a no-op when off.
+        _audit = core.Audit;
+        this.WhenAnyValue(x => x.LoadStatus)
+            .Subscribe(s => { if (!string.IsNullOrEmpty(s)) _audit?.Note("MAP", s); });
 
         // Ghost-floor opacity for the multi-level map view (Genie 4 parity).
         AutoMapperAlpha = core.Config.AutoMapperAlpha;

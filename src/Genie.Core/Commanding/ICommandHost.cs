@@ -74,6 +74,13 @@ public interface ICommandHost
     System.Collections.Generic.IReadOnlyDictionary<string, string> GetGlobalVariables();
 
     /// <summary>
+    /// Toggle the Live Audit diagnostic log (the <c>#audit</c> command) — tees
+    /// raw XML + parsed events + live zone/room to a log file for real-time
+    /// troubleshooting. Returns the log file path.
+    /// </summary>
+    string SetLiveAudit(bool on);
+
+    /// <summary>
     /// Expand <c>$name</c> references to their current global value (from
     /// the script engine's Globals — populated by <c>#var</c>/<c>#tvar</c>
     /// and the live-game-state mirror). Matches Genie 4's

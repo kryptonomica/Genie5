@@ -288,6 +288,20 @@ public sealed class CommandEngine
                 else
                     _host.Echo("Usage: #goto <room id | label | title>");
                 break;
+            case "audit":
+            {
+                // #audit on|off — Live Audit diagnostic log (raw XML + events +
+                // zone/room) for real-time troubleshooting.
+                var sub = parts.Count > 1 ? parts[1].ToLowerInvariant() : "";
+                if (sub is "on" or "off")
+                {
+                    var path = _host.SetLiveAudit(sub == "on");
+                    _host.Echo($"[audit] live audit {sub.ToUpperInvariant()} → {path}");
+                }
+                else
+                    _host.Echo("Usage: #audit on | off");
+                break;
+            }
             case "mapper":
             {
                 // #mapper reset — re-resolve the current room (Genie 3/4 parity).
