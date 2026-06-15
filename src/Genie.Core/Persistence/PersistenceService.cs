@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Genie.Core.Aliases;
 using Genie.Core.Classes;
@@ -16,7 +17,14 @@ public sealed class PersistenceService
 {
     private readonly JsonSerializerOptions _options = new()
     {
-        WriteIndented = true
+        WriteIndented = true,
+        // Keep regex metacharacters (+ < > & ') and UTF-8 text literal instead
+        // of escaping them to \uXXXX. The default encoder is HTML-safe, which
+        // turns a pattern like "\s+" into "\\s+" — functional but unreadable,
+        // and these config files are shared and hand-edited by the community.
+        // "Unsafe" only refers to embedding JSON in HTML/JS; for local files this
+        // is the correct, recommended setting.
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
     public void SaveAliases(string path, IEnumerable<AliasRule> aliases)

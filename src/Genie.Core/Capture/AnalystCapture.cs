@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Genie.Core.Events;
 
@@ -199,7 +200,11 @@ public sealed class AnalystCapture : IDisposable
         try
         {
             File.WriteAllText(_basePath + ".meta.json",
-                JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(meta, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping   // keep names/UTF-8 readable
+                }));
         }
         catch (Exception ex) { _diag?.Invoke($"[analyst] meta write failed: {ex.Message}"); }
     }
