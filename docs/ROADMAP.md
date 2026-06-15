@@ -15,7 +15,7 @@ end up with two parallel PRs.
 
 ## Alpha 1 — shipped
 
-These work today, in the v5.0.0-alpha.4 build.
+These work today, in the v5.0.0-alpha.5 build.
 
 - **Connection layer** — SGE direct auth, Lich 5 proxy, dev-replay from
   recorded XML sessions
@@ -67,6 +67,40 @@ These work today, in the v5.0.0-alpha.4 build.
   tag-triggered release workflow is in place, but signing isn't live
   yet: Foundation approval and the first signed Windows build are still
   pending (tracked in #33)
+- **Multi-platform release artifacts** — every tagged release attaches
+  Windows / macOS (Apple Silicon + Intel) / Linux builds plus the
+  Velopack update feeds, built by `release.yml`
+
+### Added since alpha.4
+
+- **`#config` settings system** — `#config <key> <value>` / `<key>` /
+  `list`, backed by `settings.cfg`, with ~20 Genie 4 settings wired
+  (script recursion cap, abort-dup-script, triggers-on-input, per-profile
+  connect script, external editor, roundtime offset, confirm-before-open
+  web links, scrollback cap, …) plus a Configuration → Scripts tab
+- **Game prompt rendering** — the `>` / `R>` / `H>` prompt now draws in the
+  game window using your `prompt` string, with `promptbreak` (own-line vs
+  suppressed) and `promptforce` (reconstruct the status letters from live
+  indicators) honored
+- **Scene panel** (`showimages`) — DR room/scene artwork, fetched from
+  play.net's art CDN and shown in a dockable panel
+- **Preset colouring** — room descriptions, whispers, speech and the rest
+  of the preset palette render in their configured colours, with a
+  Configuration → Presets editor
+- **Sound** — SFX on triggers/highlights and a `#play` command
+  (cross-platform: winmm / afplay / paplay)
+- **Multi-level mapper view** — ghost rooms one level above/below
+  (`automapperalpha`), and `#mapper reset` to re-resolve a lost location
+- **Base scripting variables** — the full reserved vocabulary
+  (`$health`, `$roomid`, `$zoneid`, status flags, hands, clock family, …);
+  `#var` now lists the reserved/live-state set alongside user variables
+- **Monster count** (`$monstercount` / `$monsterlist`), **AutoLog**
+  (automatic rendered-text session log), **spell timer** (`$spelltime`),
+  and **Condensed mode** (collapse blank lines)
+- **Portable-first storage** — data resolves beside the executable
+  (portable build) or in the per-user folder, with a first-run location
+  prompt
+- **Help → About dialog**
 
 ## In flight — 🚧
 
@@ -105,13 +139,6 @@ the work is mostly designing the light palette and audited contrast levels.
 Pattern-and-action editor for `#trigger` rules that doesn't require typing
 regexes by hand. Lower priority but a real onboarding helper.
 
-### `.github/workflows/` CI maturity — multi-platform release artifacts
-
-`build.yml` runs `dotnet build` on push + PR; `release.yml` builds and
-signs the Windows artifact via SignPath on tag push. Still planned: build
-+ attach binaries for osx-arm64, osx-x64, and linux-x64 to the same
-GitHub Release.
-
 ## Considering — 💭
 
 These need a design discussion before code lands. Open an issue with the
@@ -126,10 +153,6 @@ These need a design discussion before code lands. Open an issue with the
   cross-platform user base with no DR-XML support; a Genie.Core-backed
   plugin would bring DR compatibility to Mudlet. Design questions: API
   surface, packaging, who maintains.
-- **Container noun map expansion** — the parser already maps `in #NNNN`
-  to friendly names like "in My Backpack." Expanding this to all
-  containers needs a stable source of truth (probably a community-
-  curated noun map XML similar to ZoneConnections).
 - **Multi-character at-a-glance dashboard** — explicitly *not* multi-
   character orchestration (that's a hard never per DR policy); a passive
   read-only view of which of your characters are logged in elsewhere, if

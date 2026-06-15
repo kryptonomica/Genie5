@@ -4,7 +4,33 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.4.2 — portable mode for the downloadable builds
+## Latest: v5.0.0-alpha.5 — prompts, scene art, preset colours & scripting parity
+
+A hearty feast of a release: the game **prompt** now shows in the window, notable rooms bloom with **scene artwork**, descriptions and whispers wear their **preset colours**, and the scripting larder is fully stocked with reserved `$variables` — plus a round of Genie 4 parity across the mapper and `#config`.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.5** as a delta.
+
+**Display**
+
+- **Game prompt in the window** — the `>` / `R>` / `H>` prompt renders in the game window using your `prompt` string; `promptbreak` keeps it on its own line and `promptforce` reconstructs the status letters (kneeling, hidden, roundtime, …) from live indicators.
+- **Scene panel** — DR room/scene artwork for notable locations, fetched from the play.net art CDN and shown in a dockable panel (Window → Scene; toggle with `#config showimages`).
+- **Preset colouring** — room descriptions, whispers, speech and the rest of the preset palette render in their configured colours, with a Configuration → Presets editor.
+- **Condensed mode** — collapse blank lines for a tighter scroll.
+
+**Scripting & mapper**
+
+- **Full reserved-variable vocabulary** — `$health`, `$roomid`, `$zoneid`, the status flags, hands, and the clock family are all readable, and **`#var` now lists** the reserved/live-state set beside your own variables ([#45](https://github.com/GenieClient/Genie5/issues/45), [#72](https://github.com/GenieClient/Genie5/issues/72)).
+- **`#mapper reset`** — re-resolve a lost location without moving, for the same-description rooms that trip the mapper up ([#75](https://github.com/GenieClient/Genie5/issues/75)).
+- **`#config` settings system** — `#config <key> <value>` / `list` backed by `settings.cfg`, with ~20 Genie 4 settings wired and a Configuration → Scripts tab.
+
+**Sound & quality of life**
+
+- **Sound** — optional SFX on triggers/highlights and a `#play` command (cross-platform).
+- AutoLog (automatic session log), spell timer (`$spelltime`), monster count (`$monstercount` / `$monsterlist`), preset-coloured presets, and a Help → About dialog.
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.5)
+
+## v5.0.0-alpha.4.2 — portable mode for the downloadable builds
 
 The alpha.4.1 fix was only half the story: it got portable-first discovery right, but the **downloadable** Windows/macOS builds are packaged so the app runs from an internal `current/` subfolder (the one with `Update.exe` beside it). Genie looked for your data *inside* that subfolder, found none, and fell back to the per-user OS folder (`%APPDATA%` on Windows) — so a portable unzip with your `Config` / `Scripts` / `Maps` beside `Genie.exe` still leaked into the user profile.
 

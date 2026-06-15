@@ -39,6 +39,11 @@ The Genie 4 codebase is WinForms + Windows-only and hasn't kept pace with modern
 | `#connect` / `#reconnect` / `#lichconnect` — typed/scripted login (Genie 4 parity; saved-profile, explicit, and reconnect forms; password-masked) | ✅ Working |
 | Analyst Capture — redacted, recipe-driven session capture for parser/analysis (other-player speech stripped by default) | ✅ Working |
 | Performance overlay — live per-stage pipeline timing + running-`.js` list, behind the Performance menu | ✅ Working |
+| Game prompt in the window — `prompt` string + `promptbreak` (own-line) / `promptforce` (reconstructed status letters) | ✅ Working |
+| Scene panel — DR room/scene artwork (`#config showimages`), fetched from the play.net art CDN | ✅ Working |
+| Preset colouring — room descriptions / whispers / speech render in their palette colours (Configuration → Presets) | ✅ Working |
+| Sound — SFX on triggers/highlights + `#play` command (cross-platform: winmm / afplay / paplay) | ✅ Working |
+| `#config` settings system (`settings.cfg`, ~20 Genie 4 settings + Scripts tab); reserved/live `$variables` exposed and listed by `#var` | ✅ Working |
 | Visual trigger / flow designer | 🚧 Roadmap |
 | AI-assisted automation (advisor-only mode) | 🚧 Roadmap |
 

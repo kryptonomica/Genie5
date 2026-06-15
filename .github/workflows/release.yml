@@ -133,7 +133,8 @@ jobs:
           # assets.win.json. Attach everything in the output dir.
           files: velopack-releases/*
           fail_on_unmatched_files: true
-          generate_release_notes: false   # Notes are curated by hand
+          generate_release_notes: false   # auto-gen off
+          body_path: RELEASE_NOTES.md      # curated, version-controlled notes
 
   velopack-linux:
     name: Velopack package — Linux x64
@@ -201,6 +202,7 @@ jobs:
           files: velopack-releases/*
           fail_on_unmatched_files: true
           generate_release_notes: false
+          body_path: RELEASE_NOTES.md
 
   velopack-osx-arm64:
     name: Velopack package — macOS Apple Silicon (arm64)
@@ -293,6 +295,7 @@ jobs:
           files: velopack-releases/*
           fail_on_unmatched_files: true
           generate_release_notes: false
+          body_path: RELEASE_NOTES.md
 
   velopack-osx-x64:
     name: Velopack package — macOS Intel (x64)
@@ -379,6 +382,7 @@ jobs:
           files: velopack-releases/*
           fail_on_unmatched_files: true
           generate_release_notes: false
+          body_path: RELEASE_NOTES.md
 
   sign:
     name: Sign with SignPath Foundation
