@@ -171,6 +171,12 @@ public sealed class DrXmlParser : IDisposable
     private static readonly System.Text.RegularExpressions.Regex _promptRe =
         new(@"^[A-Z]*>$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // The server room id DR appends to the room streamWindow subtitle:
+    // " - [The Crossing, Hodierna Way] (10015)". Captures the digits inside the
+    // trailing parens; "(**)" (unknown room) has no digits and won't match.
+    private static readonly System.Text.RegularExpressions.Regex _roomUidRe =
+        new(@"\((\d+)\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     // The `info` verb's first line: "Name: <name>   Race: <race>   Guild: <guild>".
     // Anchored to start at "Name:" and capture the trailing "Guild: X" so we
     // don't false-match on arbitrary game text mentioning a guild. Race can be
@@ -757,6 +763,22 @@ public sealed class DrXmlParser : IDisposable
                         title = subtitle.TrimStart(' ', '-').Trim();
                     if (!string.IsNullOrEmpty(title))
                         _events.OnNext(new ComponentEvent("room title", title));
+
+                    // Server room id: DR appends it to the subtitle as "(NNNNN)"
+                    // after the title when room numbers are enabled. Modern
+                    // StormFront sends a BARE <nav/>, so this subtitle is the
+                    // ONLY carrier of the server room id — without it the mapper
+                    // has no authoritative match and runs fingerprint-only
+                    // (collides on same-description rooms; breaks scripts that
+                    // read $roomid/$gameroomid, e.g. travel.cmd never confirming
+                    // arrival). Emit it as a NavEvent so the id flows to
+                    // GameState.Room.RoomId → the mapper adapter. "(**)" (unknown
+                    // room) has no digits and is correctly ignored.
+                    var tail = lastClose >= 0 && lastClose + 1 <= subtitle.Length
+                        ? subtitle[(lastClose + 1)..] : subtitle;
+                    var uid = _roomUidRe.Match(tail);
+                    if (uid.Success)
+                        _events.OnNext(new NavEvent(uid.Groups[1].Value));
                 }
                 break;
 
