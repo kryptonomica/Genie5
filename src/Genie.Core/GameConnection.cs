@@ -112,7 +112,25 @@ public sealed class GameConnection : IAsyncDisposable
 
             try
             {
-                await EstablishConnectionAsync(ct);
+                // Bound the connect+auth phase with an explicit deadline — async
+                // socket connect/read don't time out on their own, so a server
+                // that accepts the TCP connection but never answers would hang
+                // the whole connect forever (no event, greyed UI). On expiry we
+                // raise it as a non-retryable failure with a clear reason.
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                attemptCts.CancelAfter(_cfg.ConnectTimeoutMs);
+                try
+                {
+                    await EstablishConnectionAsync(attemptCts.Token);
+                }
+                catch (OperationCanceledException)
+                    when (attemptCts.IsCancellationRequested && !ct.IsCancellationRequested)
+                {
+                    throw new SgeAuthException(
+                        $"connection timed out after {_cfg.ConnectTimeoutMs / 1000}s — couldn't reach the " +
+                        $"{_cfg.Mode} login server. Check your network/VPN and that the server is reachable. " +
+                        "(Repeated bad-password attempts can briefly rate-limit the login server.)");
+                }
                 _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Connected));
                 _readLoop = ReadLoopAsync(ct);
                 return;

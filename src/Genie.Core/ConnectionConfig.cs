@@ -106,6 +106,16 @@ public sealed record ConnectionConfig
     public int    MaxReconnectAttempts { get; init; } = 10;
 
     /// <summary>
+    /// Overall deadline for a single connect+auth attempt. Async socket
+    /// connect/read have no inherent timeout, so without this a server that
+    /// accepts the TCP connection but never answers (rate-limit after repeated
+    /// bad-password attempts, a VPN/firewall blackhole, or an SGE outage) hangs
+    /// the connect forever with no event and no user feedback. On expiry the
+    /// attempt fails with a clear "connection timed out" message.
+    /// </summary>
+    public int    ConnectTimeoutMs { get; init; } = 20_000;
+
+    /// <summary>
     /// Front-end identifier sent in the post-auth FE handshake (e.g.
     /// <c>FE:GENIE /VERSION:... /XML</c>). DR appears to gate some click
     /// markup on this — clients identifying as <c>STORM</c> (the
