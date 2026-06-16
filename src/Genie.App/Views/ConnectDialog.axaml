@@ -103,6 +103,11 @@
                    Text="{Binding FetchStatus}"
                    Foreground="#888" FontSize="11" Margin="0,2,0,0"/>
 
+        <CheckBox  Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
+                   IsChecked="{Binding UseTls}"
+                   Content="Secure connection (TLS)" Margin="0,4,0,0"
+                   ToolTip.Tip="Authenticate over TLS (port 7910). Recommended — otherwise the password is only obfuscated over the wire. Uncheck to use plaintext port 7900."/>
+
         <!-- FE:STORM checkbox removed May 25, 2026 after empirical A/B
              testing showed no observable XML difference between FE:GENIE
              and FE:STORM identifiers across the info-verb surface

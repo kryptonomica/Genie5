@@ -1,4 +1,8 @@
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
@@ -7,8 +11,12 @@ namespace Genie.Core.Connection;
 /// <summary>
 /// Handles the Simutronics SGE (Game Entry) authentication protocol.
 ///
-/// Protocol (matches Genie 4 Connection.cs, plain TCP on port 7900):
-///   1. TCP to eaccess.play.net:7900 (plain TCP — port 7900 does not use TLS)
+/// Protocol (matches Genie 4 Connection.cs). The handshake is identical over
+/// plaintext (port 7900) and TLS (port 7910); only the transport differs —
+/// see <see cref="ConnectionConfig.UseTls"/>. TLS is the default because on
+/// 7900 the password is only XOR-obfuscated with a key the server sends in
+/// the clear, leaving it recoverable by a network observer.
+///   1. TCP/TLS to eaccess.play.net — 7910 (TLS, default) or 7900 (plaintext)
 ///   2. Client sends "K\n" → server returns 32 raw key bytes + trailing \n
 ///   3. Client sends "A\t{ACCOUNT}\t{raw-encrypted-password}\n"
 ///      Password encoding: for each byte i: ((password[i] - 32) ^ keyByte[i]) + 32
@@ -36,19 +44,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             cfg.AccountName, cfg.GameCode);
 
         using var tcp = new TcpClient();
-        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        connectCts.CancelAfter(TimeSpan.FromSeconds(15));
-        try
-        {
-            await tcp.ConnectAsync(cfg.SgeHost, cfg.SgePort, connectCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new TimeoutException(
-                $"Timed out connecting to SGE server {cfg.SgeHost}:{cfg.SgePort} (15 s).");
-        }
-
-        var stream = tcp.GetStream();
+        using var stream = await ConnectSgeAsync(cfg, tcp, ct);
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
 
         await StreamWriteAsync(stream, "K\n", ct);
@@ -98,23 +94,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             cfg.AccountName, cfg.GameCode);
 
         using var tcp = new TcpClient();
-
-        logger.LogDebug("TCP connecting to {Host}:{Port}...", cfg.SgeHost, cfg.SgePort);
-        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        connectCts.CancelAfter(TimeSpan.FromSeconds(15));
-        try
-        {
-            await tcp.ConnectAsync(cfg.SgeHost, cfg.SgePort, connectCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new TimeoutException(
-                $"Timed out connecting to SGE server {cfg.SgeHost}:{cfg.SgePort} (15 s). " +
-                "Check that outbound TCP port 7900 is not blocked by a firewall.");
-        }
-        logger.LogDebug("SGE TCP connected");
-
-        var stream = tcp.GetStream();
+        using var stream = await ConnectSgeAsync(cfg, tcp, ct);
 
         // StreamReader for text responses only; key is read as raw bytes below.
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
@@ -203,6 +183,104 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// SHA-256 fingerprint of Simutronics' self-signed eAccess TLS certificate
+    /// (Subject/Issuer <c>O=Simutronics Corp.</c>; valid 2018→3017; live-verified
+    /// 2026-05-31). The cert carries no CN/SAN and is not chained to a public
+    /// root, so ordinary hostname/chain validation can never authenticate the
+    /// server — we PIN this exact certificate instead. If Simutronics rotates
+    /// it, re-probe port 7910, verify the new fingerprint out-of-band, and
+    /// update this constant (or set <see cref="ConnectionConfig.UseTls"/> = false
+    /// to use plaintext 7900 meanwhile).
+    /// </summary>
+    private const string SgeCertSha256Pin =
+        "10B737E661987D15BC5C8245E3F8B78291D41ED8ABC76672ECB02FE78ED0218A";
+
+    /// <summary>
+    /// Opens the SGE transport on <paramref name="tcp"/>: plain TCP to
+    /// <see cref="ConnectionConfig.SgePort"/> (7900), or — when
+    /// <see cref="ConnectionConfig.UseTls"/> is set (default) — a TLS 1.2/1.3
+    /// tunnel to <see cref="ConnectionConfig.SgeTlsPort"/> (7910). The returned
+    /// <see cref="Stream"/> is what every subsequent handshake step reads and
+    /// writes; the SGE byte protocol is identical over either transport.
+    /// </summary>
+    private async Task<Stream> ConnectSgeAsync(ConnectionConfig cfg, TcpClient tcp, CancellationToken ct)
+    {
+        var port = cfg.ResolvedSgePort;
+        logger.LogDebug("Connecting to SGE {Host}:{Port} (TLS={Tls})", cfg.SgeHost, port, cfg.UseTls);
+
+        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        connectCts.CancelAfter(TimeSpan.FromSeconds(15));
+        try
+        {
+            await tcp.ConnectAsync(cfg.SgeHost, port, connectCts.Token);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Timed out connecting to SGE server {cfg.SgeHost}:{port} (15 s). " +
+                $"Check that outbound TCP port {port} is not blocked by a firewall.");
+        }
+
+        if (!cfg.UseTls)
+            return tcp.GetStream();
+
+        // Same handshake, wrapped in TLS. Validation is pinned (see
+        // ValidateSgeCertificate) because the server cert is self-signed.
+        var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false, ValidateSgeCertificate);
+        try
+        {
+            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost          = cfg.SgeHost,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+            }, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            ssl.Dispose();
+            throw new InvalidOperationException(
+                $"TLS handshake with {cfg.SgeHost}:{port} failed: {ex.Message}. " +
+                "If Simutronics rotated their certificate, update the pin in " +
+                "SgeAuthClient; meanwhile you can connect over plaintext by " +
+                "setting ConnectionConfig.UseTls = false (port 7900).", ex);
+        }
+
+        logger.LogDebug("SGE TLS established: {Protocol} / {Cipher}",
+            ssl.SslProtocol, ssl.NegotiatedCipherSuite);
+        return ssl;
+    }
+
+    /// <summary>
+    /// Certificate-pinning validation for the eAccess TLS endpoint. Simutronics
+    /// presents a self-signed certificate with no CN/SAN, so the standard
+    /// <see cref="SslPolicyErrors"/> are always non-<c>None</c> and are
+    /// deliberately ignored. Instead we require the certificate's SHA-256
+    /// fingerprint to equal <see cref="SgeCertSha256Pin"/> — which still
+    /// defeats man-in-the-middle attacks, since an attacker cannot reproduce
+    /// this exact certificate without its private key.
+    /// </summary>
+    private bool ValidateSgeCertificate(
+        object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
+    {
+        if (certificate is null)
+        {
+            logger.LogError("SGE TLS: server presented no certificate — refusing connection.");
+            return false;
+        }
+
+        var actual = Convert.ToHexString(SHA256.HashData(certificate.GetRawCertData()));
+        if (string.Equals(actual, SgeCertSha256Pin, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        logger.LogError(
+            "SGE TLS certificate pin MISMATCH (policy errors: {Errors}). Expected {Expected}, got {Actual}. " +
+            "Refusing the connection. If Simutronics legitimately rotated their certificate, verify the new " +
+            "fingerprint out-of-band and update SgeCertSha256Pin.",
+            sslPolicyErrors, SgeCertSha256Pin, actual);
+        return false;
+    }
+
+    /// <summary>
     /// Genie 4 formula: ((passwordByte - 32) XOR keyByte) + 32.
     /// Key bytes are used raw — NOT offset by 32 — matching Utility.EncryptText(byte[], string).
     /// </summary>
@@ -214,7 +292,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         return result;
     }
 
-    private static async Task StreamWriteAsync(NetworkStream stream, string text, CancellationToken ct)
+    private static async Task StreamWriteAsync(Stream stream, string text, CancellationToken ct)
     {
         var bytes = Encoding.ASCII.GetBytes(text);
         await stream.WriteAsync(bytes, ct);

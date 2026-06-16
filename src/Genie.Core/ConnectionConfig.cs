@@ -46,6 +46,31 @@ public sealed record ConnectionConfig
     // ── SGE (direct) ────────────────────────────────────────────────────────
     public string SgeHost        { get; init; } = "eaccess.play.net";
     public int    SgePort        { get; init; } = 7900;
+
+    /// <summary>
+    /// When true (default), authenticate over TLS to <see cref="SgeTlsPort"/>
+    /// (7910) instead of plaintext <see cref="SgePort"/> (7900). The SGE
+    /// handshake is byte-for-byte identical either way — only the transport
+    /// differs. TLS is preferred because on 7900 the account password is only
+    /// XOR-obfuscated with a key the server sends in the clear, so a passive
+    /// network observer can recover it; TLS gives real confidentiality.
+    /// Set false to fall back to plaintext 7900 (e.g. if Simutronics rotates
+    /// the pinned certificate — see <c>SgeAuthClient</c>).
+    /// </summary>
+    public bool   UseTls         { get; init; } = true;
+
+    /// <summary>
+    /// TLS SGE port. Live-verified (2026-05-31) speaking the SGE protocol over
+    /// TLS 1.2 (AES-128). Lich 5 also authenticates here by default.
+    /// </summary>
+    public int    SgeTlsPort     { get; init; } = 7910;
+
+    /// <summary>
+    /// The SGE port actually dialled given <see cref="UseTls"/>:
+    /// 7910 for TLS, 7900 for plaintext.
+    /// </summary>
+    public int    ResolvedSgePort => UseTls ? SgeTlsPort : SgePort;
+
     public string AccountName    { get; init; } = string.Empty;
     public string AccountPassword{ get; init; } = string.Empty;
     /// <summary>

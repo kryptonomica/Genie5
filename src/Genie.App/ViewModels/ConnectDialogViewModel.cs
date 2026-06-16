@@ -104,6 +104,13 @@ public class ConnectDialogViewModel : ReactiveObject
     /// <summary>True when the Lich proxy host/port fields should be shown / required.</summary>
     public extern bool IsLichMode   { [ObservableAsProperty] get; }
 
+    /// <summary>
+    /// Connect to SGE over TLS (port 7910) instead of plaintext (7900).
+    /// Default on — the password is otherwise only XOR-obfuscated over the
+    /// wire. See <see cref="ConnectionConfig.UseTls"/>.
+    /// </summary>
+    [Reactive] public bool          UseTls      { get; set; } = true;
+
     // UseStormFrontEnd was removed May 25, 2026 after A/B testing showed no
     // observable difference between FE:GENIE and FE:STORM for the info-verb
     // surface. The underlying ConnectionConfig.FrontEndId field still exists
@@ -346,6 +353,7 @@ public class ConnectDialogViewModel : ReactiveObject
               CharacterName   = Character,
               GameCode        = Instance.GameCode,
               Mode            = ConnectionMode.DirectSGE,
+              UseTls          = UseTls,
               // FrontEndId left at default "GENIE" — A/B testing showed no FE
               // difference for our probed surfaces; ConnectionConfig's default
               // is "GENIE" so we don't need to set it explicitly here.

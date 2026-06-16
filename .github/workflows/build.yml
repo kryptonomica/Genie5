@@ -3,17 +3,45 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
 jobs:
+  # Decide which OS matrix to run based on the trigger, to conserve the monthly
+  # Actions minute budget. GitHub bills included minutes with per-OS multipliers
+  # (Linux 1x, Windows 2x, macOS 10x), so running all three on every PR push
+  # burns the free 2,000-minute allowance fast — macOS alone is the dominant
+  # cost. Tiering:
+  #   - pull_request      -> Linux only        (cheap compile sanity, 1x)
+  #   - push to main      -> Linux + Windows    (validate the primary target, 2x)
+  #   - push tag v*       -> Linux + Windows + macOS (full cross-platform gate at release)
+  setup:
+    name: Decide OS matrix
+    runs-on: ubuntu-latest
+    outputs:
+      os: ${{ steps.pick.outputs.os }}
+    steps:
+      - name: Pick OS matrix by event
+        id: pick
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          elif [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+            echo 'os=["windows-latest","ubuntu-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'os=["windows-latest","ubuntu-latest"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: setup
     name: dotnet build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(needs.setup.outputs.os) }}
 
     steps:
       - name: Checkout
@@ -78,6 +106,10 @@ jobs:
     name: dotnet publish smoke (win-x64)
     runs-on: windows-latest
     needs: build
+    # Skip on PRs — the self-contained single-file publish is the heaviest step
+    # (Windows runner at 2x). Runs on pushes to main and on release tags, which
+    # is where a broken publish actually matters.
+    if: github.event_name != 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
