@@ -51,16 +51,14 @@ public sealed record ConnectionConfig
     /// When true (default), authenticate over TLS to <see cref="SgeTlsPort"/>
     /// (7910) instead of plaintext <see cref="SgePort"/> (7900). The SGE
     /// handshake is byte-for-byte identical either way — only the transport
-    /// differs. TLS would be preferable (on 7900 the account password is only
-    /// XOR-obfuscated with a key the server sends in the clear), BUT it is
-    /// currently OFF by default: the TLS handshake on 7910 hangs — Simutronics
-    /// appears to have rotated the certificate so our pinned fingerprint no
-    /// longer matches (see <c>SgeAuthClient.ValidateSgeCertificate</c>). Plain
-    /// 7900 is the proven path (it's exactly what Genie 4 uses). Re-enable once
-    /// the fingerprint is re-verified and the handshake is reliable; users can
-    /// opt in via the "Use TLS" checkbox meanwhile.
+    /// differs. TLS is preferred (on 7900 the account password is only
+    /// XOR-obfuscated with a key the server sends in the clear), so this defaults
+    /// ON — and it's now SAFE to default on because <c>SgeAuthClient</c>
+    /// automatically falls back to plaintext 7900 if the 7910 handshake fails or
+    /// stalls (7910 is intermittently flaky even though the pinned cert is
+    /// current). Set false to force plaintext and skip the TLS attempt entirely.
     /// </summary>
-    public bool   UseTls         { get; init; } = false;
+    public bool   UseTls         { get; init; } = true;
 
     /// <summary>
     /// TLS SGE port. Live-verified (2026-05-31) speaking the SGE protocol over

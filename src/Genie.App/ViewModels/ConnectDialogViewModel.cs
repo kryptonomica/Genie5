@@ -110,11 +110,10 @@ public class ConnectDialogViewModel : ReactiveObject
 
     /// <summary>
     /// Connect to SGE over TLS (port 7910) instead of plaintext (7900).
-    /// Default OFF — TLS on 7910 currently hangs (stale pinned cert after a
-    /// Simutronics rotation); plain 7900 is the proven path (what Genie 4 uses).
-    /// Opt in here once TLS is reliable again. See <see cref="ConnectionConfig.UseTls"/>.
+    /// Default ON — safe now because the client auto-falls-back to plain 7900 if
+    /// the TLS handshake fails or stalls. See <see cref="ConnectionConfig.UseTls"/>.
     /// </summary>
-    [Reactive] public bool          UseTls      { get; set; } = false;
+    [Reactive] public bool          UseTls      { get; set; } = true;
 
     // UseStormFrontEnd was removed May 25, 2026 after A/B testing showed no
     // observable difference between FE:GENIE and FE:STORM for the info-verb

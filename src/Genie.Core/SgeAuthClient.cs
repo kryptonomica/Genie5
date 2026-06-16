@@ -43,8 +43,9 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         logger.LogInformation("Listing characters for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        using var tcp = new TcpClient();
-        using var stream = await ConnectSgeAsync(cfg, tcp, ct);
+        var (tcp, stream) = await ConnectSgeAsync(cfg, ct);
+        using var ownedTcp    = tcp;
+        using var ownedStream = stream;
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
 
         await StreamWriteAsync(stream, "K\n", ct);
@@ -92,8 +93,9 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         logger.LogInformation("Starting SGE authentication for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        using var tcp = new TcpClient();
-        using var stream = await ConnectSgeAsync(cfg, tcp, ct);
+        var (tcp, stream) = await ConnectSgeAsync(cfg, ct);
+        using var ownedTcp    = tcp;
+        using var ownedStream = stream;
 
         // StreamReader for text responses only; key is read as raw bytes below.
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
@@ -200,51 +202,107 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     /// <see cref="Stream"/> is what every subsequent handshake step reads and
     /// writes; the SGE byte protocol is identical over either transport.
     /// </summary>
-    private async Task<Stream> ConnectSgeAsync(ConnectionConfig cfg, TcpClient tcp, CancellationToken ct)
+    /// <summary>
+    /// Upper bound on the whole TLS attempt (connect + handshake) before we give
+    /// up and fall back to plaintext. A healthy 7910 handshake is sub-second; a
+    /// longer wait is the intermittent server-side stall, and we'd rather drop to
+    /// the rock-solid 7900 than make the user wait.
+    /// </summary>
+    private const int TlsAttemptTimeoutSeconds = 8;
+
+    /// <summary>
+    /// Opens the SGE transport, preferring TLS (7910) but never letting it block
+    /// login. The cert pin is correct and a healthy handshake works, but 7910
+    /// intermittently stalls; so the TLS attempt is bounded by
+    /// <see cref="TlsAttemptTimeoutSeconds"/> and, on ANY failure or stall, we
+    /// fall back to plaintext 7900 — the transport Genie 4 uses. The SGE byte
+    /// protocol is identical over either. Returns the owning
+    /// <see cref="TcpClient"/> (the caller disposes it) plus the read/write
+    /// <see cref="Stream"/>.
+    /// </summary>
+    private async Task<(TcpClient Tcp, Stream Stream)> ConnectSgeAsync(ConnectionConfig cfg, CancellationToken ct)
     {
-        var port = cfg.ResolvedSgePort;
-        logger.LogDebug("Connecting to SGE {Host}:{Port} (TLS={Tls})", cfg.SgeHost, port, cfg.UseTls);
-
-        using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        connectCts.CancelAfter(TimeSpan.FromSeconds(15));
-        try
+        if (cfg.UseTls)
         {
-            await tcp.ConnectAsync(cfg.SgeHost, port, connectCts.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new TimeoutException(
-                $"Timed out connecting to SGE server {cfg.SgeHost}:{port} (15 s). " +
-                $"Check that outbound TCP port {port} is not blocked by a firewall.");
-        }
-
-        if (!cfg.UseTls)
-            return tcp.GetStream();
-
-        // Same handshake, wrapped in TLS. Validation is pinned (see
-        // ValidateSgeCertificate) because the server cert is self-signed.
-        var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false, ValidateSgeCertificate);
-        try
-        {
-            await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            try
             {
-                TargetHost          = cfg.SgeHost,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-            }, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            ssl.Dispose();
-            throw new InvalidOperationException(
-                $"TLS handshake with {cfg.SgeHost}:{port} failed: {ex.Message}. " +
-                "If Simutronics rotated their certificate, update the pin in " +
-                "SgeAuthClient; meanwhile you can connect over plaintext by " +
-                "setting ConnectionConfig.UseTls = false (port 7900).", ex);
+                using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                tlsCts.CancelAfter(TimeSpan.FromSeconds(TlsAttemptTimeoutSeconds));
+                return await OpenTransportAsync(cfg, useTls: true, tlsCts.Token);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
+            {
+                // TLS connect/handshake failed or stalled — fall back to plain.
+                // (We do NOT fall back when the *user* cancelled — that's honoured.)
+                logger.LogWarning(
+                    "SGE TLS ({Host}:{TlsPort}) {What}; falling back to plaintext {PlainPort}.",
+                    cfg.SgeHost, cfg.SgeTlsPort,
+                    ex is OperationCanceledException
+                        ? $"stalled past {TlsAttemptTimeoutSeconds}s"
+                        : $"failed: {ex.Message}",
+                    cfg.SgePort);
+            }
         }
 
-        logger.LogDebug("SGE TLS established: {Protocol} / {Cipher}",
-            ssl.SslProtocol, ssl.NegotiatedCipherSuite);
-        return ssl;
+        return await OpenTransportAsync(cfg, useTls: false, ct);
+    }
+
+    /// <summary>
+    /// Connects a fresh socket to the SGE host on the appropriate port and, for
+    /// TLS, completes the pinned handshake. Disposes its socket on any failure so
+    /// a fallback attempt starts from a clean slate.
+    /// </summary>
+    private async Task<(TcpClient Tcp, Stream Stream)> OpenTransportAsync(
+        ConnectionConfig cfg, bool useTls, CancellationToken ct)
+    {
+        var port = useTls ? cfg.SgeTlsPort : cfg.SgePort;
+        logger.LogDebug("Connecting to SGE {Host}:{Port} (TLS={Tls})", cfg.SgeHost, port, useTls);
+
+        var tcp = new TcpClient();
+        try
+        {
+            if (useTls)
+            {
+                // The whole TLS attempt is already bounded by the caller's token.
+                await tcp.ConnectAsync(cfg.SgeHost, port, ct);
+
+                var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false, ValidateSgeCertificate);
+                try
+                {
+                    await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                    {
+                        TargetHost          = cfg.SgeHost,
+                        EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                    }, ct);
+                }
+                catch { ssl.Dispose(); throw; }
+
+                logger.LogDebug("SGE TLS established: {Protocol} / {Cipher}",
+                    ssl.SslProtocol, ssl.NegotiatedCipherSuite);
+                return (tcp, ssl);
+            }
+
+            // Plaintext: bound the bare TCP connect so a dead port fails with a
+            // clear timeout rather than hanging.
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(15));
+            try
+            {
+                await tcp.ConnectAsync(cfg.SgeHost, port, connectCts.Token);
+            }
+            catch (OperationCanceledException) when (connectCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Timed out connecting to SGE server {cfg.SgeHost}:{port} (15 s). " +
+                    $"Check that outbound TCP port {port} is not blocked by a firewall.");
+            }
+            return (tcp, tcp.GetStream());
+        }
+        catch
+        {
+            tcp.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
