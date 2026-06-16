@@ -36,14 +36,20 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     /// Authenticates through SGE steps 1–6 and returns the character list for the account.
     /// Does NOT proceed to login — use this to discover available characters.
     /// </summary>
-    public async Task<List<SgeCharacter>> ListCharactersAsync(
+    public Task<List<SgeCharacter>> ListCharactersAsync(
         ConnectionConfig cfg,
         CancellationToken ct = default)
+        => WithTlsFallback(cfg, ct, ListCharactersCoreAsync);
+
+    private async Task<List<SgeCharacter>> ListCharactersCoreAsync(
+        ConnectionConfig cfg,
+        bool useTls,
+        CancellationToken ct)
     {
         logger.LogInformation("Listing characters for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        var (tcp, stream, _) = await ConnectSgeAsync(cfg, ct);
+        var (tcp, stream) = await OpenTransportAsync(cfg, useTls, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
@@ -86,14 +92,20 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         return ParseCharacterList(charList);
     }
 
-    public async Task<SgeResult> AuthenticateAsync(
+    public Task<SgeResult> AuthenticateAsync(
         ConnectionConfig cfg,
         CancellationToken ct = default)
+        => WithTlsFallback(cfg, ct, AuthenticateCoreAsync);
+
+    private async Task<SgeResult> AuthenticateCoreAsync(
+        ConnectionConfig cfg,
+        bool useTls,
+        CancellationToken ct)
     {
         logger.LogInformation("Starting SGE authentication for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        var (tcp, stream, usedTls) = await ConnectSgeAsync(cfg, ct);
+        var (tcp, stream) = await OpenTransportAsync(cfg, useTls, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
 
@@ -176,7 +188,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         // Log at Warning so this is always visible — needed to diagnose WIZ vs STORM differences.
         logger.LogWarning("SGE login response: {LoginResponse}", loginResponse);
 
-        return ParseLoginResponse(loginResponse) with { UsedTls = usedTls };
+        return ParseLoginResponse(loginResponse) with { UsedTls = useTls };
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -195,32 +207,28 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         "10B737E661987D15BC5C8245E3F8B78291D41ED8ABC76672ECB02FE78ED0218A";
 
     /// <summary>
-    /// Opens the SGE transport on <paramref name="tcp"/>: plain TCP to
-    /// <see cref="ConnectionConfig.SgePort"/> (7900), or — when
-    /// <see cref="ConnectionConfig.UseTls"/> is set (default) — a TLS 1.2/1.3
-    /// tunnel to <see cref="ConnectionConfig.SgeTlsPort"/> (7910). The returned
-    /// <see cref="Stream"/> is what every subsequent handshake step reads and
-    /// writes; the SGE byte protocol is identical over either transport.
-    /// </summary>
-    /// <summary>
-    /// Upper bound on the whole TLS attempt (connect + handshake) before we give
-    /// up and fall back to plaintext. A healthy 7910 handshake is sub-second; a
-    /// longer wait is the intermittent server-side stall, and we'd rather drop to
-    /// the rock-solid 7900 than make the user wait.
+    /// Upper bound on the whole TLS LOGIN attempt (transport + SGE handshake)
+    /// before we give up and fall back to plaintext. A healthy 7910 login is
+    /// sub-second to a couple of seconds; a longer wait is the intermittent
+    /// server-side stall (the handshake succeeds but the SGE byte protocol
+    /// stalls), and we'd rather drop to the rock-solid 7900.
     /// </summary>
     private const int TlsAttemptTimeoutSeconds = 8;
 
     /// <summary>
-    /// Opens the SGE transport, preferring TLS (7910) but never letting it block
-    /// login. The cert pin is correct and a healthy handshake works, but 7910
-    /// intermittently stalls; so the TLS attempt is bounded by
-    /// <see cref="TlsAttemptTimeoutSeconds"/> and, on ANY failure or stall, we
-    /// fall back to plaintext 7900 — the transport Genie 4 uses. The SGE byte
-    /// protocol is identical over either. Returns the owning
-    /// <see cref="TcpClient"/> (the caller disposes it) plus the read/write
-    /// <see cref="Stream"/>.
+    /// Runs an SGE operation preferring TLS but never letting it block login.
+    /// The cert pin is correct and the TLS *handshake* works, but 7910
+    /// intermittently stalls the SGE byte protocol AFTER the handshake — so the
+    /// whole TLS attempt (transport + handshake + the SGE reads/writes) is bounded
+    /// by <see cref="TlsAttemptTimeoutSeconds"/>, and on ANY failure or stall —
+    /// other than bad credentials or user cancellation — the ENTIRE operation is
+    /// retried over plaintext 7900 (the transport Genie 4 uses; byte protocol
+    /// identical). Bad credentials (<see cref="SgeAuthException"/>) do NOT fall
+    /// back — they'd fail the same way over plain.
     /// </summary>
-    private async Task<(TcpClient Tcp, Stream Stream, bool UsedTls)> ConnectSgeAsync(ConnectionConfig cfg, CancellationToken ct)
+    private async Task<T> WithTlsFallback<T>(
+        ConnectionConfig cfg, CancellationToken ct,
+        Func<ConnectionConfig, bool, CancellationToken, Task<T>> op)
     {
         if (cfg.UseTls)
         {
@@ -228,15 +236,13 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             {
                 using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 tlsCts.CancelAfter(TimeSpan.FromSeconds(TlsAttemptTimeoutSeconds));
-                var (tcp, stream) = await OpenTransportAsync(cfg, useTls: true, tlsCts.Token);
-                return (tcp, stream, true);
+                return await op(cfg, /* useTls: */ true, tlsCts.Token);
             }
+            catch (SgeAuthException) { throw; }   // wrong creds — no point retrying over plain
             catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
             {
-                // TLS connect/handshake failed or stalled — fall back to plain.
-                // (We do NOT fall back when the *user* cancelled — that's honoured.)
                 logger.LogWarning(
-                    "SGE TLS ({Host}:{TlsPort}) {What}; falling back to plaintext {PlainPort}.",
+                    "SGE login over TLS ({Host}:{TlsPort}) {What}; falling back to plaintext {PlainPort}.",
                     cfg.SgeHost, cfg.SgeTlsPort,
                     ex is OperationCanceledException
                         ? $"stalled past {TlsAttemptTimeoutSeconds}s"
@@ -245,8 +251,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             }
         }
 
-        var (plainTcp, plainStream) = await OpenTransportAsync(cfg, useTls: false, ct);
-        return (plainTcp, plainStream, false);
+        return await op(cfg, /* useTls: */ false, ct);
     }
 
     /// <summary>
