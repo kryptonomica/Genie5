@@ -29,7 +29,7 @@ namespace Genie.Core.Connection;
 /// </summary>
 public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
 {
-    public sealed record SgeResult(string GameHost, int GamePort, string GameKey);
+    public sealed record SgeResult(string GameHost, int GamePort, string GameKey, bool UsedTls = false);
     public sealed record SgeCharacter(string Code, string Name);
 
     /// <summary>
@@ -43,7 +43,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         logger.LogInformation("Listing characters for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        var (tcp, stream) = await ConnectSgeAsync(cfg, ct);
+        var (tcp, stream, _) = await ConnectSgeAsync(cfg, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
@@ -93,7 +93,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         logger.LogInformation("Starting SGE authentication for {Account} on {Game}",
             cfg.AccountName, cfg.GameCode);
 
-        var (tcp, stream) = await ConnectSgeAsync(cfg, ct);
+        var (tcp, stream, usedTls) = await ConnectSgeAsync(cfg, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
 
@@ -176,7 +176,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         // Log at Warning so this is always visible — needed to diagnose WIZ vs STORM differences.
         logger.LogWarning("SGE login response: {LoginResponse}", loginResponse);
 
-        return ParseLoginResponse(loginResponse);
+        return ParseLoginResponse(loginResponse) with { UsedTls = usedTls };
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -220,7 +220,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     /// <see cref="TcpClient"/> (the caller disposes it) plus the read/write
     /// <see cref="Stream"/>.
     /// </summary>
-    private async Task<(TcpClient Tcp, Stream Stream)> ConnectSgeAsync(ConnectionConfig cfg, CancellationToken ct)
+    private async Task<(TcpClient Tcp, Stream Stream, bool UsedTls)> ConnectSgeAsync(ConnectionConfig cfg, CancellationToken ct)
     {
         if (cfg.UseTls)
         {
@@ -228,7 +228,8 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             {
                 using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 tlsCts.CancelAfter(TimeSpan.FromSeconds(TlsAttemptTimeoutSeconds));
-                return await OpenTransportAsync(cfg, useTls: true, tlsCts.Token);
+                var (tcp, stream) = await OpenTransportAsync(cfg, useTls: true, tlsCts.Token);
+                return (tcp, stream, true);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
             {
@@ -244,7 +245,8 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             }
         }
 
-        return await OpenTransportAsync(cfg, useTls: false, ct);
+        var (plainTcp, plainStream) = await OpenTransportAsync(cfg, useTls: false, ct);
+        return (plainTcp, plainStream, false);
     }
 
     /// <summary>

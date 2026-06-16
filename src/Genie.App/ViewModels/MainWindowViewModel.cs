@@ -81,6 +81,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public string             ConnectionStatus { get; private set; } = "Disconnected";
     [Reactive] public bool               IsConnected      { get; private set; }
 
+    /// <summary>Padlock glyph for the status bar showing the login transport:
+    /// 🔒 = TLS (encrypted), 🔓 = plaintext (TLS unavailable), "" = N/A /
+    /// disconnected. <see cref="ConnectionSecurityTip"/> is the hover text.</summary>
+    [Reactive] public string             ConnectionSecurity    { get; private set; } = "";
+    [Reactive] public string             ConnectionSecurityTip { get; private set; } = "";
+
     /// <summary>
     /// Profile that backs the current (or most recent) connection. Set by
     /// <see cref="ConnectAsync"/> when a saved profile was picked in the Connect
@@ -1108,14 +1114,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // so this is the simplest reliable way to make the indicator red.
         this.WhenAnyValue(x => x.ConnectionStatus, x => x.CharacterGuild,
                           x => x.IsRecording, x => x.Display.ShowGuildInTitle,
-                          x => x.IsCapturing)
+                          x => x.IsCapturing, x => x.ConnectionSecurity)
             .Subscribe(_ =>
             {
                 var guild = (Display.ShowGuildInTitle && !string.IsNullOrWhiteSpace(CharacterGuild))
                     ? $" — {CharacterGuild}" : "";
+                var sec   = string.IsNullOrEmpty(ConnectionSecurity) ? "" : $"  {ConnectionSecurity}";
                 var rec   = IsRecording ? "  🔴 REC" : "";
                 var cap   = IsCapturing ? "  🔴 CAP" : "";
-                WindowTitle = $"Genie 5 {Genie.Core.GenieCore.HostVersionString} — {ConnectionStatus}{guild}{rec}{cap}";
+                WindowTitle = $"Genie 5 {Genie.Core.GenieCore.HostVersionString} — {ConnectionStatus}{sec}{guild}{rec}{cap}";
             });
 
         // Compound visibility: ShowRtInCommandBar is true only when the
@@ -2349,6 +2356,34 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             GameText.AddSystemLine($"✖ Connection failed: {detail}");
     }
 
+    /// <summary>
+    /// On a successful connect, tell the user which login transport was used and
+    /// set the status-bar padlock. TLS = encrypted; plaintext means the TLS
+    /// attempt fell back to 7900 (password obfuscated, not encrypted) — flagged
+    /// more prominently because it's a security downgrade worth noticing. Non-SGE
+    /// modes (Lich/DevReplay) report no transport, so no indicator is shown.
+    /// </summary>
+    private void ReportConnectionTransport(string? transport)
+    {
+        if (string.Equals(transport, "TLS", StringComparison.OrdinalIgnoreCase))
+        {
+            ConnectionSecurity    = "🔒";
+            ConnectionSecurityTip = "Login sent over TLS (encrypted).";
+            GameText.AddSystemLine("🔒 Connected over TLS (encrypted).");
+        }
+        else if (string.Equals(transport, "plaintext", StringComparison.OrdinalIgnoreCase))
+        {
+            ConnectionSecurity    = "🔓";
+            ConnectionSecurityTip = "Login sent over plaintext (port 7900) — TLS was unavailable. Your password was obfuscated, not encrypted.";
+            GameText.AddSystemLine("🔓 Connected over plaintext (7900) — TLS (7910) was unavailable; your login was obfuscated, not encrypted.");
+        }
+        else
+        {
+            ConnectionSecurity    = "";
+            ConnectionSecurityTip = "";
+        }
+    }
+
     private async Task ConnectAsync(ConnectionConfig cfg, ConnectionProfile? profile)
     {
         if (_core is not null)
@@ -2400,6 +2435,16 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 // idea why login failed.
                 if (e.Kind == ConnectionEventKind.Error)
                     ReportConnectionFailure(e.Message);
+
+                // On connect, announce the login transport (TLS vs plaintext) and
+                // drive the status-bar padlock. Cleared on disconnect/error.
+                if (e.Kind == ConnectionEventKind.Connected)
+                    ReportConnectionTransport(e.Message);
+                else if (e.Kind is ConnectionEventKind.Disconnected or ConnectionEventKind.Error)
+                {
+                    ConnectionSecurity    = "";
+                    ConnectionSecurityTip = "";
+                }
 
                 // Close any in-flight analyst capture when the session ends, so
                 // its meta sidecar is written rather than left dangling.

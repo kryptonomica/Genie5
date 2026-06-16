@@ -49,6 +49,11 @@ public sealed class GameConnection : IAsyncDisposable
     private readonly Subject<ConnectionEvent> _stateSubject = new();
     public IObservable<ConnectionEvent> StateStream => _stateSubject;
 
+    /// <summary>Transport the most recent SGE login used — "TLS" or "plaintext",
+    /// or null for non-SGE modes (Lich/DevReplay). Carried in the Connected event
+    /// so the UI can show a security indicator.</summary>
+    private string? _authTransport;
+
     // ── Internal state ───────────────────────────────────────────────────────
     private TcpClient?    _tcp;
     private NetworkStream? _networkStream;
@@ -131,7 +136,7 @@ public sealed class GameConnection : IAsyncDisposable
                         $"{_cfg.Mode} login server. Check your network/VPN and that the server is reachable. " +
                         "(Repeated bad-password attempts can briefly rate-limit the login server.)");
                 }
-                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Connected));
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Connected, 0, _authTransport));
                 _readLoop = ReadLoopAsync(ct);
                 return;
             }
@@ -196,6 +201,7 @@ public sealed class GameConnection : IAsyncDisposable
     private async Task EstablishConnectionAsync(CancellationToken ct)
     {
         Cleanup();
+        _authTransport = null;   // set by the SGE path; stays null for Lich/DevReplay
         _tcp = new TcpClient { ReceiveTimeout = _cfg.ReadTimeoutMs };
 
         switch (_cfg.Mode)
@@ -239,6 +245,10 @@ public sealed class GameConnection : IAsyncDisposable
     {
         _log.LogInformation("Authenticating via SGE for {Account}", _cfg.AccountName);
         var sgeResult = await _sge.AuthenticateAsync(_cfg, ct);
+
+        // Remember which transport the login actually used so the UI can show a
+        // TLS / plaintext indicator (the TLS attempt auto-falls-back to plain).
+        _authTransport = sgeResult.UsedTls ? "TLS" : "plaintext";
 
         _log.LogInformation("SGE OK → connecting to game {Host}:{Port}",
             sgeResult.GameHost, sgeResult.GamePort);
