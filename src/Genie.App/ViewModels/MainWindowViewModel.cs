@@ -2370,9 +2370,23 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             .Subscribe(e =>
             {
                 IsConnected      = e.Kind == ConnectionEventKind.Connected;
-                ConnectionStatus = e.Kind == ConnectionEventKind.Connected
-                    ? $"Connected — {Genie.Core.Profiles.CharacterIdentity.Format(cfg.CharacterName, cfg.AccountName)}"
-                    : e.Kind.ToString();
+                ConnectionStatus = e.Kind switch
+                {
+                    ConnectionEventKind.Connected    => $"Connected — {Genie.Core.Profiles.CharacterIdentity.Format(cfg.CharacterName, cfg.AccountName)}",
+                    ConnectionEventKind.Error        => "Connection failed",
+                    ConnectionEventKind.Reconnecting => $"Reconnecting (attempt {e.Attempt})…",
+                    _                                 => e.Kind.ToString(),
+                };
+
+                // Surface the FULL failure reason in the Game window — not just
+                // "Error" in the title bar. GameConnection already carries the
+                // verbose detail (SgeAuthClient produces actionable messages:
+                // bad password / unknown account, PROBLEM 1-4 = billing /
+                // already-logged-in / in-game / unavailable, TLS-handshake and
+                // timeout failures with host:port). Without this the user has no
+                // idea why login failed.
+                if (e.Kind == ConnectionEventKind.Error && !string.IsNullOrWhiteSpace(e.Message))
+                    GameText.AddSystemLine($"✖ Connection failed: {e.Message}");
 
                 // Close any in-flight analyst capture when the session ends, so
                 // its meta sidecar is written rather than left dangling.

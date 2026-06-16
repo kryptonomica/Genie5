@@ -69,8 +69,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             authParts[2].StartsWith("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             var reason = authParts.Length >= 3 ? authParts[2] : authResponse;
-            throw new SgeAuthException(
-                $"SGE auth failed — server replied: {reason}. Check account name and password.");
+            throw new SgeAuthException($"authentication failed — {FriendlyAuthFailure(reason)}");
         }
 
         await StreamWriteAsync(stream, "M\n", ct);
@@ -138,9 +137,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             authParts[2].StartsWith("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             var reason = authParts.Length >= 3 ? authParts[2] : authResponse;
-            throw new SgeAuthException(
-                $"SGE auth failed — server replied: {reason}. " +
-                "Check account name and password.");
+            throw new SgeAuthException($"authentication failed — {FriendlyAuthFailure(reason)}");
         }
 
         // ── Step 5: Game list → select game ─────────────────────────────────
@@ -332,6 +329,20 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         return result;
     }
 
+    /// <summary>
+    /// Turn the raw SGE auth-failure code (PASSWORD / UNKNOWN / other) into a
+    /// specific, actionable message so the user knows exactly what to fix.
+    /// </summary>
+    private static string FriendlyAuthFailure(string reason)
+    {
+        var r = reason.Trim();
+        if (r.Equals("PASSWORD", StringComparison.OrdinalIgnoreCase))
+            return "the password was incorrect. Passwords are case-sensitive — check it and try again.";
+        if (r.StartsWith("UNKNOWN", StringComparison.OrdinalIgnoreCase))
+            return "the account name was not recognized. Use your play.net ACCOUNT name (not your character name).";
+        return $"the server rejected the credentials (replied '{r}'). Check your account name and password.";
+    }
+
     private static SgeResult ParseLoginResponse(string response)
     {
         // Error responses: L\t[optional fields]\tPROBLEM N
@@ -344,13 +355,13 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             var code   = problemField.Trim();
             var detail = code switch
             {
-                "PROBLEM 1" => "Account cannot access this game (billing issue).",
-                "PROBLEM 2" => "Login refused — character may be already logged in, or this login mode is not supported.",
-                "PROBLEM 3" => "Character is currently in game.",
-                "PROBLEM 4" => "Game is unavailable.",
-                _           => $"Server refused login ({code})."
+                "PROBLEM 1" => "your account can't access this game — usually a billing or subscription issue. Verify your subscription at play.net.",
+                "PROBLEM 2" => "this character may already be logged in (if you were just disconnected, wait ~1 minute and retry), or this login mode isn't supported.",
+                "PROBLEM 3" => "this character is currently in game — disconnect the other session first.",
+                "PROBLEM 4" => "the game is unavailable — DragonRealms may be down for maintenance. Try again shortly.",
+                _           => $"the server refused the login ({code})."
             };
-            throw new SgeAuthException($"SGE login refused: {detail}");
+            throw new SgeAuthException($"login refused — {detail} [{code}]");
         }
 
         // Success: L\tOK\tKEY=xxxx\tGAMEHOST=...\tGAMEPORT=...\t...
