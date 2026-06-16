@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -29,6 +30,9 @@ namespace Genie.Core.Connection;
 /// </summary>
 public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
 {
+    /// <summary>Optional sink for human-readable connect-progress lines (timed),
+    /// surfaced to the game window so a stall can be isolated to an exact step.</summary>
+    public Action<string>? Diag { get; set; }
     public sealed record SgeResult(string GameHost, int GamePort, string GameKey, bool UsedTls = false);
     public sealed record SgeCharacter(string Code, string Name);
 
@@ -112,6 +116,12 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         // StreamReader for text responses only; key is read as raw bytes below.
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
 
+        // Per-step timing → game window, so a stall shows exactly which round-trip hung.
+        var sw = Stopwatch.StartNew();
+        long lastMs = 0;
+        void mark(string s) { var n = sw.ElapsedMilliseconds; Diag?.Invoke($"[conn]   {s} (+{n - lastMs}ms)"); lastMs = n; }
+        mark($"{(useTls ? "TLS" : "plain")} transport ready");
+
         // ── Step 1: Request hash key ─────────────────────────────────────────
         await StreamWriteAsync(stream, "K\n", ct);
 
@@ -122,6 +132,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         var nlBuf = new byte[1];
         _ = await stream.ReadAsync(nlBuf, ct);
         logger.LogDebug("Received hash key (32 bytes)");
+        mark("→K  ←32-byte key");
 
         // ── Step 3: Send encrypted password as raw bytes ─────────────────────
         // Format: "A\t{ACCOUNT}\t" + raw_encrypted_password_bytes + "\n"
@@ -153,6 +164,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             var reason = authParts.Length >= 3 ? authParts[2] : authResponse;
             throw new SgeAuthException($"authentication failed — {FriendlyAuthFailure(reason)}");
         }
+        mark("→auth  ←account validated");
 
         // ── Step 5: Game list → select game ─────────────────────────────────
         await StreamWriteAsync(stream, "M\n", ct);
@@ -162,11 +174,13 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         await StreamWriteAsync(stream, $"G\t{cfg.GameCode}\n", ct);
         var gameResponse = await ReadLineAsync(reader, ct);
         logger.LogDebug("Game select: {GameResponse}", gameResponse);
+        mark("→M/G  ←game selected");
 
         // ── Step 6: Character list ───────────────────────────────────────────
         await StreamWriteAsync(stream, "C\n", ct);
         var charList = await ReadLineAsync(reader, ct);
         logger.LogDebug("Character list: {CharList}", charList);
+        mark("→C  ←character list");
 
         var characters = ParseCharacterList(charList);
         var charCode   = characters.FirstOrDefault(c =>
@@ -187,6 +201,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         var loginResponse = await ReadLineAsync(reader, ct);
         // Log at Warning so this is always visible — needed to diagnose WIZ vs STORM differences.
         logger.LogWarning("SGE login response: {LoginResponse}", loginResponse);
+        mark("→L  ←login token");
 
         return ParseLoginResponse(loginResponse) with { UsedTls = useTls };
     }
@@ -232,25 +247,28 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     {
         if (cfg.UseTls)
         {
+            var sw = Stopwatch.StartNew();
             try
             {
+                Diag?.Invoke($"[conn] trying TLS → {cfg.SgeHost}:{cfg.SgeTlsPort} (≤{TlsAttemptTimeoutSeconds}s)…");
                 using var tlsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 tlsCts.CancelAfter(TimeSpan.FromSeconds(TlsAttemptTimeoutSeconds));
-                return await op(cfg, /* useTls: */ true, tlsCts.Token);
+                var r = await op(cfg, /* useTls: */ true, tlsCts.Token);
+                Diag?.Invoke($"[conn] TLS login OK in {sw.ElapsedMilliseconds}ms");
+                return r;
             }
             catch (SgeAuthException) { throw; }   // wrong creds — no point retrying over plain
             catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
             {
-                logger.LogWarning(
-                    "SGE login over TLS ({Host}:{TlsPort}) {What}; falling back to plaintext {PlainPort}.",
-                    cfg.SgeHost, cfg.SgeTlsPort,
-                    ex is OperationCanceledException
-                        ? $"stalled past {TlsAttemptTimeoutSeconds}s"
-                        : $"failed: {ex.Message}",
-                    cfg.SgePort);
+                var why = ex is OperationCanceledException ? $"stalled past {TlsAttemptTimeoutSeconds}s"
+                                                           : $"failed ({ex.GetType().Name}: {ex.Message})";
+                Diag?.Invoke($"[conn] TLS {why} after {sw.ElapsedMilliseconds}ms → falling back to plaintext {cfg.SgePort}…");
+                logger.LogWarning("SGE login over TLS ({Host}:{TlsPort}) {What}; falling back to plaintext {PlainPort}.",
+                    cfg.SgeHost, cfg.SgeTlsPort, why, cfg.SgePort);
             }
         }
 
+        Diag?.Invoke($"[conn] connecting plaintext → {cfg.SgeHost}:{cfg.SgePort}…");
         return await op(cfg, /* useTls: */ false, ct);
     }
 
@@ -271,9 +289,12 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
             if (useTls)
             {
                 // The whole TLS attempt is already bounded by the caller's token.
+                var swT = Stopwatch.StartNew();
                 await tcp.ConnectAsync(cfg.SgeHost, port, ct);
+                Diag?.Invoke($"[conn]   TCP {port} connected (+{swT.ElapsedMilliseconds}ms)");
 
                 var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false, ValidateSgeCertificate);
+                var hsStart = swT.ElapsedMilliseconds;
                 try
                 {
                     await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
@@ -283,6 +304,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
                     }, ct);
                 }
                 catch { ssl.Dispose(); throw; }
+                Diag?.Invoke($"[conn]   TLS handshake done (+{swT.ElapsedMilliseconds - hsStart}ms)");
 
                 logger.LogDebug("SGE TLS established: {Protocol} / {Cipher}",
                     ssl.SslProtocol, ssl.NegotiatedCipherSuite);

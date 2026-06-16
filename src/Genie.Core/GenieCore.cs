@@ -161,6 +161,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// <summary>Connection lifecycle events.</summary>
     public IObservable<ConnectionEvent> ConnectionState => _connection.StateStream;
 
+    /// <summary>Timed connect-progress sink (TLS attempt, per-step SGE timings,
+    /// fallback, game-server connect) surfaced to the game window so a stall can
+    /// be isolated to an exact step. Set by the host before connecting.</summary>
+    public Action<string>? ConnectionDiag
+    {
+        get => _connection.Diag;
+        set => _connection.Diag = value;
+    }
+
     /// <summary>Current live game state snapshot.</summary>
     public Models.GameState             State           => _stateEngine.State;
 

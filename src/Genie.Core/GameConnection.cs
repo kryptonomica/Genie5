@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Reactive.Subjects;
 using System.Text;
@@ -53,6 +54,15 @@ public sealed class GameConnection : IAsyncDisposable
     /// or null for non-SGE modes (Lich/DevReplay). Carried in the Connected event
     /// so the UI can show a security indicator.</summary>
     private string? _authTransport;
+
+    private Action<string>? _diag;
+    /// <summary>Human-readable, timed connect-progress sink surfaced to the game
+    /// window. Forwarded to the SGE client so its per-step timings show too.</summary>
+    public Action<string>? Diag
+    {
+        get => _diag;
+        set { _diag = value; _sge.Diag = value; }
+    }
 
     // ── Internal state ───────────────────────────────────────────────────────
     private TcpClient?    _tcp;
@@ -252,11 +262,14 @@ public sealed class GameConnection : IAsyncDisposable
 
         _log.LogInformation("SGE OK → connecting to game {Host}:{Port}",
             sgeResult.GameHost, sgeResult.GamePort);
+        _diag?.Invoke($"[conn] SGE OK ({_authTransport}) → game {sgeResult.GameHost}:{sgeResult.GamePort}");
 
         ResolvedGameHost = sgeResult.GameHost;
         ResolvedGamePort = sgeResult.GamePort;
 
+        var swG = Stopwatch.StartNew();
         await _tcp!.ConnectAsync(sgeResult.GameHost, sgeResult.GamePort, ct);
+        _diag?.Invoke($"[conn]   game server connected (+{swG.ElapsedMilliseconds}ms)");
         _networkStream = _tcp.GetStream();
 
         // Send the key (plain ASCII, terminated with '\n') to prove identity.

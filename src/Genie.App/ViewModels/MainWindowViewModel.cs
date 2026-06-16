@@ -2692,6 +2692,13 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                     GameText.AddStreamLine(e.Stream, e.Text);
             });
 
+        // Surface timed connect-progress (TLS attempt, per-SGE-step timings,
+        // fallback, game-server connect) into the game window so a stall can be
+        // pinned to an exact step. Marshalled to the UI thread (fires from the
+        // connection's background task).
+        _core.ConnectionDiag = msg =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg));
+
         await _core.ConnectAsync();
     }
 
