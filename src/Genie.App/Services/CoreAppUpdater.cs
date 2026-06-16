@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Genie.Core.Update;
 using Velopack;
@@ -51,6 +52,18 @@ public sealed class CoreAppUpdater : IUpdater
     private readonly string        _channel;
     private readonly string?       _platformChannel;
     private          UpdateInfo?   _pendingUpdate;
+
+    /// <summary>How long the download percent may sit unchanged before the
+    /// watchdog flips the bar to an indeterminate "still working" state.
+    /// Long enough to ride out normal network jitter, short enough that the
+    /// reconstruction tail doesn't read as frozen.</summary>
+    private static readonly TimeSpan StallThreshold = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>Percent at/above which a plateau is treated as the delta
+    /// reconstruction tail rather than a stalled download. Heuristic, tied to
+    /// Velopack's roughly-70/30 download-vs-reconstruct weighting of its single
+    /// progress scalar — only affects the label shown, not behaviour.</summary>
+    private const int PatchPhaseStartPercent = 60;
 
     public string Name => "Genie 5";
 
@@ -177,16 +190,51 @@ public sealed class CoreAppUpdater : IUpdater
                     Errors:    Array.Empty<string>());
             }
 
-            // Velopack reports download progress as int 0–100 via Action<int>.
-            // Bridge into the framework's UpdateProgress shape so the dialog
-            // row displays a consistent format.
-            void OnVpkProgress(int pct) =>
+            // Velopack hands us a SINGLE int 0–100 from DownloadUpdatesAsync
+            // that folds two very different operations together: the HTTP
+            // download of the delta/base packages (incremental, ~0–70%) and
+            // the CPU-bound delta *reconstruction* that rebuilds the full
+            // package on disk (the ~70–100% tail, which reports NOTHING). The
+            // raw percent therefore parks at ~70% during reconstruction and
+            // then jumps to 100, which reads as "stuck". We break that out:
+            //   • report the climbing percent as a determinate "Downloading" bar
+            //   • a watchdog detects the plateau and re-reports the phase as an
+            //     indeterminate "Applying patch…" so the bar keeps moving and
+            //     the label explains the wait
+            //   • then name the post-download beats (Verifying → Restarting).
+            int lastPct       = -1;
+            var sinceAdvance  = Stopwatch.StartNew();
+            var stallReported = false;
+
+            void OnVpkProgress(int pct)
+            {
+                lastPct = pct;
+                sinceAdvance.Restart();
+                stallReported = false;
                 progress?.Report(new UpdateProgress(pct, 100, "Downloading", $"{pct}%"));
+            }
+
+            // Fires off the UI thread; the Progress<T> in the VM marshals back.
+            using var watchdog = new System.Threading.Timer(_ =>
+            {
+                if (stallReported || lastPct is < 0 or >= 100) return;
+                if (sinceAdvance.Elapsed < StallThreshold) return;
+
+                stallReported = true;
+                // A plateau high in the range is the reconstruction tail; a
+                // plateau low down is a stalled download. Both get a marquee so
+                // the bar isn't frozen, but the label stays honest about which.
+                var (item, status) = lastPct >= PatchPhaseStartPercent
+                    ? ("Applying patch", "reconstructing package…")
+                    : ("Downloading",    "waiting for data…");
+                progress?.Report(new UpdateProgress(lastPct, 100, item, status, Indeterminate: true));
+            }, null, StallThreshold, TimeSpan.FromMilliseconds(500));
 
             progress?.Report(new UpdateProgress(0, 100, "Downloading", "starting…"));
             await _mgr.DownloadUpdatesAsync(_pendingUpdate, OnVpkProgress, cancelToken: ct);
 
-            progress?.Report(new UpdateProgress(100, 100, "Applying", "restarting…"));
+            progress?.Report(new UpdateProgress(100, 100, "Verifying", "verifying package…", Indeterminate: true));
+            progress?.Report(new UpdateProgress(100, 100, "Restarting", "relaunching…", Indeterminate: true));
             // Fire-and-forget — process exits inside this call after
             // launching the Velopack updater. The next two lines are only
             // reached if the relaunch hasn't kicked in yet (rare).

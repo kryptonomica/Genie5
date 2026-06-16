@@ -67,6 +67,23 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
     /// <summary>Bound to the channel ComboBox. Persisted on change to <see cref="CoreFeed.Channel"/>.</summary>
     [Reactive] public string CoreChannel { get; set; } = "beta";
 
+    /// <summary>0–100 fill for the Core progress bar. Driven by the
+    /// <see cref="UpdateProgress"/> stream during an update.</summary>
+    [Reactive] public double CoreProgress { get; private set; }
+
+    /// <summary>True when the current phase has no measurable fraction (the
+    /// delta-reconstruction tail, verify, restart) — the bar renders as a
+    /// marquee instead of a fill so it never looks frozen.</summary>
+    [Reactive] public bool   CoreProgressIndeterminate { get; private set; }
+
+    /// <summary>Gates the progress bar's visibility — shown only while an
+    /// update is actually running, hidden at rest.</summary>
+    [Reactive] public bool   CoreProgressActive { get; private set; }
+
+    /// <summary>The current phase label ("Downloading", "Applying patch",
+    /// "Verifying", "Restarting") shown beside the bar.</summary>
+    [Reactive] public string CoreProgressPhase { get; private set; } = "";
+
     public IReadOnlyList<string> AvailableChannels { get; } = new[] { "stable", "beta" };
 
     public ReactiveCommand<Unit, Unit> CheckCoreCommand  { get; private set; } = null!;
@@ -190,12 +207,20 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
 
     private async Task UpdateCoreAsync()
     {
-        CoreIsBusy = true;
+        CoreIsBusy         = true;
+        CoreProgressActive = true;
         try
         {
             var progress = new Progress<UpdateProgress>(p =>
                 Dispatcher.UIThread.Post(() =>
-                    Status = $"Core: {p.Item} — {p.Status}"));
+                {
+                    CoreProgressPhase         = p.Item;
+                    CoreProgressIndeterminate = p.Indeterminate || p.Total <= 0;
+                    CoreProgress              = p.Total > 0
+                        ? Math.Clamp(p.Current * 100.0 / p.Total, 0, 100)
+                        : 0;
+                    Status = $"Core: {p.Item} — {p.Status}";
+                }));
             var r = await _coreUpdater.ApplyAsync(progress);
             Status = r.Summary;
             // On success Velopack should be relaunching the app — execution past
@@ -203,7 +228,11 @@ public sealed class UpdatesDialogViewModel : ReactiveObject
             // another download race in the brief window before exit.
         }
         catch (Exception ex) { Status = $"Core update failed: {ex.Message}"; }
-        finally { CoreIsBusy = false; }
+        finally
+        {
+            CoreIsBusy         = false;
+            CoreProgressActive = false;
+        }
     }
 
     // ── Row construction ───────────────────────────────────────────────────

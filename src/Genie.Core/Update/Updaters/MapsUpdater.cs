@@ -119,7 +119,9 @@ public sealed class MapsUpdater : IUpdater
         Directory.CreateDirectory(_mapsDir);
 
         // First pass across all sources: build a flat work list so progress
-        // counters reflect the real total, not per-source totals.
+        // counters reflect the real total, not per-source totals. The total
+        // isn't known yet, so report this beat as indeterminate (marquee).
+        progress?.Report(new UpdateProgress(0, 0, "Listing", "fetching file list…", Indeterminate: true));
         var workItems = new List<(IFileListSource Source, FileEntry Entry)>();
         var errors    = new List<string>();
 

@@ -64,9 +64,28 @@ public sealed record UpdateApplyResult(
     string                Summary,
     IReadOnlyList<string> Errors);
 
-/// <summary>One unit of work in an apply pass — file N of M, with a short status word.</summary>
+/// <summary>
+/// One unit of work in an apply pass — file N of M, with a short status word.
+/// </summary>
+/// <param name="Current">Work units done so far (or a 0–100 percent for sources
+///   that only report a single scalar, like Velopack's download callback).</param>
+/// <param name="Total">Total work units. <see cref="Current"/>/<see cref="Total"/>
+///   gives the determinate bar fraction. A <see cref="Total"/> of 0 (or
+///   <see cref="Indeterminate"/> = true) means "no measurable fraction — show a
+///   marquee".</param>
+/// <param name="Item">The phase or item label — "Downloading", "Applying patch",
+///   "Verifying", a filename, etc. Drives the leading word in the status line.</param>
+/// <param name="Status">Short human-readable detail for this beat ("70%",
+///   "merged", "reconstructing package…").</param>
+/// <param name="Indeterminate">
+///   True when there's no meaningful fraction to show and the UI should render an
+///   indeterminate (marquee) bar instead of a filled one. Set during phases that
+///   run with no sub-progress — Velopack's delta-reconstruction tail (which is
+///   what makes the raw percent appear frozen at ~70%), a plugin download, or a
+///   maps file-listing pass before the work total is known.</param>
 public sealed record UpdateProgress(
     int    Current,
     int    Total,
     string Item,
-    string Status);
+    string Status,
+    bool   Indeterminate = false);

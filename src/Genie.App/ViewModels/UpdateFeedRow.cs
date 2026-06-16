@@ -47,6 +47,17 @@ public sealed class UpdateFeedRow : ReactiveObject
     [Reactive] public string Status   { get; private set; } = "";
     [Reactive] public bool   IsBusy   { get; private set; }
 
+    /// <summary>0–100 fill for the row's inline progress bar.</summary>
+    [Reactive] public double Progress              { get; private set; }
+
+    /// <summary>True for unmeasured phases (plugin download, maps file-listing,
+    /// or a Check poll) — the bar renders as a marquee instead of a fill.</summary>
+    [Reactive] public bool   ProgressIndeterminate { get; private set; }
+
+    /// <summary>Gates the inline bar's visibility — shown only while this row is
+    /// checking or updating, hidden at rest.</summary>
+    [Reactive] public bool   ProgressActive        { get; private set; }
+
     public ReactiveCommand<Unit, Unit> CheckCommand  { get; }
     public ReactiveCommand<Unit, Unit> UpdateCommand { get; }
     public ReactiveCommand<Unit, Unit> RemoveCommand { get; }
@@ -81,27 +92,49 @@ public sealed class UpdateFeedRow : ReactiveObject
     private async Task RunCheck()
     {
         IsBusy = true;
+        // A check is a single cheap poll with no fraction — show a marquee.
+        ProgressActive        = true;
+        ProgressIndeterminate = true;
         try
         {
             Status = "Checking…";
             Status = await _check(_feed, CancellationToken.None);
         }
         catch (Exception ex) { Status = $"Error: {ex.Message}"; }
-        finally { IsBusy = false; }
+        finally
+        {
+            IsBusy         = false;
+            ProgressActive = false;
+        }
     }
 
     private async Task RunUpdate()
     {
-        IsBusy = true;
+        IsBusy         = true;
+        ProgressActive = true;
         try
         {
             var progress = new Progress<UpdateProgress>(p =>
                 Dispatcher.UIThread.Post(() =>
-                    Status = $"[{p.Current}/{p.Total}] {p.Item} — {p.Status}"));
+                {
+                    ProgressIndeterminate = p.Indeterminate || p.Total <= 0;
+                    Progress              = p.Total > 0
+                        ? Math.Clamp(p.Current * 100.0 / p.Total, 0, 100)
+                        : 0;
+                    // Maps report a real N/M; show it. Plugins run unmeasured
+                    // steps where the counter is just 0/1 → omit the noise.
+                    Status = p.Indeterminate || p.Total <= 1
+                        ? $"{p.Item} — {p.Status}"
+                        : $"[{p.Current}/{p.Total}] {p.Item} — {p.Status}";
+                }));
 
             Status = await _apply(_feed, progress, CancellationToken.None);
         }
         catch (Exception ex) { Status = $"Error: {ex.Message}"; }
-        finally { IsBusy = false; }
+        finally
+        {
+            IsBusy         = false;
+            ProgressActive = false;
+        }
     }
 }

@@ -110,7 +110,10 @@ public sealed class PluginUpdater : IUpdater
         ReleaseInfo? latest;
         try
         {
-            progress?.Report(new UpdateProgress(0, 1, _feed.Name, "checking"));
+            // Each plugin step is a discrete, unmeasured operation (the asset
+            // download doesn't stream a percent), so every beat is reported
+            // indeterminate — a marquee bar rather than a 0%-then-100% jump.
+            progress?.Report(new UpdateProgress(0, 1, _feed.Name, "checking", Indeterminate: true));
             latest = await _source.GetLatestReleaseAsync(_channel, ct);
         }
         catch (Exception ex)
@@ -132,7 +135,7 @@ public sealed class PluginUpdater : IUpdater
         byte[] bytes;
         try
         {
-            progress?.Report(new UpdateProgress(0, 1, asset.Name, "downloading"));
+            progress?.Report(new UpdateProgress(0, 1, asset.Name, "downloading", Indeterminate: true));
             bytes = await _source.DownloadAssetAsync(asset, ct);
         }
         catch (Exception ex)
@@ -158,14 +161,14 @@ public sealed class PluginUpdater : IUpdater
 
             if (pluginId is not null)
             {
-                progress?.Report(new UpdateProgress(0, 1, _feed.Name, "unloading"));
+                progress?.Report(new UpdateProgress(0, 1, _feed.Name, "unloading", Indeterminate: true));
                 wasLoaded = _manager.Unload(pluginId);
             }
         }
 
         try
         {
-            progress?.Report(new UpdateProgress(0, 1, asset.Name, "writing"));
+            progress?.Report(new UpdateProgress(0, 1, asset.Name, "writing", Indeterminate: true));
             File.WriteAllBytes(localPath, bytes);
         }
         catch (Exception ex)
@@ -178,7 +181,7 @@ public sealed class PluginUpdater : IUpdater
         var reloaded = false;
         if (wasLoaded && _manager is not null)
         {
-            progress?.Report(new UpdateProgress(1, 1, _feed.Name, "reloading"));
+            progress?.Report(new UpdateProgress(1, 1, _feed.Name, "reloading", Indeterminate: true));
             reloaded = _manager.LoadFile(localPath);
         }
 

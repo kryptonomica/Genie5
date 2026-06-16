@@ -25,12 +25,18 @@
           <TextBlock Text="{Binding Source}" FontSize="11" Foreground="#9aa"/>
         </StackPanel>
 
-        <TextBlock Grid.Column="2"
-                   Text="{Binding Status}"
-                   FontSize="11" Foreground="#9c9"
-                   TextWrapping="Wrap"
-                   VerticalAlignment="Center"
-                   Margin="8,0"/>
+        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="8,0" Spacing="3">
+          <TextBlock Text="{Binding Status}"
+                     FontSize="11" Foreground="#9c9"
+                     TextWrapping="Wrap"/>
+          <!-- Inline bar: determinate for Maps (real N/M), marquee for the
+               unmeasured plugin steps and Check polls. Hidden at rest. -->
+          <ProgressBar Minimum="0" Maximum="100"
+                       Value="{Binding Progress}"
+                       IsIndeterminate="{Binding ProgressIndeterminate}"
+                       IsVisible="{Binding ProgressActive}"
+                       Height="4"/>
+        </StackPanel>
 
         <Button    Grid.Column="3" Content="Check"
                    Command="{Binding CheckCommand}"
@@ -86,13 +92,32 @@
                        Foreground="#9c9" TextWrapping="Wrap"/>
           </Grid>
 
-          <!-- Action buttons. Check is always available (cheap GitHub poll).
-               Update is gated on CoreCanUpdate (running from a Velopack install)
-               AND CoreUpdateAvailable (last Check found something newer). -->
-          <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
-            <Button Content="Check"  Command="{Binding CheckCoreCommand}"  MinWidth="80"/>
-            <Button Content="Update and Restart" Command="{Binding UpdateCoreCommand}" MinWidth="160"
-                    ToolTip.Tip="Download the new version, then restart Genie 5 in place."/>
+          <!-- Action buttons + live progress. Check is always available (cheap
+               GitHub poll). Update is gated on CoreCanUpdate (running from a
+               Velopack install) AND CoreUpdateAvailable (last Check found
+               something newer). The progress block appears only while an update
+               runs; the bar goes indeterminate during the delta-reconstruction
+               tail so it never reads as frozen at ~70%. -->
+          <StackPanel Grid.Row="5" Spacing="8" Margin="0,12,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Check"  Command="{Binding CheckCoreCommand}"  MinWidth="80"/>
+              <Button Content="Update and Restart" Command="{Binding UpdateCoreCommand}" MinWidth="160"
+                      ToolTip.Tip="Download the new version, then restart Genie 5 in place."/>
+            </StackPanel>
+
+            <Grid ColumnDefinitions="*,Auto"
+                  IsVisible="{Binding CoreProgressActive}"
+                  Margin="0,4,0,0">
+              <ProgressBar Grid.Column="0"
+                           Minimum="0" Maximum="100"
+                           Value="{Binding CoreProgress}"
+                           IsIndeterminate="{Binding CoreProgressIndeterminate}"
+                           Height="6" VerticalAlignment="Center"/>
+              <TextBlock   Grid.Column="1"
+                           Text="{Binding CoreProgressPhase}"
+                           Foreground="#9cb" FontSize="11"
+                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </Grid>
           </StackPanel>
 
           <!-- Dev-build advisory: shows only when CoreCanUpdate is false.
