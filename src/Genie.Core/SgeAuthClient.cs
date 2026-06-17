@@ -33,6 +33,15 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
     /// <summary>Optional sink for human-readable connect-progress lines (timed),
     /// surfaced to the game window so a stall can be isolated to an exact step.</summary>
     public Action<string>? Diag { get; set; }
+
+    /// <summary>When <c>true</c>, the granular per-step protocol marks
+    /// (<c>→K sent</c>, <c>←32-byte key</c>, <c>→auth</c>, TCP/TLS handshake
+    /// timings…) are emitted to <see cref="Diag"/>. The high-level status lines
+    /// (trying TLS, login OK, fallback, connected + padlock) emit regardless.
+    /// Off by default — toggled via <c>#config conndebug true</c> so a user
+    /// hitting a connection stall can capture a full trace on demand without
+    /// every normal login spamming the game window.</summary>
+    public bool VerboseDiag { get; set; }
     public sealed record SgeResult(string GameHost, int GamePort, string GameKey, bool UsedTls = false);
     public sealed record SgeCharacter(string Code, string Name);
 
@@ -120,7 +129,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         // Per-step timing → game window, so a stall shows exactly which round-trip hung.
         var sw = Stopwatch.StartNew();
         long lastMs = 0;
-        void mark(string s) { var n = sw.ElapsedMilliseconds; Diag?.Invoke($"[conn]   {s} (+{n - lastMs}ms)"); lastMs = n; }
+        void mark(string s) { var n = sw.ElapsedMilliseconds; if (VerboseDiag) Diag?.Invoke($"[conn]   {s} (+{n - lastMs}ms)"); lastMs = n; }
         mark($"{(useTls ? "TLS" : "plain")} transport ready");
 
         // ── Step 1: Request hash key ─────────────────────────────────────────
@@ -303,7 +312,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
                 // The whole TLS attempt is already bounded by the caller's token.
                 var swT = Stopwatch.StartNew();
                 await tcp.ConnectAsync(cfg.SgeHost, port, ct);
-                Diag?.Invoke($"[conn]   TCP {port} connected (+{swT.ElapsedMilliseconds}ms)");
+                if (VerboseDiag) Diag?.Invoke($"[conn]   TCP {port} connected (+{swT.ElapsedMilliseconds}ms)");
 
                 var ssl = new SslStream(tcp.GetStream(), leaveInnerStreamOpen: false, ValidateSgeCertificate);
                 var hsStart = swT.ElapsedMilliseconds;
@@ -316,7 +325,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
                     }, ct);
                 }
                 catch { ssl.Dispose(); throw; }
-                Diag?.Invoke($"[conn]   TLS handshake done (+{swT.ElapsedMilliseconds - hsStart}ms)");
+                if (VerboseDiag) Diag?.Invoke($"[conn]   TLS handshake done (+{swT.ElapsedMilliseconds - hsStart}ms)");
 
                 logger.LogDebug("SGE TLS established: {Protocol} / {Cipher}",
                     ssl.SslProtocol, ssl.NegotiatedCipherSuite);

@@ -170,6 +170,16 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         set => _connection.Diag = value;
     }
 
+    /// <summary>When <c>true</c>, the granular per-step SGE marks are emitted to
+    /// <see cref="ConnectionDiag"/> alongside the always-on high-level status
+    /// lines. Driven by <c>#config conndebug</c>; set by the host before
+    /// connecting.</summary>
+    public bool ConnectionVerboseDiag
+    {
+        get => _connection.VerboseDiag;
+        set => _connection.VerboseDiag = value;
+    }
+
     /// <summary>Current live game state snapshot.</summary>
     public Models.GameState             State           => _stateEngine.State;
 

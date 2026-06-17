@@ -64,6 +64,15 @@ public sealed class GameConnection : IAsyncDisposable
         set { _diag = value; _sge.Diag = value; }
     }
 
+    /// <summary>Gates the granular per-step SGE marks (off by default; the
+    /// high-level connect status lines always emit). Forwarded to the SGE
+    /// client. Driven by <c>#config conndebug</c>.</summary>
+    public bool VerboseDiag
+    {
+        get => _sge.VerboseDiag;
+        set => _sge.VerboseDiag = value;
+    }
+
     // ── Internal state ───────────────────────────────────────────────────────
     private TcpClient?    _tcp;
     private NetworkStream? _networkStream;

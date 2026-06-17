@@ -2699,6 +2699,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         _core.ConnectionDiag = msg =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg));
 
+        // Granular per-step SGE marks only when the user opts in (#config
+        // conndebug true). The high-level status lines (trying TLS / login OK /
+        // fallback / 🔒 connected) always show regardless.
+        _core.ConnectionVerboseDiag = _core.Config.ConnDebug;
+
         await _core.ConnectAsync();
     }
 

@@ -44,6 +44,14 @@ public sealed class GenieConfig
     public bool AutoMapper { get; set; } = true;
     public int AutoMapperAlpha { get; set; } = 255;
 
+    /// <summary>When <c>true</c>, the connection sequence emits its granular
+    /// per-step SGE protocol marks (<c>→K sent</c>, <c>←32-byte key</c>,
+    /// <c>→auth</c>, TCP/TLS handshake timings…) into the game window. The
+    /// high-level connect status lines show regardless. Default OFF — a normal
+    /// login stays quiet; flip on to capture a full trace when diagnosing a
+    /// connection stall (<c>#config conndebug true</c>).</summary>
+    public bool ConnDebug { get; set; }
+
     /// <summary>
     /// Optional safeguard for click-to-walk / <c>#goto</c> traversal: when
     /// <c>true</c>, an in-progress auto-walk pauses itself after the window
@@ -221,6 +229,7 @@ public sealed class GenieConfig
         ("autolog", AutoLog.ToString()),
         ("automapper", AutoMapper.ToString()),
         ("automapperalpha", AutoMapperAlpha.ToString()),
+        ("conndebug", ConnDebug.ToString()),
         ("editor", Editor),
         ("prompt", Prompt),
         ("promptbreak", PromptBreak.ToString()),
@@ -336,6 +345,7 @@ public sealed class GenieConfig
                 case "parsegameonly": ParseGameOnly = ToBool(value); break;
                 case "automapper": AutoMapper = ToBool(value); Notify(ConfigFieldUpdated.AutoMapper); break;
                 case "automapperalpha": AutoMapperAlpha = ClampAlpha(value); Notify(ConfigFieldUpdated.AutoMapper); break;
+                case "conndebug": ConnDebug = ToBool(value); break;
                 case "showlinks": ShowLinks = ToBool(value); break;
                 case "showimages": ShowImages = ToBool(value); Notify(ConfigFieldUpdated.ImagesEnabled); break;
                 case "sizeinputtogame": SizeInputToGame = ToBool(value); Notify(ConfigFieldUpdated.SizeInputToGame); break;
