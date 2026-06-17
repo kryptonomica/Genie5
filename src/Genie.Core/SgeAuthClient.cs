@@ -130,10 +130,19 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         var keyBuf = new byte[32];
         await ReadExactAsync(stream, keyBuf, ct);
         mark("←32-byte key");
-        // Consume the trailing \n the plain-TCP server appends after the key.
-        var nlBuf = new byte[1];
-        _ = await stream.ReadAsync(nlBuf, ct);
-        mark("←trailing newline");
+        // Plaintext (7900) appends a trailing '\n' after the 32-byte key — 33 bytes
+        // total — but the TLS endpoint (7910) sends the 32 key bytes ONLY (verified
+        // live: this 1-byte read hangs forever over TLS, instant over plain). So
+        // consume the newline only on the transport that actually sends it;
+        // otherwise we block on a byte that never arrives and the whole TLS login
+        // stalls. (This was the TLS "intermittent stall" — a protocol-framing bug,
+        // not server latency.)
+        if (!useTls)
+        {
+            var nlBuf = new byte[1];
+            _ = await stream.ReadAsync(nlBuf, ct);
+        }
+        mark(useTls ? "←(no trailing newline over TLS)" : "←trailing newline");
         logger.LogDebug("Received hash key (32 bytes)");
 
         // ── Step 3: Send encrypted password as raw bytes ─────────────────────
