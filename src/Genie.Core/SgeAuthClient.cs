@@ -56,13 +56,17 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         var (tcp, stream) = await OpenTransportAsync(cfg, useTls, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
-        using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
 
         await StreamWriteAsync(stream, "K\n", ct);
         var keyBuf = new byte[32];
         await ReadExactAsync(stream, keyBuf, ct);
-        var nlBuf = new byte[1];
-        _ = await stream.ReadAsync(nlBuf, ct);
+        // Plaintext appends a trailing '\n' after the key; TLS does not — only
+        // consume it on the transport that sends it (see ReadLineAsync).
+        if (!useTls)
+        {
+            var nlBuf = new byte[1];
+            _ = await stream.ReadAsync(nlBuf, ct);
+        }
 
         var prefix  = Encoding.ASCII.GetBytes($"A\t{cfg.AccountName.ToUpper()}\t");
         var encPw   = EncryptPassword(cfg.AccountPassword, keyBuf);
@@ -73,7 +77,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         await stream.WriteAsync(authMsg, ct);
         await stream.FlushAsync(ct);
 
-        var authResponse = await ReadLineAsync(reader, ct);
+        var authResponse = await ReadLineAsync(stream, useTls, ct);
         var authParts = authResponse.Split('\t');
         if (!authResponse.StartsWith("A\t") || authParts.Length < 3 ||
             authParts[2].Equals("PASSWORD", StringComparison.OrdinalIgnoreCase) ||
@@ -84,13 +88,13 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         }
 
         await StreamWriteAsync(stream, "M\n", ct);
-        await ReadLineAsync(reader, ct); // game list — discard
+        await ReadLineAsync(stream, useTls, ct); // game list — discard
 
         await StreamWriteAsync(stream, $"G\t{cfg.GameCode}\n", ct);
-        await ReadLineAsync(reader, ct); // game select — discard
+        await ReadLineAsync(stream, useTls, ct); // game select — discard
 
         await StreamWriteAsync(stream, "C\n", ct);
-        var charList = await ReadLineAsync(reader, ct);
+        var charList = await ReadLineAsync(stream, useTls, ct);
         logger.LogDebug("Character list: {CharList}", charList);
 
         return ParseCharacterList(charList);
@@ -112,9 +116,6 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         var (tcp, stream) = await OpenTransportAsync(cfg, useTls, ct);
         using var ownedTcp    = tcp;
         using var ownedStream = stream;
-
-        // StreamReader for text responses only; key is read as raw bytes below.
-        using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
 
         // Per-step timing → game window, so a stall shows exactly which round-trip hung.
         var sw = Stopwatch.StartNew();
@@ -159,7 +160,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         await stream.FlushAsync(ct);
 
         // ── Step 4: Account validation ───────────────────────────────────────
-        var authResponse = await ReadLineAsync(reader, ct);
+        var authResponse = await ReadLineAsync(stream, useTls, ct);
         logger.LogDebug("Auth response: {AuthResponse}", authResponse);
 
         if (!authResponse.StartsWith("A\t"))
@@ -179,17 +180,17 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
 
         // ── Step 5: Game list → select game ─────────────────────────────────
         await StreamWriteAsync(stream, "M\n", ct);
-        var gameList = await ReadLineAsync(reader, ct);
+        var gameList = await ReadLineAsync(stream, useTls, ct);
         logger.LogDebug("Game list: {GameList}", gameList);
 
         await StreamWriteAsync(stream, $"G\t{cfg.GameCode}\n", ct);
-        var gameResponse = await ReadLineAsync(reader, ct);
+        var gameResponse = await ReadLineAsync(stream, useTls, ct);
         logger.LogDebug("Game select: {GameResponse}", gameResponse);
         mark("→M/G  ←game selected");
 
         // ── Step 6: Character list ───────────────────────────────────────────
         await StreamWriteAsync(stream, "C\n", ct);
-        var charList = await ReadLineAsync(reader, ct);
+        var charList = await ReadLineAsync(stream, useTls, ct);
         logger.LogDebug("Character list: {CharList}", charList);
         mark("→C  ←character list");
 
@@ -209,7 +210,7 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         // Plain-text output is achieved by NOT sending the FE:/XML announcement
         // after the game server connection, which GameConnection handles via ClientMode.
         await StreamWriteAsync(stream, $"L\t{charCode}\tSTORM\n", ct);
-        var loginResponse = await ReadLineAsync(reader, ct);
+        var loginResponse = await ReadLineAsync(stream, useTls, ct);
         // Log at Warning so this is always visible — needed to diagnose WIZ vs STORM differences.
         logger.LogWarning("SGE login response: {LoginResponse}", loginResponse);
         mark("→L  ←login token");
@@ -405,10 +406,45 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
         }
     }
 
-    private static async Task<string> ReadLineAsync(StreamReader reader, CancellationToken ct)
+    /// <summary>
+    /// Read one SGE response line directly off the stream (no StreamReader, which
+    /// would buffer across the raw key read and — worse — block forever over TLS).
+    /// Plaintext (7900) terminates each response with '\n', so we read until it.
+    /// The TLS endpoint (7910) sends each response as a record with NO trailing
+    /// '\n', so over TLS we take the bytes and, once the server briefly goes idle,
+    /// treat the line as complete. SGE is strict request/response, so exactly one
+    /// response is in flight per call. A clean EOF mid-line (server closing on a
+    /// failed login) returns what arrived; an EOF with nothing throws.
+    /// </summary>
+    private static async Task<string> ReadLineAsync(Stream stream, bool useTls, CancellationToken ct)
     {
-        var line = await reader.ReadLineAsync(ct);
-        return line ?? throw new EndOfStreamException("SGE connection closed unexpectedly.");
+        var buf = new byte[2048];
+        var sb  = new StringBuilder();
+        while (true)
+        {
+            int n;
+            if (useTls && sb.Length > 0)
+            {
+                // Already have the record's bytes; TLS won't send a '\n', so only
+                // wait briefly for a continuation, then treat the line as done.
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                idle.CancelAfter(TimeSpan.FromMilliseconds(200));
+                try { n = await stream.ReadAsync(buf, idle.Token); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { break; }
+            }
+            else
+            {
+                n = await stream.ReadAsync(buf, ct);
+            }
+            if (n == 0) break;   // EOF (e.g. server closes on a failed login)
+            sb.Append(Encoding.ASCII.GetString(buf, 0, n));
+            if (sb.ToString().IndexOf('\n') >= 0) break;   // plaintext terminator
+        }
+        if (sb.Length == 0)
+            throw new EndOfStreamException("SGE connection closed unexpectedly.");
+        var s  = sb.ToString();
+        var nl = s.IndexOf('\n');
+        return (nl >= 0 ? s[..nl] : s).TrimEnd('\r', '\n');
     }
 
     private static List<SgeCharacter> ParseCharacterList(string charListLine)
