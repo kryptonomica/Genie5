@@ -124,15 +124,17 @@ public sealed class SgeAuthClient(ILogger<SgeAuthClient> logger)
 
         // ── Step 1: Request hash key ─────────────────────────────────────────
         await StreamWriteAsync(stream, "K\n", ct);
+        mark("→K sent");
 
         // ── Step 2: Read exactly 32 raw key bytes (+ 1 newline the server appends)
         var keyBuf = new byte[32];
         await ReadExactAsync(stream, keyBuf, ct);
+        mark("←32-byte key");
         // Consume the trailing \n the plain-TCP server appends after the key.
         var nlBuf = new byte[1];
         _ = await stream.ReadAsync(nlBuf, ct);
+        mark("←trailing newline");
         logger.LogDebug("Received hash key (32 bytes)");
-        mark("→K  ←32-byte key");
 
         // ── Step 3: Send encrypted password as raw bytes ─────────────────────
         // Format: "A\t{ACCOUNT}\t" + raw_encrypted_password_bytes + "\n"
