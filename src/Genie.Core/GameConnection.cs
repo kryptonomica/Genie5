@@ -84,6 +84,13 @@ public sealed class GameConnection : IAsyncDisposable
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private CancellationTokenSource _cts = new();
     private Task?          _readLoop;
+    private Task?          _watchdogLoop;
+
+    /// <summary>Monotonic timestamp (<see cref="Environment.TickCount64"/>) of the
+    /// last byte received from the server. Stamped on connect and on every read,
+    /// read by the server-activity watchdog. <see cref="Volatile"/>-accessed
+    /// because the read loop writes it and the watchdog loop reads it.</summary>
+    private long _lastServerActivityTicks;
 
     public bool IsConnected => _tcp?.Connected ?? false;
 
@@ -165,6 +172,15 @@ public sealed class GameConnection : IAsyncDisposable
                 }
                 _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Connected, 0, _authTransport));
                 _readLoop = ReadLoopAsync(ct);
+                // Server-activity watchdog (off unless ServerActivityTimeoutMs > 0).
+                // TCP keepalive (configured in EstablishConnectionAsync) is the
+                // primary dead-link detector — it can tell a dead peer from a
+                // merely-idle one. This app-level timer is an optional backstop
+                // for the pathological "peer ACKs keepalive but the game app has
+                // wedged" case; it CANNOT distinguish idle from dead, so it stays
+                // opt-in to avoid dropping a healthy but quiet session.
+                if (_cfg.ServerActivityTimeoutMs > 0)
+                    _watchdogLoop = WatchdogLoopAsync(ct);
                 return;
             }
             catch (OperationCanceledException) { throw; }
@@ -219,6 +235,8 @@ public sealed class GameConnection : IAsyncDisposable
         await _cts.CancelAsync();
         if (_readLoop is not null)
             await _readLoop.ConfigureAwait(false);
+        if (_watchdogLoop is not null)
+            await _watchdogLoop.ConfigureAwait(false);
         Cleanup();
         _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Disconnected));
     }
@@ -262,10 +280,54 @@ public sealed class GameConnection : IAsyncDisposable
                 throw new NotSupportedException($"Unknown connection mode: {_cfg.Mode}");
         }
 
+        // Enable TCP keepalive so a half-open / silently-dropped link (idle NAT
+        // timeout, a server that vanishes without a FIN) is detected instead of
+        // hanging ReadAsync forever — the core of issue #87. Keepalive probes
+        // ride below the application layer, so a healthy-but-idle peer's TCP
+        // stack still ACKs them and the link stays up; only a truly dead peer
+        // stops answering and trips the failure.
+        ConfigureKeepAlive(_tcp!.Client);
+
+        // Seed the activity stamp so the watchdog measures silence from connect,
+        // not from process start.
+        _lastServerActivityTicks = Environment.TickCount64;
+
         // UTF-8: DR's XML stream is ASCII-safe but UTF-8 compatible for any
         // extended characters in player names / room descriptions.
         _writer = new StreamWriter(_networkStream!, Encoding.UTF8, leaveOpen: true)
             { AutoFlush = false, NewLine = "\r\n" };
+    }
+
+    /// <summary>
+    /// Turn on TCP keepalive and tune the probe cadence so a dead link surfaces
+    /// in roughly <c>Time + Interval × RetryCount</c> (≈110s here) instead of the
+    /// OS default of two hours. The tuning knobs are best-effort: not every
+    /// platform exposes all three, so a failure there leaves plain keepalive on
+    /// (the essential part) with OS-default timing.
+    /// </summary>
+    private void ConfigureKeepAlive(Socket socket)
+    {
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "TCP keepalive could not be enabled on this socket");
+            return;
+        }
+
+        try
+        {
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime,       60); // idle seconds before first probe
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval,   10); // seconds between probes
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount,  5); // unanswered probes before dead
+        }
+        catch (Exception ex)
+        {
+            // Keepalive is on; only the cadence tuning is unavailable here.
+            _log.LogDebug(ex, "TCP keepalive cadence tuning unsupported on this platform — using OS defaults");
+        }
     }
 
     private async Task ConnectViaSgeAsync(CancellationToken ct)
@@ -344,6 +406,9 @@ public sealed class GameConnection : IAsyncDisposable
                     break;
                 }
 
+                // Stamp activity for the server-activity watchdog.
+                Volatile.Write(ref _lastServerActivityTicks, Environment.TickCount64);
+
                 var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 pending.Append(text);
 
@@ -364,6 +429,41 @@ public sealed class GameConnection : IAsyncDisposable
         {
             _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Disconnected));
         }
+    }
+
+    /// <summary>
+    /// Optional backstop watchdog (enabled only when
+    /// <see cref="ConnectionConfig.ServerActivityTimeoutMs"/> &gt; 0). If no byte
+    /// arrives for the configured window, declares the link dead: raises an Error
+    /// event with the reason, then cancels the connection so the blocked
+    /// <c>ReadAsync</c> unwinds and the read loop's <c>finally</c> publishes
+    /// Disconnected. TCP keepalive normally beats this to the punch; this only
+    /// matters when the peer keeps ACKing keepalive probes while the game stream
+    /// itself has gone silent.
+    /// </summary>
+    private async Task WatchdogLoopAsync(CancellationToken ct)
+    {
+        var timeoutMs = _cfg.ServerActivityTimeoutMs;
+        // Check a few times per window so detection latency is a fraction of it.
+        var pollMs = Math.Clamp(timeoutMs / 4, 1_000, 15_000);
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(pollMs, ct);
+                var idleMs = Environment.TickCount64 - Volatile.Read(ref _lastServerActivityTicks);
+                if (idleMs < timeoutMs) continue;
+
+                _log.LogWarning(
+                    "Server-activity watchdog tripped: no data for {Idle}ms (>= {Timeout}ms) — declaring link dead.",
+                    idleMs, timeoutMs);
+                _stateSubject.OnNext(new ConnectionEvent(ConnectionEventKind.Error, 0,
+                    $"no data from the server for {idleMs / 1000}s — the connection appears to have dropped."));
+                await _cts.CancelAsync();   // unblocks ReadAsync → finally → Disconnected
+                break;
+            }
+        }
+        catch (OperationCanceledException) { /* normal shutdown */ }
     }
 
     /// <summary>

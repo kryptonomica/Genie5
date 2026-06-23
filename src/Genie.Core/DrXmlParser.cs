@@ -106,6 +106,14 @@ public sealed class DrXmlParser : IDisposable
     private readonly List<PresetSpan>          _pendingPresetSpans = new();
     private readonly Stack<(int Pos, string Id)> _presetStack      = new();
 
+    // <style id='X'/> … <style id=''/> toggle spans (DR wraps the room-title
+    // line this way). Unlike <preset>, the open and close arrive as two
+    // SELF-CLOSING tags, so we track a single open position rather than a
+    // stack: a non-empty id starts a span, an empty id closes it into
+    // _pendingPresetSpans. -1 = no style currently open.
+    private int    _styleStart = -1;
+    private string _styleId    = "";
+
     // Bold tracking for COMPONENT content (a separate buffer from the display
     // line buffer). DR bolds creature names inside the `room objs` component;
     // capturing the bold ranges here is what lets the monster-count feature
@@ -427,7 +435,9 @@ public sealed class DrXmlParser : IDisposable
         // NOTE: "pushbold"/"popbold" used to be in this skip set. They're now
         // handled explicitly so each bold span emits a BoldSpan on the next
         // TextEvent (DR uses bold for unread news items, emphasis, etc.).
-        "style",
+        // "style" is NOT here — DR wraps the room-title line in a
+        // <style id="roomName"/> … <style id=""/> toggle; HandleElement now
+        // records a PresetSpan so the title renders in the roomName colour.
         // ── Inventory container management ──────────────────────────────────
         // "inv" is NOT here — its </inv> must reach HandleEndElement to flush each item to its own line.
         // "container" is NOT here — its open tag emits a ContainerEvent so the
@@ -448,7 +458,7 @@ public sealed class DrXmlParser : IDisposable
     //   • Consumed       — produces a typed GameEvent (the HandleElement switch).
     //   • DroppedData     — IN _settingsTags but carries real game data we don't
     //                       yet consume (injuries <image>/<skin>, server dialogs,
-    //                       <style> markers, exp <compDef>, …). The hunt targets.
+    //                       exp <compDef>, …). The hunt targets.
     //   • DroppedSetting  — the Wrayth settings dump; correctly discarded.
     //   • Unknown         — neither handled nor skipped → emits UnknownTagEvent.
     // Keep <see cref="_handledTags"/> in sync with the HandleElement switch.
@@ -458,7 +468,7 @@ public sealed class DrXmlParser : IDisposable
         "d", "dir", "endsetup", "indicator", "inv", "left", "nav", "openwindow",
         "output", "popbold", "popstream", "preset", "progressbar", "prompt",
         "pushbold", "pushstream", "resource", "right", "roundtime",
-        "settingsinfo", "spell", "streamwindow",
+        "settingsinfo", "spell", "streamwindow", "style",
     };
 
     // Subset of _settingsTags that actually carries game data we drop today —
@@ -466,7 +476,7 @@ public sealed class DrXmlParser : IDisposable
     // is unchanged; this set only drives classification.)
     private static readonly HashSet<string> _droppedDataTags = new(StringComparer.OrdinalIgnoreCase)
     {
-        "image", "skin", "style", "compdef", "dialogdata", "opendialog",
+        "image", "skin", "compdef", "dialogdata", "opendialog",
         "radio", "detach", "playerid", "exposecontainer", "clearcontainer",
     };
 
@@ -588,6 +598,18 @@ public sealed class DrXmlParser : IDisposable
                     _events.OnNext(new StreamPopEvent(_activeStream, prev));
                     _activeStream = prev;
                 }
+                else if (_activeStream != "main")
+                {
+                    // Empty-stack pop = a stray/extra popStream, i.e. a push/pop
+                    // desync. DR's stream model is FLAT (a pop always means "back
+                    // to main"; that's why DR labels some pops with an id), so
+                    // recover to main instead of silently leaving the active
+                    // stream stranded on a side stream — otherwise every
+                    // subsequent main line (room/NPC/emote text) emits with the
+                    // stranded Stream id (e.g. "whispers"). Balanced sessions
+                    // never reach this branch.
+                    _activeStream = "main";
+                }
                 break;
             }
 
@@ -599,6 +621,18 @@ public sealed class DrXmlParser : IDisposable
             case "prompt":
             {
                 FlushTextLine(); // flush any partial line before the prompt marker
+
+                // Stream-routing backstop: a server prompt marks a message
+                // boundary at which DR is always back on the main stream. If a
+                // push/pop desync (a lost/dropped popStream on the wire) left
+                // _activeStream stranded on a side stream, reset here so the
+                // mis-routing is bounded to a single message instead of flooding
+                // the side stream (e.g. "whispers") with all later main text.
+                // Balanced sessions are already on "main" at this point, so this
+                // is a no-op for them.
+                if (_activeStream != "main") _activeStream = "main";
+                _streamStack.Clear();
+
                 var ts = long.TryParse(r["time"], out var t) ? t : 0L;
                 _pendingPromptTime = DateTimeOffset.FromUnixTimeSeconds(ts);
                 _promptBuffer.Clear();
@@ -740,6 +774,32 @@ public sealed class DrXmlParser : IDisposable
                 _presetStack.Push((_textLineBuffer.Length, _currentPresetId));
                 break;
 
+            // <style id="roomName"/> … text … <style id=""/>
+            // DR emits <style> as a self-closing TOGGLE (not a wrapping pair
+            // like <preset>): a non-empty id turns styling ON for the text that
+            // follows; an empty id resets to default. Record a PresetSpan over
+            // the spanned text so the renderer colours it via PresetEngine
+            // (e.g. roomName → #FF8000). This is how the room-title line gets
+            // its colour — there is no <preset> around it.
+            case "style":
+            {
+                var styleId = r["id"] ?? "";
+                if (styleId.Length > 0)
+                {
+                    _styleStart = _textLineBuffer.Length;
+                    _styleId    = styleId;
+                }
+                else if (_styleStart >= 0)
+                {
+                    var len = _textLineBuffer.Length - _styleStart;
+                    if (len > 0)
+                        _pendingPresetSpans.Add(new PresetSpan(_styleStart, len, _styleId));
+                    _styleStart = -1;
+                    _styleId    = "";
+                }
+                break;
+            }
+
             // ── Room navigation ──────────────────────────────────────────────
             case "nav":
                 // Modern DR sends a BARE <nav/>; the server room id arrives via
@@ -871,9 +931,26 @@ public sealed class DrXmlParser : IDisposable
             case "spell" when _inSpell:
             {
                 _inSpell = false;
-                var name2 = System.Net.WebUtility.HtmlDecode(StripBasicXml(_componentBuffer.ToString())).Trim();
-                _events.OnNext(new SpellEvent(name2));
+                var spellBody = _componentBuffer.ToString();
                 _componentBuffer.Clear();
+                // Merge-seam recovery (same invariant as hands): the server can
+                // concatenate a response onto the prepared-spell name with no
+                // separator (<spell>Fire ShardsYou feel…</spell>). Split at the
+                // first lower→upper seam. Unlike hands we KEEP the prefix — it's
+                // the real spell name — and re-emit the suffix as game text.
+                // Spell names never carry a bare lower→upper adjacency (spaces /
+                // apostrophes always break it, e.g. "Fire Shards", "Y'ntrel
+                // Sechra"), so a clean spell never trips the seam.
+                var spellSeam = FindMergeSeam(spellBody);
+                var spellAppended = "";
+                if (spellSeam > 0)
+                {
+                    spellAppended = spellBody[spellSeam..];
+                    spellBody     = spellBody[..spellSeam];
+                }
+                var name2 = System.Net.WebUtility.HtmlDecode(StripBasicXml(spellBody)).Trim();
+                _events.OnNext(new SpellEvent(name2));
+                if (spellAppended.Length > 0) EmitLine(spellAppended);
                 break;
             }
             case "left" when _inHand:
@@ -897,6 +974,27 @@ public sealed class DrXmlParser : IDisposable
             }
 
             case "inv":
+            {
+                // Merge-seam recovery (same invariant as hands/spell): the
+                // server can concatenate a response onto an inv item with no
+                // separator (<inv> a leather bellowsYou put…</inv>). Split the
+                // buffered item at the first lower→upper seam — the prefix is
+                // the real item (flushed on the inv stream), the suffix is
+                // appended game text (re-emitted on the stream the inv block
+                // interrupted). Item descriptions never carry a bare lower→upper
+                // adjacency (a space/apostrophe always precedes a capital, e.g.
+                // "orange Moon Sphere", "ka'hurst carving knife"), so a clean
+                // item never trips the seam.
+                var invBody = _textLineBuffer.ToString();
+                var invSeam = FindMergeSeam(invBody);
+                string? invAppended = null;
+                if (invSeam > 0)
+                {
+                    invAppended = invBody[invSeam..];
+                    _textLineBuffer.Clear();
+                    _textLineBuffer.Append(invBody[..invSeam]);
+                }
+
                 // Force each inventory item onto its own line, then restore
                 // the previous stream context (matches the implicit push in
                 // HandleElement). Without the pop, subsequent main-stream
@@ -904,7 +1002,12 @@ public sealed class DrXmlParser : IDisposable
                 FlushTextLine();
                 if (_streamStack.TryPop(out var invPrev))
                     _activeStream = invPrev;
+
+                // Appended response belongs to the interrupted stream, not inv.
+                if (invAppended is { Length: > 0 })
+                    EmitLine(invAppended);
                 break;
+            }
 
             case "d":
                 // Close a clickable link. Compute the span length from the

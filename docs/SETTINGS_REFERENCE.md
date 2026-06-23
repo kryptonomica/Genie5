@@ -31,7 +31,7 @@ that Jason linked):
 ## How to use this
 
 - **Default bundle design**: cross-reference the Elanthia recommendations
-  against `D:\Genie5Project\src\Genie.App\Settings\DisplaySettings.cs`,
+  against `src/Genie.App/Settings/DisplaySettings.cs`,
   `WindowSettingsStore` defaults, and the various engine `Add*` calls so a
   fresh install gets the same "feels right" baseline as a long-time Genie 4
   player.

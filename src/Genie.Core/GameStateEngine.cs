@@ -267,6 +267,8 @@ public sealed class GameStateEngine : IDisposable
             "ICONPOISONED"  => CharacterStatus.Poisoned,
             "ICONDISEASED"  => CharacterStatus.Diseased,
             "ICONHIDDEN"    => CharacterStatus.Hidden,
+            "ICONINVISIBLE" => CharacterStatus.Invisible,
+            "ICONJOINED"    => CharacterStatus.Joined,
             "ICONDEAD"      => CharacterStatus.Dead,
             _               => (CharacterStatus?)null
         };

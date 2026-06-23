@@ -21,7 +21,7 @@ public sealed class WindowSettingsStore
         {
             ["activespells"] = "", ["arrivals"] = "", ["assess"] = null,
             ["atmospherics"] = "main", ["chatter"] = null, ["combat"] = "main",
-            ["conversation"] = "log", ["deaths"] = "", ["debug"] = null,
+            ["conversation"] = "log", ["death"] = "", ["deaths"] = "", ["debug"] = null,
             ["expmods"] = null, ["familiar"] = null, ["game"] = "",
             ["group"] = "", ["inv"] = null, ["inventory"] = null,
             ["itemlog"] = null, ["log"] = null, ["ooc"] = "",

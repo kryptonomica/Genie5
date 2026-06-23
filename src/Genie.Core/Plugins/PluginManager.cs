@@ -21,6 +21,15 @@ public sealed class PluginManager
         new(StringComparer.OrdinalIgnoreCase);
     private readonly IPluginHost                             _host;
 
+    /// <summary>Plugin ids that have been absorbed into Core as built-in trackers
+    /// (Spell Timer, Experience, Time Tracker). A leftover DLL with one of these
+    /// ids is skipped at registration so it can't shadow the in-Core version.</summary>
+    private static readonly IReadOnlySet<string> RetiredPluginIds =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "genie.spelltimer", "genie.experience", "genie.timetracker",
+        };
+
     public PluginManager(IPluginHost host) => _host = host;
 
     public IReadOnlyList<IGeniePlugin> Plugins => _plugins;
@@ -123,6 +132,15 @@ public sealed class PluginManager
     {
         if (_plugins.Any(p => p.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase)))
             return false;
+
+        // These trackers are now built in to Core (no longer external plugins).
+        // Skip a stale DLL a user may still have in their Plugins folder so it can't
+        // double up the dock panel / script globals against the in-Core version.
+        if (RetiredPluginIds.Contains(plugin.Id))
+        {
+            _host.Log($"[plugin] {plugin.Id} is now built in to Genie 5 — skipping the external plugin. You can delete its DLL.");
+            return false;
+        }
 
         if (!HostMeetsMinimum(plugin.MinHostVersion))
         {

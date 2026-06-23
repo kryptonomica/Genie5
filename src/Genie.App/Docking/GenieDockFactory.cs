@@ -157,7 +157,7 @@ public class GenieDockFactory : Factory
         {
             [nameof(IDockWindow)] = () =>
             {
-                var w = new HostWindow
+                var w = new GenieHostWindow
                 {
                     Background           = new SolidColorBrush(Color.FromRgb(0x1f, 0x1f, 0x1f)),
                     TransparencyLevelHint = new[] { WindowTransparencyLevel.None },
@@ -179,11 +179,16 @@ public class GenieDockFactory : Factory
         var whispers = new StreamTool      (_vm.StreamTabs.Whispers, ws.Get("whispers"));
         var thoughts = new StreamTool      (_vm.StreamTabs.Thoughts, ws.Get("thoughts"));
         var combat   = new StreamTool      (_vm.StreamTabs.Combat,   ws.Get("combat"));
+        var familiar = new StreamTool      (_vm.StreamTabs.Familiar, ws.Get("familiar"));
+        var death    = new StreamTool      (_vm.StreamTabs.Death,    ws.Get("death"));
+        var assess   = new StreamTool      (_vm.StreamTabs.Assess,   ws.Get("assess"));
         var log      = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
         var itemlog  = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool(_vm.Experience,          ws.Get("experience"));
         var scripts    = new ScriptsTool   (_vm.Scripts,            ws.Get("scripts"));
         var scene      = new SceneTool     (_vm.Scene,              ws.Get("scene"));
+        var mobs       = new MobsTool      (_vm.Mobs,               ws.Get("mobs"));
+        var players    = new PlayersTool   (_vm.Players,            ws.Get("players"));
 
         // ── Default ship layout — three vertical columns ─────────────────
         //   ┌──────────┬─────────────────────┬──────────┐
@@ -250,7 +255,7 @@ public class GenieDockFactory : Factory
             Id               = "streams",
             Alignment        = Alignment.Bottom,
             Proportion       = 0.65,
-            VisibleDockables = CreateList<IDockable>(logons, talk, whispers, thoughts, combat, log, itemlog),
+            VisibleDockables = CreateList<IDockable>(logons, talk, whispers, thoughts, combat, familiar, death, assess, log, itemlog),
             ActiveDockable   = combat   // matches screenshot default — Combat tab active
         };
 
@@ -321,6 +326,9 @@ public class GenieDockFactory : Factory
         _tools[whispers.Id] = (whispers, streamDock.Id);
         _tools[thoughts.Id] = (thoughts, streamDock.Id);
         _tools[combat.Id]   = (combat,   streamDock.Id);
+        _tools[familiar.Id] = (familiar, streamDock.Id);
+        _tools[death.Id]    = (death,    streamDock.Id);
+        _tools[assess.Id]   = (assess,   streamDock.Id);
         _tools[log.Id]      = (log,      streamDock.Id);
         _tools[itemlog.Id]  = (itemlog,  streamDock.Id);
         // Experience: registered but hidden by default (like Vitals) — re-opens
@@ -332,6 +340,10 @@ public class GenieDockFactory : Factory
         // Scene: room/scene artwork — also hidden by default (re-open via
         // Window → Scene). Lives beside the Backpack when shown.
         _tools[scene.Id]      = (scene,      backpackDock.Id);
+        // Mobs / Players: room-occupant lists — hidden by default (re-open via
+        // Window → Mobs / Players). Home beside the Room panel they complement.
+        _tools[mobs.Id]       = (mobs,       roomDock.Id);
+        _tools[players.Id]    = (players,    roomDock.Id);
 
         // ── Home-dock recreation map ─────────────────────────────────────
         // Mirrors the proportions/alignments set on the ToolDocks above so a
@@ -372,7 +384,7 @@ public class GenieDockFactory : Factory
         // window, so keep it wired exactly as the tabbed path does.
         HostWindowLocator = new Dictionary<string, Func<IHostWindow?>>
         {
-            [nameof(IDockWindow)] = () => new HostWindow
+            [nameof(IDockWindow)] = () => new GenieHostWindow
             {
                 Background            = new SolidColorBrush(Color.FromRgb(0x1f, 0x1f, 0x1f)),
                 TransparencyLevelHint = new[] { WindowTransparencyLevel.None },
@@ -390,18 +402,25 @@ public class GenieDockFactory : Factory
         var whispers   = new StreamTool      (_vm.StreamTabs.Whispers, ws.Get("whispers"));
         var thoughts   = new StreamTool      (_vm.StreamTabs.Thoughts, ws.Get("thoughts"));
         var combat     = new StreamTool      (_vm.StreamTabs.Combat,   ws.Get("combat"));
+        var familiar   = new StreamTool      (_vm.StreamTabs.Familiar, ws.Get("familiar"));
+        var death      = new StreamTool      (_vm.StreamTabs.Death,    ws.Get("death"));
+        var assess     = new StreamTool      (_vm.StreamTabs.Assess,   ws.Get("assess"));
         var log        = new StreamTool      (_vm.StreamTabs.Log,      ws.Get("log"));
         var itemlog    = new StreamTool      (_vm.StreamTabs.ItemLog,  ws.Get("itemlog"));
         var experience = new ExperienceTool  (_vm.Experience,          ws.Get("experience"));
         var scene      = new SceneTool        (_vm.Scene,              ws.Get("scene"));
+        var mobs       = new MobsTool         (_vm.Mobs,               ws.Get("mobs"));
+        var players    = new PlayersTool      (_vm.Players,            ws.Get("players"));
 
         // Every MDI panel in canonical order, paired with its id.
         var panels = new (string Id, IDockable Dockable)[]
         {
             ("game-text", gameText), ("room", room), ("mapper", mapper), ("backpack", backpack),
             ("logons", logons), ("talk", talk), ("whispers", whispers), ("thoughts", thoughts),
-            ("combat", combat), ("log", log), ("itemlog", itemlog),
+            ("combat", combat), ("familiar", familiar), ("death", death), ("assess", assess),
+            ("log", log), ("itemlog", itemlog),
             ("vitals", vitals), ("experience", experience), ("scene", scene),
+            ("mobs", mobs), ("players", players),
         };
 
         // Which panels open as windows. Default mirrors the tabbed layout
@@ -409,7 +428,8 @@ public class GenieDockFactory : Factory
         var defaultVisible = new[]
         {
             "game-text", "room", "mapper", "backpack",
-            "logons", "talk", "whispers", "thoughts", "combat", "log", "itemlog",
+            "logons", "talk", "whispers", "thoughts", "combat",
+            "familiar", "death", "assess", "log", "itemlog",
         };
         var show = new HashSet<string>(
             visibleIds is { Count: > 0 } ? visibleIds : defaultVisible,

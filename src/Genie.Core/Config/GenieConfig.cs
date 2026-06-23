@@ -25,6 +25,12 @@ public sealed class GenieConfig
     /// [100, 100000] on set.</summary>
     public int ScrollbackLines { get; set; } = 2000;
     public bool ShowSpellTimer { get; set; } = true;
+    /// <summary>Built-in Experience tracker ($Skill.* / $TDPs globals + "Experience"
+    /// dock panel). Default on. Was the external Plugin_EXPTrackerV5, now in Core.</summary>
+    public bool ShowExperience { get; set; } = true;
+    /// <summary>Built-in Time Tracker (Elanthian time / sky "Time Tracker" dock panel).
+    /// Default on. Was the external Plugin_TimeTrackerV5, now in Core.</summary>
+    public bool ShowTimeTracker { get; set; } = true;
     public bool AutoLog { get; set; } = true;
     public bool ClassicConnect { get; set; } = true;
     public string Editor { get; set; } = "notepad.exe";
@@ -226,6 +232,8 @@ public sealed class GenieConfig
         ("triggeroninput", TriggerOnInput.ToString()),
         ("scrollbacklines", ScrollbackLines.ToString()),
         ("spelltimer", ShowSpellTimer.ToString()),
+        ("showexperience", ShowExperience.ToString()),
+        ("showtimetracker", ShowTimeTracker.ToString()),
         ("autolog", AutoLog.ToString()),
         ("automapper", AutoMapper.ToString()),
         ("automapperalpha", AutoMapperAlpha.ToString()),
@@ -318,7 +326,9 @@ public sealed class GenieConfig
                 case "commandchar": CommandChar = FirstCharOrDefault(value, CommandChar); break;
                 case "triggeroninput": TriggerOnInput = ToBool(value); break;
                 case "scrollbacklines": ScrollbackLines = Math.Clamp(UtilityCore.StringToInteger(value), 100, 100000); break;
-                case "spelltimer": ShowSpellTimer = ToBool(value); break;
+                case "spelltimer": ShowSpellTimer = ToBool(value); Notify(ConfigFieldUpdated.Trackers); break;
+                case "showexperience": ShowExperience = ToBool(value); Notify(ConfigFieldUpdated.Trackers); break;
+                case "showtimetracker": ShowTimeTracker = ToBool(value); Notify(ConfigFieldUpdated.Trackers); break;
                 case "autolog": AutoLog = ToBool(value); Notify(ConfigFieldUpdated.Autolog); break;
                 case "classicconnect": ClassicConnect = ToBool(value); Notify(ConfigFieldUpdated.ClassicConnect); break;
                 case "editor": Editor = value; break;

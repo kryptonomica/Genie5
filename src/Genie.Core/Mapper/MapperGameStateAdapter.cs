@@ -83,7 +83,7 @@ public sealed class MapperGameStateAdapter : IMapperGameState, IDisposable
         // arrives too late, after the misses have already poisoned the auto-load
         // dedup. DR sends a <prompt> at the end of every turn, AFTER the full
         // room block, so by then Title / Exits / RoomId are all the new room's:
-        // a single flush there gives the engine one coherent snapshot.
+        // a single flush there gives the engine one coherent snapshot. (PR #92.)
         //
         // Idle/keepalive prompts (no preceding room change) leave _roomDirty
         // false and are ignored, so this doesn't add spurious placements.

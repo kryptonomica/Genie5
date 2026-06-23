@@ -202,28 +202,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
                 }
             }));
 
-            // Repair Dock.Avalonia content recycling when a tool is (re)added to
-            // a dock. Dock hosts the active dockable's view in a ContentPresenter
-            // and, on an active-tab change, can recycle the previously-shown
-            // tool's realized visual — swapping only the DataContext without
-            // re-selecting the type-matched DataTemplate. A tool whose template
-            // differs from its neighbour then renders with the wrong template and
-            // shows blank (the Experience panel came up with the Backpack
-            // ItemsControl, bound to a ViewModel.Items it doesn't have). Popping
-            // out to a window built a fresh presenter, which is why that worked.
-            // Tools present from the initial layout build are unaffected; this
-            // bites panels opened later (Experience, plugin windows) or dragged
-            // between docks. DockableAdded fires for menu-open, drag-redock, and
-            // float alike, so hooking it covers every path.
-            if (ViewModel!.DockFactory is Docking.GenieDockFactory dockFactory)
-            {
-                void OnDockableAdded(object? _, Dock.Model.Core.Events.DockableAddedEventArgs e)
-                    => RebuildRecycledDockableContent(e.Dockable);
-
-                dockFactory.DockableAdded += OnDockableAdded;
-                d(System.Reactive.Disposables.Disposable.Create(
-                    () => dockFactory.DockableAdded -= OnDockableAdded));
-            }
+            // (#80 content-recycling band-aid removed.) The stacked-tab "wrong
+            // view" bug is now fixed at the source: Themes/ToolControlCachedSkin.axaml
+            // overrides the stock ToolControl with a cached, per-dockable content
+            // host, so there is no shared recycled presenter to repair on add.
 
             // Command-line auto-connect (--host/--port/--profile). Fired here so
             // the dialog interaction handlers above are already registered (the
@@ -247,36 +229,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
         Avalonia.Threading.Dispatcher.UIThread.Post(
             () => ViewModel?.TryFloatPendingMapper(),
             Avalonia.Threading.DispatcherPriority.Background);
-    }
-
-    /// <summary>
-    /// Force the host <see cref="Avalonia.Controls.Presenters.ContentPresenter"/>
-    /// of a freshly (re)added dockable to discard any recycled child and rebuild
-    /// the type-matched DataTemplate. Dock.Avalonia recycles the previously-shown
-    /// tool's realized visual on an active-tab change and only swaps the
-    /// DataContext, so a tool whose template differs from its neighbour renders
-    /// with the wrong template and shows blank (Avalonia content-recycling, see
-    /// issues #16891 / #14863). Toggling the presenter's <c>Content</c> clears the
-    /// cached child; the rebuild then resolves the correct template for this
-    /// dockable's type. Posted at <see cref="DispatcherPriority.Loaded"/> so Dock
-    /// has finished attaching the content visual before we touch it.
-    /// </summary>
-    private void RebuildRecycledDockableContent(Dock.Model.Core.IDockable? dockable)
-    {
-        if (dockable is null) return;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (MainDock is null) return;
-            foreach (var cp in MainDock.GetVisualDescendants()
-                                       .OfType<Avalonia.Controls.Presenters.ContentPresenter>())
-            {
-                if (!ReferenceEquals(cp.Content, dockable)) continue;
-                cp.Content = null;
-                cp.UpdateChild();
-                cp.Content = dockable;
-                cp.UpdateChild();
-            }
-        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>
@@ -537,16 +489,33 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel>
     /// </summary>
     private void OnGlobalKeyDown(object? sender, KeyEventArgs e)
     {
-        // Esc cancels any in-flight auto-walk — per DR policy compliance
-        // review, the user needs an obvious always-available kill switch
-        // for any automated traversal. Hits before macros so an Esc-bound
-        // macro can't accidentally swallow the cancel.
-        if (e.Key == Key.Escape
-            && ViewModel?.Mapper?.AutoWalk is { Current: not null } walk)
+        // Esc is the always-available kill switch (Genie 3/4 parity, #81): it
+        // cancels any in-flight auto-walk AND aborts all running scripts. Per the
+        // DR policy compliance review the user needs an obvious stop for any
+        // automated traversal; Genie 3/4 also used Esc to abort scripts. Hits
+        // before macros so an Esc-bound macro can't swallow the stop. When there's
+        // nothing to stop, falls through so such a macro can still fire.
+        if (e.Key == Key.Escape)
         {
-            walk.Cancel("user pressed Esc");
-            e.Handled = true;
-            return;
+            var stopped = false;
+
+            if (ViewModel?.Mapper?.AutoWalk is { Current: not null } walk)
+            {
+                walk.Cancel("user pressed Esc");
+                stopped = true;
+            }
+
+            if (ViewModel?.Core is { } core && core.Scripts.AnyRunning)
+            {
+                core.Commands.ProcessInput("#stopall");
+                stopped = true;
+            }
+
+            if (stopped)
+            {
+                e.Handled = true;
+                return;
+            }
         }
 
         if (ViewModel?.Core?.Commands?.Macros is not { } macros) return;

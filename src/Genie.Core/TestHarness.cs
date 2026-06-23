@@ -16,6 +16,13 @@
 //       speed: 0=max (default), 1.0=real-time, 2.0=double speed
 //       File is resolved from test_results/ if no directory is given.
 //
+//   dotnet run -- DROP [watchdog]
+//       Self-contained repro of the disconnect-detection path (#87) — no live
+//       game, no recording needed. Connects via DevReplay, drops the link, and
+//       asserts Disconnected fires and $connected flips 1→0. Exit code 0 = all
+//       checks passed. `DROP watchdog` holds the socket open but silent to also
+//       exercise the server-activity watchdog (Error → Disconnected).
+//
 //   dotnet run -- COMPARE <session-file>
 //       Run replay at max speed, then write two diff-ready files to test_results/:
 //         <name>_baseline.txt  — tag-stripped ground truth from raw XML
@@ -109,6 +116,62 @@ switch (mode)
         break;
     }
 
+    case "XMLGAP":
+    {
+        // Prototype of the "Report XML Gap" flow: for each element type in a
+        // recording that the parser does NOT consume, draft a redacted,
+        // review-ready GitHub issue (title + body + prefill URL). No network,
+        // no posting — just prints the drafts a user would review.
+        if (args_list.Count < 2)
+        {
+            Console.WriteLine("Usage: dotnet run -- XMLGAP <session-file>");
+            return;
+        }
+        var filePath = ResolveSessionFile(args_list[1], ResultsDir);
+        if (filePath is null) return;
+
+        var xml = await File.ReadAllTextAsync(filePath);
+        var ctx = new Genie.Core.Diagnostics.XmlGapReport.ReportContext(
+            AppVersion: "5.0.0-alpha.6.1",
+            Os: System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            Commit: "local",
+            Trigger: $"replaying {Path.GetFileName(filePath)}");
+
+        var tagRx = new System.Text.RegularExpressions.Regex(@"<([A-Za-z][A-Za-z0-9]*)");
+        var seen  = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var gaps  = 0;
+
+        foreach (System.Text.RegularExpressions.Match m in tagRx.Matches(xml))
+        {
+            var tag = m.Groups[1].Value.ToLowerInvariant();
+            if (!seen.Add(tag)) continue;
+            var fate = Genie.Core.Parser.DrXmlParser.ClassifyTag(tag);
+            if (fate is not (Genie.Core.Parser.DrXmlParser.TagFate.DroppedData
+                          or Genie.Core.Parser.DrXmlParser.TagFate.Unknown))
+                continue;
+
+            // Sample = this element up to the next <prompt> (or +300 chars), so
+            // the redactor sees a tag-complete chunk.
+            var start = m.Index;
+            var end   = xml.IndexOf("<prompt", start + 1, StringComparison.OrdinalIgnoreCase);
+            if (end < 0 || end - start > 300) end = Math.Min(xml.Length, start + 300);
+
+            var draft = Genie.Core.Diagnostics.XmlGapReport.Build(tag, fate, xml[start..end], ctx);
+            gaps++;
+            Console.WriteLine(new string('=', 72));
+            Console.WriteLine($"GAP #{gaps}: <{tag}>  ({fate})");
+            Console.WriteLine(new string('-', 72));
+            Console.WriteLine("TITLE : " + draft.Title);
+            Console.WriteLine("LABELS: " + draft.Labels);
+            Console.WriteLine("BODY  :\n" + draft.Body + "\n");
+            Console.WriteLine("PREFILL URL (opens the GitHub new-issue form, user submits):");
+            Console.WriteLine(draft.Url + "\n");
+        }
+        Console.WriteLine(new string('=', 72));
+        Console.WriteLine($"[XMLGAP] {gaps} unconsumed element type(s) drafted.");
+        return;
+    }
+
     case "REPLAY":
     {
         if (args_list.Count < 2)
@@ -136,6 +199,102 @@ switch (mode)
             MaxReconnectAttempts = 0
         };
         break;
+    }
+
+    case "DROP":
+    {
+        // Self-contained repro of the disconnect-DETECTION path (#87) — no live
+        // game. Streams a tiny synthetic session through the real GenieCore +
+        // GameConnection + DevReplayServer stack, drops the link, and asserts:
+        //   • ConnectionState fires Disconnected
+        //   • $connected flips "1" → "0"
+        // `DROP watchdog` instead holds the socket open but SILENT, with a short
+        // ServerActivityTimeoutMs, to exercise the watchdog → Error → Disconnected
+        // path (the half-open shape TCP keepalive normally handles in the field).
+        var watchdog = args_list.Count > 1
+            && args_list[1].Equals("watchdog", StringComparison.OrdinalIgnoreCase);
+
+        // Minimal but valid-ish session: <settingsInfo/> is GenieCore's ready
+        // signal; the rest is one bold line + a prompt so there's real traffic
+        // to stamp server activity before the drop.
+        var synthetic =
+            "<settingsInfo instance='DR'/>\n" +
+            "<pushBold/>You are standing in a featureless test void.<popBold/>\n" +
+            "<prompt time=\"0\">&gt;</prompt>\n";
+        var dropFile = Path.Combine(ResultsDir, "drop_repro_session.xml");
+        await File.WriteAllTextAsync(dropFile, synthetic);
+
+        await using var dropServer = new DevReplayServer(
+            dropFile, port: 8000, speed: 0, hangAfterStream: watchdog,
+            log: loggerFactory.CreateLogger<DevReplayServer>());
+        dropServer.Start();
+        await Task.Delay(100);
+
+        var dropCfg = new ConnectionConfig
+        {
+            Mode                    = ConnectionMode.DevReplay,
+            LichProxyHost           = "127.0.0.1",
+            LichProxyPort           = 8000,
+            MaxReconnectAttempts    = 0,
+            ServerActivityTimeoutMs = watchdog ? 3_000 : 0,
+        };
+
+        var ok = await RunDropRepro(dropCfg, watchdog, loggerFactory);
+        Environment.ExitCode = ok ? 0 : 1;
+        return;
+    }
+
+    case "RECONNECT":
+    {
+        // Persistent-core repro (#88 / #46 Phase 3) — no live game. Connects TWICE
+        // through DevReplay on ONE GenieCore and asserts the persistent core holds:
+        //   • Connected fires on BOTH connects (the relay observables survive reconnect)
+        //   • a TextEvent arrives on the SECOND connection (the relay re-feed works —
+        //     a fresh parser is wired into the SAME relay the subscriber holds)
+        //   • Scripts / Commands are the SAME instance across reconnect (engines persist)
+        var session =
+            "<settingsInfo instance='DR'/>\n" +
+            "<pushBold/>You are standing in a featureless reconnect void.<popBold/>\n" +
+            "<prompt time=\"0\">&gt;</prompt>\n";
+        var rcFile = Path.Combine(ResultsDir, "reconnect_repro_session.xml");
+        await File.WriteAllTextAsync(rcFile, session);
+
+        var okrc = await RunReconnectRepro(rcFile, loggerFactory);
+        Environment.ExitCode = okrc ? 0 : 1;
+        return;
+    }
+
+    case "MAPCOALESCE":
+    {
+        // PR #92 / #91 Bug 1 — no live game, no map data. Drives the real
+        // DrXmlParser → GameStateEngine → MapperGameStateAdapter through the exact
+        // incoherent room sequence and asserts the adapter coalesces to the prompt.
+        var okmc = RunMapCoalesceRepro(loggerFactory);
+        Environment.ExitCode = okmc ? 0 : 1;
+        return;
+    }
+
+    case "MOVEORDER":
+    {
+        // F1 (PR #92 ordering) — no live game. Demonstrates that PR #92's
+        // OnPrompt-before-OnRoomChanged ordering prematurely unblocks a `move`
+        // issued by a pause-resumed script in the same turn, and that the safe
+        // (OnRoomChanged-first) order fixes it.
+        var okmo = RunMoveOrderRepro(loggerFactory);
+        Environment.ExitCode = okmo ? 0 : 1;
+        return;
+    }
+
+    case "REQGATE":
+    {
+        // Pathfinder "No path" fix — pure-function check of ExitRequirement.IsMet.
+        // Locks the "assumed reachable when class/level/skill are UNKNOWN" contract
+        // (class-gated / level-gated exits were wrongly blocked when class was null
+        // or level was 0, contradicting the mapper's own banner) while keeping
+        // known-and-failing gates blocked.
+        var okrq = RunReqGateRepro();
+        Environment.ExitCode = okrq ? 0 : 1;
+        return;
     }
 
     case "LICH":
@@ -392,7 +551,33 @@ if (aiCfg is null)
 
 // ── Wire up GenieCore ────────────────────────────────────────────────────────
 
-await using var core = new GenieCore(connCfg, aiCfg, loggerFactory);
+// Persistent core: build once (data root fixed from the connection's override),
+// then ConnectAsync(connCfg) builds the per-connection layer and dials.
+await using var core = new GenieCore(connCfg.DataDirectoryOverride, aiCfg, loggerFactory);
+
+// ── Tracker verification hook (opt-in: GENIE_VERIFY_TRACKERS=1) ───────────────
+// Observe the built-in trackers' window renders so a REPLAY can prove
+// SpellTimer / Experience / TimeTracker work end-to-end without a UI. The
+// script globals they publish are dumped after the replay completes.
+var verifyTrackers = Environment.GetEnvironmentVariable("GENIE_VERIFY_TRACKERS") == "1";
+var trackerPanels  = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+if (verifyTrackers)
+    core.SetPluginWindow += (window, content) => trackerPanels[window] = content;
+
+// Stream-routing verification (opt-in: GENIE_VERIFY_STREAMS=1). Bucket every
+// parsed TextEvent by Stream id, exactly as the App's StreamTabsViewModel does,
+// to prove what the PARSER tags — isolating "Whispers shows main content" to the
+// parser (buffer really gets main lines) vs the view layer. Subscribed HERE,
+// before connect, so a speed-0 replay is captured in full.
+var verifyStreams = Environment.GetEnvironmentVariable("GENIE_VERIFY_STREAMS") == "1";
+var streamBuckets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+if (verifyStreams)
+    core.GameEvents.OfType<TextEvent>().Subscribe(te =>
+    {
+        if (!streamBuckets.TryGetValue(te.Stream, out var list))
+            streamBuckets[te.Stream] = list = new List<string>();
+        list.Add(te.Text);
+    });
 
 // Log filename includes character name when available; WIZ sessions get .txt extension.
 var charPart   = !string.IsNullOrEmpty(connCfg.CharacterName) ? $"_{connCfg.CharacterName}" : "";
@@ -502,7 +687,7 @@ Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 Console.WriteLine($"Connecting ({mode})...");
 try
 {
-    await core.ConnectAsync(cts.Token);
+    await core.ConnectAsync(connCfg, cts.Token);
 }
 catch (OperationCanceledException)
 {
@@ -520,6 +705,25 @@ catch (Exception ex)
 }
 Console.WriteLine("Connected. Press Ctrl+C or type .quit to exit.");
 
+// ── #82 var-persistence verification (opt-in: GENIE_VERIFY_VARS=1) ────────────
+// Runs the exact bug repro through the fully-wired engine: a script's
+// `put #var` must set the PERSISTENT user var (readable as $name + saved by
+// `#var save`), not a throwaway script-local. Started here so the replay's
+// prompts tick it to completion before we inspect.
+var verifyVars     = Environment.GetEnvironmentVariable("GENIE_VERIFY_VARS") == "1";
+var vartestEchoes  = new List<string>();
+if (verifyVars)
+{
+    core.ScriptOutputLine += line => { if (line.Contains("VARTEST")) vartestEchoes.Add(line); };
+    var vtPath = Path.Combine(core.Scripts.ScriptsDir, "vartest.cmd");
+    File.WriteAllText(vtPath,
+        "echo VARTEST before: [$testvar]\n" +
+        "put #var testvar 80\n" +
+        "put #var save\n" +
+        "echo VARTEST after: [$testvar]\n");
+    core.Scripts.TryStart("vartest", Array.Empty<string>());
+}
+
 // ── Replay mode: wait for server to close the connection ─────────────────────
 if (mode == "REPLAY")
 {
@@ -531,6 +735,78 @@ if (mode == "REPLAY")
     });
     await Task.WhenAny(replayDone.Task, Task.Delay(60_000, cts.Token));
     Console.WriteLine("-- Replay complete.");
+
+    if (verifyTrackers)
+    {
+        await Task.Delay(300);   // let any trailing prompt/render settle
+        Console.WriteLine();
+        Console.WriteLine("==================== TRACKER VERIFICATION ====================");
+        if (trackerPanels.Count == 0)
+            Console.WriteLine("(no tracker windows rendered — did the recording carry percWindow / exp / sky data?)");
+        foreach (var (window, content) in trackerPanels.OrderBy(kv => kv.Key))
+        {
+            Console.WriteLine($"┌─ window: {window}");
+            foreach (var line in content.Split('\n'))
+                Console.WriteLine($"│ {line}");
+            Console.WriteLine("└────");
+        }
+
+        var g = core.Scripts.Globals.ToList();   // snapshot to avoid mutation-during-enum
+        void DumpGlobals(string label, Func<string, bool> match)
+        {
+            Console.WriteLine($"── {label} ──");
+            var hits = g.Where(kv => match(kv.Key)).OrderBy(kv => kv.Key).ToList();
+            if (hits.Count == 0) { Console.WriteLine("   (none)"); return; }
+            foreach (var kv in hits) Console.WriteLine($"   ${kv.Key} = {kv.Value}");
+        }
+        DumpGlobals("SpellTimer globals",
+            k => k.StartsWith("SpellTimer.", StringComparison.Ordinal));
+        DumpGlobals("Experience globals",
+            k => k.EndsWith(".Ranks", StringComparison.Ordinal)
+              || k.EndsWith(".LearningRate", StringComparison.Ordinal)
+              || k.EndsWith(".LearningRateName", StringComparison.Ordinal)
+              || k == "TDPs");
+        Console.WriteLine("==============================================================");
+    }
+
+    if (verifyVars)
+    {
+        for (int i = 0; i < 50 && core.Scripts.AnyRunning; i++) await Task.Delay(100);
+        await Task.Delay(200);
+        Console.WriteLine();
+        Console.WriteLine("==================== VAR VERIFICATION (#82) ====================");
+        if (core.Scripts.AnyRunning)
+            Console.WriteLine("(! vartest script never finished — not enough replay prompts to tick it)");
+        foreach (var e in vartestEchoes) Console.WriteLine($"   echo → {e}");
+        Console.WriteLine($"   in-session  Variables.Store[testvar] = [{core.Variables?.Store.Get("testvar") ?? "(null)"}]");
+        var vcfg = Path.Combine(core.Config.ConfigProfileDir, "variables.cfg");
+        Console.WriteLine($"   variables.cfg: {vcfg}");
+        Console.WriteLine($"   exists: {File.Exists(vcfg)}");
+        if (File.Exists(vcfg))
+            Console.WriteLine("   contents: " + File.ReadAllText(vcfg).Replace("\n", "\n             ").TrimEnd());
+        try { File.Delete(Path.Combine(core.Scripts.ScriptsDir, "vartest.cmd")); } catch { }
+        Console.WriteLine("================================================================");
+    }
+
+    if (verifyStreams)
+    {
+        await Task.Delay(200);
+        Console.WriteLine();
+        Console.WriteLine("==================== STREAM-ROUTING VERIFICATION ====================");
+        bool LooksMain(string s) => s.Contains("runs ") || s.Contains("just arrived")
+            || s.Contains("went through") || s.Contains("came through") || s.Contains("You see");
+        foreach (var kv in streamBuckets.OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            var lines = kv.Value;
+            var mainish = lines.Count(LooksMain);
+            Console.WriteLine($"── stream '{kv.Key}': {lines.Count} lines"
+                + (kv.Key != "main" && mainish > 0 ? $"  (!! {mainish} look like MAIN content — leak)" : ""));
+            foreach (var l in lines.Take(3))               Console.WriteLine($"     first: {l}");
+            if (lines.Count > 3) foreach (var l in lines.Skip(Math.Max(3, lines.Count - 2)))
+                Console.WriteLine($"     last:  {l}");
+        }
+        Console.WriteLine("=====================================================================");
+    }
     goto done;
 }
 
@@ -617,6 +893,7 @@ static void PrintUsage()
     Console.WriteLine("  dotnet run -- WIZ <account> <password> <character>   (Wizard plain-text)");
     Console.WriteLine("  dotnet run -- LICH - - -");
     Console.WriteLine("  dotnet run -- REPLAY  <session-file> [speed]    (looks in test_results/)");
+    Console.WriteLine("  dotnet run -- DROP    [watchdog]                 (#87 drop-path self-test, no game)");
     Console.WriteLine("  dotnet run -- COMPARE <session-file>             (looks in test_results/)");
     Console.WriteLine("  dotnet run -- LIST    <account> <password> [gamecode]");
     Console.WriteLine("  dotnet run -- ALIGN   <xml-session> <txt-session>");
@@ -643,6 +920,401 @@ static void PrintHelp()
     Console.WriteLine("  .drain           Clear AI buffer and report size");
     Console.WriteLine("  .help            Show this list");
     Console.WriteLine("  .quit            Disconnect and exit");
+}
+
+// ── DROP mode — assert the disconnect-DETECTION path end-to-end (#87) ──────────
+// Drives the real GenieCore + GameConnection + DevReplayServer stack, then checks
+// that a dropped link is actually detected and surfaced: ConnectionState fires
+// Disconnected and the $connected script global flips "1" → "0". The `watchdog`
+// variant additionally asserts the server-activity watchdog raised an Error first.
+// Returns true iff every check passed.
+static async Task<bool> RunDropRepro(ConnectionConfig cfg, bool watchdog, ILoggerFactory lf)
+{
+    await using var core = new GenieCore(cfg.DataDirectoryOverride, null, lf);
+
+    var disconnected     = new TaskCompletionSource();
+    string? connectedVal = null, disconnectedVal = null;
+    var     sawError     = false;
+    string? errorMsg     = null;
+
+    using var _ = core.ConnectionState.Subscribe(e =>
+    {
+        switch (e.Kind)
+        {
+            case ConnectionEventKind.Connected:
+                connectedVal = core.Scripts.Globals.TryGetValue("connected", out var c) ? c : "(unset)";
+                break;
+            case ConnectionEventKind.Error:
+                sawError = true; errorMsg = e.Message;
+                break;
+            case ConnectionEventKind.Disconnected:
+                disconnectedVal = core.Scripts.Globals.TryGetValue("connected", out var d) ? d : "(unset)";
+                disconnected.TrySetResult();
+                break;
+        }
+    });
+
+    Console.WriteLine($"[DROP] {(watchdog ? "watchdog (silent-hang)" : "clean-close")} repro — connecting via DevReplay...");
+    await core.ConnectAsync(cfg);
+
+    // Clean close arrives almost immediately; the watchdog trips after
+    // ServerActivityTimeoutMs (3s here), so allow generous headroom.
+    var timeoutMs = watchdog ? 15_000 : 8_000;
+    var gotDrop   = await Task.WhenAny(disconnected.Task, Task.Delay(timeoutMs)) == disconnected.Task;
+    await Task.Delay(50);   // let the $connected write settle
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        ("Connected fired",             connectedVal is not null, $"$connected at connect = {connectedVal ?? "(never connected)"}"),
+        ("$connected was 1 on connect", connectedVal == "1",      $"expected 1, got {connectedVal ?? "(none)"}"),
+        ("Disconnected fired",          gotDrop,                  gotDrop ? "ok" : $"no Disconnected within {timeoutMs}ms"),
+        ("$connected reset to 0",       disconnectedVal == "0",   $"expected 0, got {disconnectedVal ?? "(none)"}"),
+    };
+    if (watchdog)
+        checks.Add(("Watchdog raised Error",
+            sawError && (errorMsg?.Contains("no data", StringComparison.OrdinalIgnoreCase) ?? false),
+            sawError ? $"Error: {errorMsg}" : "no Error event seen"));
+
+    Console.WriteLine();
+    Console.WriteLine("==================== DROP-PATH VERIFICATION (#87) ====================");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-28} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("=====================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass ? "[DROP] ALL CHECKS PASSED" : "[DROP] SOME CHECKS FAILED");
+    Console.ResetColor();
+    return allPass;
+}
+
+// ── RECONNECT mode — assert the PERSISTENT-CORE path end-to-end (#88 / #46 P3) ──
+// Connects twice through DevReplay on a SINGLE GenieCore. Proves the core (and the
+// public relay observables a subscriber holds) survive disconnect→reconnect: the
+// subscription is taken ONCE, yet sees Connected on both connects and a TextEvent
+// from the SECOND connection's fresh parser; and Scripts/Commands are the same
+// instances throughout. Returns true iff every check passed.
+static async Task<bool> RunReconnectRepro(string sessionFile, ILoggerFactory lf)
+{
+    await using var core = new GenieCore(dataDirectoryOverride: null, aiConfig: null, loggerFactory: lf);
+
+    var scriptsBefore  = core.Scripts;
+    var commandsBefore = core.Commands;
+
+    var connectedCount = 0;
+    var textOnSecond   = 0;
+    var onSecond       = false;
+
+    // Subscribe ONCE — these must survive the reconnect (the whole point).
+    using var csub = core.ConnectionState.Subscribe(e =>
+    {
+        if (e.Kind == ConnectionEventKind.Connected) connectedCount++;
+    });
+    using var tsub = core.GameEvents.OfType<TextEvent>().Subscribe(_ =>
+    {
+        if (onSecond) textOnSecond++;
+    });
+
+    var cfg = new ConnectionConfig
+    {
+        Mode                 = ConnectionMode.DevReplay,
+        LichProxyHost        = "127.0.0.1",
+        LichProxyPort        = 8000,
+        MaxReconnectAttempts = 0,
+    };
+
+    // ── Connect #1 ──
+    Console.WriteLine("[RECONNECT] connect #1 via DevReplay...");
+    await using (var s1 = new DevReplayServer(sessionFile, port: 8000, speed: 0,
+                     hangAfterStream: false, log: lf.CreateLogger<DevReplayServer>()))
+    {
+        s1.Start();
+        await Task.Delay(100);
+        await core.ConnectAsync(cfg);
+        await Task.Delay(600);   // stream + clean close
+    }
+
+    // Add a runtime rule + user variable, as if a running script created them, plus
+    // a fetched live skill rank. A SAME-character reconnect (reloadRules:false,
+    // clearPerCharacter:false) must preserve ALL of these — the rules/script state
+    // (Change #2) and the skill ranks so the Mapper doesn't re-prompt (Change #4).
+    core.Triggers.AddTrigger("reconnect-persist-test", "echo hi", false, true, "");
+    core.Variables.Store.Set("reconnectpersistvar", "kept");
+    core.State.LiveSkills.SetRank("Athletics", 212);
+
+    // ── Connect #2 on the SAME core (exercises TeardownConnectionAsync + rebuild) ──
+    // Same-character reconnect — runtime rules + fetched skills must survive.
+    onSecond = true;
+    Console.WriteLine("[RECONNECT] connect #2 via DevReplay (same core, reloadRules:false, clearPerCharacter:false)...");
+    await using (var s2 = new DevReplayServer(sessionFile, port: 8000, speed: 0,
+                     hangAfterStream: false, log: lf.CreateLogger<DevReplayServer>()))
+    {
+        s2.Start();
+        await Task.Delay(100);
+        await core.ConnectAsync(cfg, reloadRules: false, clearPerCharacter: false);
+        await Task.Delay(600);
+    }
+
+    var trigSurvived  = core.Triggers.Triggers.Any(t => t.Pattern == "reconnect-persist-test");
+    var varSurvived   = core.Variables.Store.Get("reconnectpersistvar") == "kept";
+    var skillSurvived = core.State.LiveSkills.Rank("Athletics") == 212;   // Change #4: skills kept on same-char reconnect
+
+    // Now prove clear-then-load drops them (the character-change path).
+    core.ResetRuleEngines();
+    var trigCleared = core.Triggers.Triggers.All(t => t.Pattern != "reconnect-persist-test");
+    var varCleared  = core.Variables.Store.Get("reconnectpersistvar") is null;
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        ("Connected fired on both connects", connectedCount >= 2,
+            $"expected >= 2, got {connectedCount}"),
+        ("Text relayed on 2nd connection",   textOnSecond >= 1,
+            $"TextEvents after reconnect = {textOnSecond} (proves relay re-feed)"),
+        ("ScriptEngine instance persisted",  ReferenceEquals(scriptsBefore, core.Scripts),
+            ReferenceEquals(scriptsBefore, core.Scripts) ? "same instance" : "REBUILT (lost script state!)"),
+        ("CommandEngine instance persisted", ReferenceEquals(commandsBefore, core.Commands),
+            ReferenceEquals(commandsBefore, core.Commands) ? "same instance" : "REBUILT"),
+        ("Same-char reconnect kept rules",   trigSurvived && varSurvived,
+            $"trigger kept={trigSurvived}, var kept={varSurvived} (reloadRules:false)"),
+        ("Same-char reconnect kept skills",  skillSurvived,
+            skillSurvived ? "Athletics=212 survived (Change #4 — no Mapper re-prompt)" : "skills WIPED on reconnect!"),
+        ("ResetRuleEngines clears rules",    trigCleared && varCleared,
+            $"trigger cleared={trigCleared}, user var cleared={varCleared}"),
+    };
+
+    Console.WriteLine();
+    Console.WriteLine("============== PERSISTENT-CORE VERIFICATION (#88 / #46 P3) ==============");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-34} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("========================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass ? "[RECONNECT] ALL CHECKS PASSED" : "[RECONNECT] SOME CHECKS FAILED");
+    Console.ResetColor();
+    return allPass;
+}
+
+// ── MAPCOALESCE — assert PR #92's room-placement coalescing end-to-end (#91 Bug 1) ──
+// Feeds the REAL DrXmlParser → GameStateEngine → MapperGameStateAdapter the exact
+// incoherent sequence from issue #91 (room B's TITLE arrives before B's compass,
+// while exits still hold room A's value) and asserts the adapter now fires
+// StateChanged ONCE per room — on the <prompt> — with a COHERENT title+exits
+// snapshot, instead of firing per-component (which produced a B-title + A-exits
+// fingerprint that missed every zone). No live game / no map data needed.
+static bool RunMapCoalesceRepro(ILoggerFactory lf)
+{
+    var parser  = new Genie.Core.Parser.DrXmlParser(lf.CreateLogger<Genie.Core.Parser.DrXmlParser>());
+    var state   = new Genie.Core.Models.GameState();
+    // GameStateEngine subscribes BEFORE the adapter (same order as GenieCore) so
+    // _state is updated before the adapter reads it on the prompt.
+    var engine  = new Genie.Core.GameState.GameStateEngine(
+        parser.GameEvents, state, lf.CreateLogger<Genie.Core.GameState.GameStateEngine>());
+    var adapter = new Genie.Core.Mapper.MapperGameStateAdapter(state, parser.GameEvents);
+
+    var fires = new List<(string title, string exits)>();
+    adapter.StateChanged += () => fires.Add((adapter.RoomTitle, string.Join(" ", adapter.Exits)));
+
+    // Room A: title → exits "out" → prompt.
+    parser.Feed("<streamWindow id='room' title='Room' subtitle=\" - [Test, Room A]\" location='center'/>\n");
+    parser.Feed("<compass><dir value=\"out\"/></compass>\n");
+    var firesBeforePromptA = fires.Count;                 // expect 0 (coalesced; old fired per-component)
+    parser.Feed("<prompt time=\"1\">&gt;</prompt>\n");
+    var firesAfterPromptA  = fires.Count;                 // expect 1
+
+    // Room B: TITLE arrives while exits still hold A's "out" ...
+    parser.Feed("<streamWindow id='room' title='Room' subtitle=\" - [Test, Room B]\" location='center'/>\n");
+    var firesAfterTitleB   = fires.Count;                 // expect 1 (old fired here INCOHERENTLY: B-title + "out")
+    // ... then B's own compass ...
+    parser.Feed("<compass><dir value=\"north\"/><dir value=\"east\"/></compass>\n");
+    var firesAfterCompassB = fires.Count;                 // expect 1
+    // ... then the prompt that ends B's turn.
+    parser.Feed("<prompt time=\"2\">&gt;</prompt>\n");
+    var firesAfterPromptB  = fires.Count;                 // expect 2
+
+    var bCoherent = fires.Count >= 2
+        && fires[1].title.Contains("Room B", StringComparison.OrdinalIgnoreCase)
+        && fires[1].exits == "north east";
+    var noIncoherent = !fires.Any(f =>
+        f.title.Contains("Room B", StringComparison.OrdinalIgnoreCase) && f.exits == "out");
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        ("Coalesced: no fire before room A's prompt", firesBeforePromptA == 0, $"fires before prompt = {firesBeforePromptA}"),
+        ("Fired once on room A's prompt",             firesAfterPromptA  == 1, $"fires = {firesAfterPromptA}"),
+        ("Coalesced: B's title alone did NOT fire",   firesAfterTitleB   == 1, $"fires after B-title = {firesAfterTitleB} (old fired here, incoherently)"),
+        ("Coalesced: B's compass alone did NOT fire", firesAfterCompassB == 1, $"fires after B-compass = {firesAfterCompassB}"),
+        ("Fired once on room B's prompt",             firesAfterPromptB  == 2, $"fires = {firesAfterPromptB}"),
+        ("Room B snapshot COHERENT (title+own exits)", bCoherent, fires.Count >= 2 ? $"fire#2 = (\"{fires[1].title}\", \"{fires[1].exits}\")" : "no 2nd fire"),
+        ("No incoherent B-title + A-exits fire ever", noIncoherent, "the exact bug #92 fixes"),
+    };
+
+    Console.WriteLine();
+    Console.WriteLine("=========== MAPPER COALESCE VERIFICATION (PR #92 / #91 Bug 1) ===========");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-44} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine($"  recorded fires: {string.Join(" | ", fires.Select(f => $"(\"{f.title}\",\"{f.exits}\")"))}");
+    Console.WriteLine("========================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass ? "[MAPCOALESCE] ALL CHECKS PASSED" : "[MAPCOALESCE] SOME CHECKS FAILED");
+    Console.ResetColor();
+
+    adapter.Dispose();
+    engine.Dispose();
+    parser.Dispose();
+    return allPass;
+}
+
+// ── MOVEORDER — demonstrate F1: PR #92's prompt-handler ordering vs the safe order ──
+// PR #92's PromptEvent handler runs Scripts.OnPrompt() BEFORE the coalesced
+// Scripts.OnRoomChanged(). Tick() runs scripts forward-until-block, so a
+// pause-resumed script reaches a `move` INSIDE OnPrompt()'s tick (sends the command,
+// parks PauseMode.Move); the trailing OnRoomChanged() then unblocks that move the
+// SAME turn — before the room actually changed in response. This drives a real
+// ScriptEngine both ways and shows the safe order (OnRoomChanged BEFORE OnPrompt)
+// leaves the move correctly parked. PASS = the bug reproduces under #92's order AND
+// the flip fixes it (so flipping GenieCore's PromptEvent handler is warranted).
+static bool RunMoveOrderRepro(ILoggerFactory lf)
+{
+    var scriptsDir = Path.Combine(ResultsDir, "moveorder_scripts");
+    Directory.CreateDirectory(scriptsDir);
+    // pause expires this turn → resume → `move east` (sends + parks) → echo (only
+    // reached if the move unblocks). Script gone from Instances == ran past the move.
+    File.WriteAllText(Path.Combine(scriptsDir, "mv.cmd"),
+        "pause 0.05\nmove east\necho reached-after-move\n");
+
+    // Run one turn with the given order; returns a trace of what happened.
+    static (bool parked, int eastCount, bool reachedEcho) RunOnce(string scriptsDir, bool promptFirst)
+    {
+        var sent   = new List<string>();
+        var echoed = new List<string>();
+        var ta     = new Genie.Core.Scripting.TypeAheadSession { Limit = 3 };  // ample budget so `move` sends
+        var se     = new Genie.Core.Scripting.ScriptEngine(scriptsDir, ta,
+            sendCommand: c => sent.Add(c),
+            echo:        e => echoed.Add(e));
+        se.InRoundtime               = () => false;
+        se.RoundTimeRemainingSeconds = () => 0;
+        se.SpellTimeSeconds          = () => 0;
+
+        se.TryStart("mv", System.Array.Empty<string>());   // ticks to the `pause`
+        System.Threading.Thread.Sleep(120);                 // let `pause 0.05` expire
+
+        if (promptFirst) { se.OnPrompt(); se.OnRoomChanged(); }   // PR #92's order
+        else             { se.OnRoomChanged(); se.OnPrompt(); }   // safe order
+
+        var parked      = se.Instances.Count > 0;   // still present == parked at move; gone == ran past it
+        var eastCount   = sent.Count(c => c.Equals("east", StringComparison.OrdinalIgnoreCase));
+        var reachedEcho = echoed.Any(e => e.Contains("reached-after-move", StringComparison.OrdinalIgnoreCase));
+        se.StopAll();
+        return (parked, eastCount, reachedEcho);
+    }
+
+    var pf = RunOnce(scriptsDir, promptFirst: true);
+    var rf = RunOnce(scriptsDir, promptFirst: false);
+
+    Console.WriteLine($"  trace #92-order  : parked={pf.parked}  eastSent={pf.eastCount}  reachedPostMoveEcho={pf.reachedEcho}");
+    Console.WriteLine($"  trace safe-order : parked={rf.parked}  eastSent={rf.eastCount}  reachedPostMoveEcho={rf.reachedEcho}");
+
+    // F1 = the script runs PAST the move (reaches the post-move echo) the SAME turn
+    // under #92's OnPrompt-first order, but correctly waits under the safe
+    // OnRoomChanged-first order. The test PASSES when it demonstrates exactly that
+    // (which is why GenieCore's PromptEvent handler must use the safe order).
+    var f1Repros = pf.reachedEcho && !rf.reachedEcho;
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        ("`move east` was sent in both orders",            pf.eastCount > 0 && rf.eastCount > 0, "sanity: the move ran"),
+        ("Unsafe order (#92, OnPrompt-first) unblocks early", pf.reachedEcho,  pf.reachedEcho ? "script ran PAST the move same turn — F1" : "did not repro"),
+        ("Safe order (OnRoomChanged-first) waits at move",    !rf.reachedEcho, rf.reachedEcho ? "ran past move (unexpected)" : "correctly parked at the move"),
+    };
+
+    Console.WriteLine();
+    Console.WriteLine("============ MOVE-UNBLOCK ORDERING (F1, PR #92 PromptEvent) ============");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-46} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("=======================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass
+        ? "[MOVEORDER] F1 demonstrated — GenieCore's PromptEvent handler must call\n" +
+          "            OnRoomChanged() BEFORE OnPrompt() (the safe order), which it now does."
+        : "[MOVEORDER] unexpected outcome — see trace above.");
+    Console.ResetColor();
+    return allPass;
+}
+
+// Pathfinder gating contract — no game, no map. Asserts ExitRequirement.IsMet
+// treats UNKNOWN class (null) / level (0) / skill (not in store) as "assumed
+// reachable" (so the pathfinder doesn't return a false "No path" before stats
+// are read), while still BLOCKING known-and-failing gates.
+static bool RunReqGateRepro()
+{
+    var classGate = Genie.Core.Mapper.ExitRequirement.Parse("class=Thief");
+    var levelGate = Genie.Core.Mapper.ExitRequirement.Parse("level>=25");
+    var skillGate = Genie.Core.Mapper.ExitRequirement.Parse("Climbing>=50");
+
+    var lowSkills = new Genie.Core.Skills.SkillStore();   // known: can't climb
+    lowSkills.SetRank("Climbing", 10);
+    var hiSkills = new Genie.Core.Skills.SkillStore();    // known: can climb
+    hiSkills.SetRank("Climbing", 80);
+    var emptySkills = new Genie.Core.Skills.SkillStore(); // store present but rank unseen
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        // UNKNOWN → PASS (the fix; these returned false before, causing "No path").
+        ("class gate passes when class UNKNOWN (null)",  classGate.IsMet(null, null, 0),                "assumed reachable"),
+        ("level gate passes when level UNKNOWN (0)",     levelGate.IsMet(null, null, 0),                "assumed reachable"),
+        ("skill gate passes when skills UNKNOWN (null)", skillGate.IsMet(null, null, 0),                "assumed reachable"),
+        ("skill gate passes when rank unseen in store",  skillGate.IsMet(emptySkills, "Thief", 50),     "unknown skill → pass"),
+
+        // KNOWN-and-failing → BLOCK (no over-permissive regression).
+        ("class gate blocks a KNOWN wrong class",        !classGate.IsMet(null, "Empath", 50),          "class known + mismatch"),
+        ("level gate blocks a KNOWN low level",          !levelGate.IsMet(null, "Thief", 10),           "10 < 25"),
+        ("skill gate blocks a KNOWN low rank",           !skillGate.IsMet(lowSkills, "Thief", 50),      "Climbing 10 < 50"),
+
+        // KNOWN-and-passing → PASS.
+        ("class gate passes the KNOWN right class",      classGate.IsMet(null, "Thief", 50),            "class match"),
+        ("level gate passes a KNOWN high level",         levelGate.IsMet(null, "Thief", 50),            "50 >= 25"),
+        ("skill gate passes a KNOWN high rank",          skillGate.IsMet(hiSkills, "Thief", 50),        "Climbing 80 >= 50"),
+    };
+
+    Console.WriteLine();
+    Console.WriteLine("============ EXIT-REQUIREMENT GATING (pathfinder No-path fix) ============");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-48} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("=========================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass
+        ? "[REQGATE] unknown class/level/skill assumed-reachable (no false 'No path');\n" +
+          "          known-and-failing gates still block. Contract honored."
+        : "[REQGATE] gating contract violated — see failures above.");
+    Console.ResetColor();
+    return allPass;
 }
 
 // Resolves a session file path. Tries current dir first, then resultsDir/.

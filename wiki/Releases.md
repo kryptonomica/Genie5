@@ -12,8 +12,8 @@ Genie now shows a live **type-ahead counter** in the command bar, and that limit
 
 **Command bar**
 
-- **Type-ahead pip counter** — a counter between the roundtime badge and the input box shows the per-account type-ahead cap as pips (filled = queued ahead of the game, hollow = free slots). Dim when idle, **amber** at the cap, so you can see when the game is lagging your typing.
-- **Tier-accurate type-ahead** — the limit is seeded from your account tier (free = 1 line, premium = 2, premium + LTB = 3) and self-calibrates if the server reports a different cap, so the auto-walker stops overrunning the buffer on free/premium accounts.
+- **Type-ahead pip counter** — a counter between the roundtime badge and the input box shows the per-account type-ahead cap as pips (filled = queued ahead of the game, hollow = free slots). Dim when idle, **amber** at the cap, so you can see when the game is lagging your typing ([#67](https://github.com/GenieClient/Genie5/issues/67)).
+- **Tier-accurate type-ahead** — the limit is seeded from your account tier (free = 1 line, premium = 2, premium + LTB = 3) and self-calibrates if the server reports a different cap, so the auto-walker stops overrunning the buffer on free/premium accounts ([#66](https://github.com/GenieClient/Genie5/issues/66)).
 
 **Scripting**
 

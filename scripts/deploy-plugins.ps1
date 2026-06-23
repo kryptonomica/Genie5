@@ -5,8 +5,11 @@
   Genie 5 Plugins folder for INTERNAL TESTING.
 
 .DESCRIPTION
-  The plugins (EXPTracker / InventoryView / SpellTimer) are NOT part of the Core
-  build. Each lives in its own repo under github.com/GenieClient and is the
+  The remaining standalone plugin (InventoryView) is NOT part of the Core
+  build. (EXPTracker, SpellTimer and TimeTracker were absorbed into Core as
+  built-in trackers and are no longer deployed as plugins; a leftover DLL is
+  ignored by the host's load-guard.) Each lives in its own repo under
+  github.com/GenieClient and is the
   single source of truth ("gold"). The Core solution (Genie.slnx) and CI never
   compile them — this dev-only script is the path that makes them loadable for
   testing, keeping plugin loading fully decoupled from the Core build.
@@ -48,11 +51,11 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $RefsDir  = Join-Path $RepoRoot '_refs'
 
-# The three standalone "gold" plugin repos (source of truth) under GenieClient.
+# The standalone "gold" plugin repos (source of truth) under GenieClient.
+# EXPTracker / SpellTimer / TimeTracker are intentionally absent — they're now
+# built in to Core (see Genie.Core/Extensions/Builtin).
 $Plugins = @(
-    @{ Repo = 'Plugin_EXPTrackerV5';    Csproj = 'Plugin_EXPTrackerV5.csproj' },
-    @{ Repo = 'Plugin_InventoryViewV5'; Csproj = 'Plugin_InventoryViewV5.csproj' },
-    @{ Repo = 'Plugin_SpellTimerV5';    Csproj = 'Plugin_SpellTimerV5.csproj' }
+    @{ Repo = 'Plugin_InventoryViewV5'; Csproj = 'Plugin_InventoryViewV5.csproj' }
 )
 
 # ── Resolve the Plugins folder (mirrors Genie.Core AppPaths) ─────────────────

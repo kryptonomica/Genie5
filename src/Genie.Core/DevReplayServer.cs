@@ -23,6 +23,7 @@ public sealed class DevReplayServer : IAsyncDisposable
     private readonly string                   _filePath;
     private readonly double                   _speed;
     private readonly int                      _port;
+    private readonly bool                     _hangAfterStream;
     private readonly ILogger<DevReplayServer> _log;
     private readonly TcpListener              _listener;
     private readonly CancellationTokenSource  _cts = new();
@@ -32,12 +33,14 @@ public sealed class DevReplayServer : IAsyncDisposable
         string                   filePath,
         int                      port   = 8000,
         double                   speed  = 0.0,
+        bool                     hangAfterStream = false,
         ILogger<DevReplayServer>? log   = null)
     {
-        _filePath = filePath;
-        _port     = port;
-        _speed    = speed;
-        _log      = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DevReplayServer>.Instance;
+        _filePath        = filePath;
+        _port            = port;
+        _speed           = speed;
+        _hangAfterStream = hangAfterStream;
+        _log             = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<DevReplayServer>.Instance;
         _listener = new TcpListener(IPAddress.Loopback, port);
         // Allow rapid rebind after the previous replay exits (avoids TIME_WAIT bind failures in dev loops).
         _listener.Server.ExclusiveAddressUse = false;
@@ -109,6 +112,18 @@ public sealed class DevReplayServer : IAsyncDisposable
                 }
 
                 _log.LogInformation("DevReplay: finished streaming {Bytes:N0} bytes", totalBytes);
+
+                // Watchdog repro: hold the socket open but go completely silent
+                // (no FIN, no further bytes) so the client's read blocks. This is
+                // the half-open shape the server-activity watchdog exists to catch
+                // — without it, a clean FIN would be detected by the 0-byte path
+                // instead. The connection is closed when the server is disposed.
+                if (_hangAfterStream)
+                {
+                    _log.LogInformation("DevReplay: holding connection open and silent (watchdog repro)");
+                    try { await Task.Delay(Timeout.Infinite, ct); } catch (OperationCanceledException) { }
+                    return;
+                }
 
                 // Shut down our send side first (sends FIN to client).
                 // Then drain any game commands the client sent us before closing,

@@ -48,6 +48,12 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// (<c>&lt;resource picture&gt;</c>), gated by <c>showimages</c>.</summary>
     public SceneViewModel      Scene      { get; } = new();
 
+    /// <summary>Backs the dockable Mobs panel — creatures in the room (#86).</summary>
+    public MobsViewModel       Mobs       { get; } = new();
+
+    /// <summary>Backs the dockable Players panel — other players in the room (#86).</summary>
+    public PlayersViewModel    Players    { get; } = new();
+
     /// <summary>
     /// Global layout presets, shared across every character —
     /// <c>{AppData}/Genie5/Layouts/</c>. Always present.
@@ -328,10 +334,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool WhispersVisible { get; private set; } = true;
     [Reactive] public bool ThoughtsVisible { get; private set; } = true;
     [Reactive] public bool CombatVisible   { get; private set; } = true;
+    [Reactive] public bool FamiliarVisible { get; private set; } = true;
+    [Reactive] public bool DeathVisible    { get; private set; } = true;
+    [Reactive] public bool AssessVisible   { get; private set; } = true;
     [Reactive] public bool LogVisible      { get; private set; } = true;
     [Reactive] public bool ItemLogVisible  { get; private set; } = true;
     [Reactive] public bool ScriptsVisible  { get; private set; }   // hidden by default (opt-in)
     [Reactive] public bool SceneVisible    { get; private set; }   // hidden by default (opt-in)
+    [Reactive] public bool MobsVisible     { get; private set; }   // hidden by default (opt-in)
+    [Reactive] public bool PlayersVisible  { get; private set; }   // hidden by default (opt-in)
 
     // ── Toggle commands (one per dockable) ───────────────────────────────────
     public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
@@ -345,14 +356,31 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleWhispersCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleThoughtsCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleCombatCommand   { get; }
+    public ReactiveCommand<Unit, Unit> ToggleFamiliarCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleDeathCommand    { get; }
+    public ReactiveCommand<Unit, Unit> ToggleAssessCommand   { get; }
     public ReactiveCommand<Unit, Unit> ToggleLogCommand      { get; }
     public ReactiveCommand<Unit, Unit> ToggleItemLogCommand  { get; }
     public ReactiveCommand<Unit, Unit> ToggleScriptsCommand  { get; }
     public ReactiveCommand<Unit, Unit> ToggleSceneCommand    { get; }
+    public ReactiveCommand<Unit, Unit> ToggleMobsCommand     { get; }
+    public ReactiveCommand<Unit, Unit> TogglePlayersCommand  { get; }
 
     // ── Core ──────────────────────────────────────────────────────────────────
 
     private GenieCore? _core;
+
+    /// <summary>The data root fixed for this app session when the core was first
+    /// built (empty = the default discovered AppData/portable location). The core
+    /// is persistent, so this is NOT repointed per connect — a later connect to a
+    /// profile with a different data directory warns instead. See WireCore.</summary>
+    private string _sessionDataRoot = "";
+
+    /// <summary>Identity ("char\0account") whose rule files are currently loaded into
+    /// the persistent engines. Used to clear-then-load on a CHARACTER change while
+    /// leaving a same-character reconnect's runtime rules + running scripts intact
+    /// (issue #88 / #46 Phase 3). Empty until the first connect loads rules.</summary>
+    private string _loadedRuleKey = "";
 
     /// <summary>
     /// Read-only access to the live <see cref="GenieCore"/>. Null before the
@@ -474,6 +502,32 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// so time-based script unblocks (pause / delay / waitfor) fire even with no
     /// incoming game traffic. Started on connect, stopped on disconnect (#61).</summary>
     private Avalonia.Threading.DispatcherTimer? _scriptHeartbeat;
+
+    // ── Auto-reconnect (Genie 4 parity: Game.cs CheckReconnect / EventConnectionLost) ──
+    /// <summary>1s ticker that fires a scheduled reconnect once its due time
+    /// passes. Lives on the VM (not the per-connect core) so it survives the
+    /// core rebuild a reconnect performs. Created lazily, then left running.</summary>
+    private Avalonia.Threading.DispatcherTimer? _reconnectTimer;
+    /// <summary>When set, a reconnect is due at this wall-clock time; null = none pending.</summary>
+    private DateTime? _reconnectAt;
+    /// <summary>Number of reconnect attempts since the last good connect — drives the backoff ladder.</summary>
+    private int  _reconnectAttempts;
+    /// <summary>The user (or an explicit #connect/Disconnect) tore the link down — do NOT auto-reconnect.</summary>
+    private bool _manualDisconnect;
+    /// <summary>We reached Connected this session. Only an established link that drops auto-reconnects
+    /// (a failed initial login does not).</summary>
+    private bool _wasConnected;
+    /// <summary>Policy guard: the user has sent at least one command since this connect. An untouched,
+    /// unattended session must never resurrect itself (DR ToS: no auto-reconnect-and-resume while away).</summary>
+    private bool _userInputSinceConnect;
+    /// <summary>The user sent a deliberate disconnect verb (DR's <c>quit</c>/<c>exit</c>) — the server
+    /// close that follows is INTENTIONAL, so do NOT auto-reconnect (the user chose to leave; this is the
+    /// sharpest edge of the no-auto-resume policy). Cleared on the next non-quit command (a rejected quit
+    /// means they're still playing) and on each fresh connect.</summary>
+    private bool _intentionalGameExit;
+    /// <summary>This drop already printed a reason ("Connection lost: …"), so the paired Disconnected
+    /// event should not also print "Connection closed.".</summary>
+    private bool _dropAnnounced;
 
     /// <summary>Base name of the recipe script whose completion should auto-stop
     /// the current capture (null for a manual capture, which the user stops).</summary>
@@ -644,12 +698,17 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("whispers",  "Whispers");
         WindowSettings.Register("thoughts",  "Thoughts");
         WindowSettings.Register("combat",    "Combat");
+        WindowSettings.Register("familiar",  "Familiar");
+        WindowSettings.Register("death",     "Deaths");
+        WindowSettings.Register("assess",    "Assess");
         WindowSettings.Register("log",       "Log");
         WindowSettings.Register("itemlog",   "ItemLog");
         WindowSettings.Register("mapper",    "Mapper");
         WindowSettings.Register("experience", "Experience");
         WindowSettings.Register("scripts",   "Scripts");
         WindowSettings.Register("scene",     "Scene");
+        WindowSettings.Register("mobs",      "Mobs");
+        WindowSettings.Register("players",   "Players");
 
         // ── Global → per-window propagation ─────────────────────────────
         // When the user changes DisplaySettings (color, font, etc.), the
@@ -1168,10 +1227,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleWhispersCommand = MakeToggleCommand("whispers",  v => WhispersVisible = v);
         ToggleThoughtsCommand = MakeToggleCommand("thoughts",  v => ThoughtsVisible = v);
         ToggleCombatCommand   = MakeToggleCommand("combat",    v => CombatVisible   = v);
+        ToggleFamiliarCommand = MakeToggleCommand("familiar",  v => FamiliarVisible = v);
+        ToggleDeathCommand    = MakeToggleCommand("death",     v => DeathVisible    = v);
+        ToggleAssessCommand   = MakeToggleCommand("assess",    v => AssessVisible   = v);
         ToggleLogCommand      = MakeToggleCommand("log",       v => LogVisible      = v);
         ToggleItemLogCommand  = MakeToggleCommand("itemlog",   v => ItemLogVisible  = v);
         ToggleScriptsCommand  = MakeToggleCommand("scripts",   v => ScriptsVisible  = v);
         ToggleSceneCommand    = MakeToggleCommand("scene",     v => SceneVisible    = v);
+        ToggleMobsCommand     = MakeToggleCommand("mobs",      v => MobsVisible     = v);
+        TogglePlayersCommand  = MakeToggleCommand("players",   v => PlayersVisible  = v);
 
         // (ResetLayoutCommand is assigned earlier — using ApplyLayout() with a
         // SavedLayout that goes through factory.BuildDefaultLayout(). A second
@@ -2004,10 +2068,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("whispers",  factory.IsToolVisible("whispers"));
         SetVisibilityBool("thoughts",  factory.IsToolVisible("thoughts"));
         SetVisibilityBool("combat",    factory.IsToolVisible("combat"));
+        SetVisibilityBool("familiar",  factory.IsToolVisible("familiar"));
+        SetVisibilityBool("death",     factory.IsToolVisible("death"));
+        SetVisibilityBool("assess",    factory.IsToolVisible("assess"));
         SetVisibilityBool("log",       factory.IsToolVisible("log"));
         SetVisibilityBool("itemlog",   factory.IsToolVisible("itemlog"));
         SetVisibilityBool("scripts",   factory.IsToolVisible("scripts"));
         SetVisibilityBool("scene",     factory.IsToolVisible("scene"));
+        SetVisibilityBool("mobs",      factory.IsToolVisible("mobs"));
+        SetVisibilityBool("players",   factory.IsToolVisible("players"));
     }
 
     // ── Plugin-created windows ───────────────────────────────────────────────
@@ -2324,10 +2393,15 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "whispers":  ForceSet(visible, v => WhispersVisible = v, () => WhispersVisible); break;
             case "thoughts":  ForceSet(visible, v => ThoughtsVisible = v, () => ThoughtsVisible); break;
             case "combat":    ForceSet(visible, v => CombatVisible   = v, () => CombatVisible);   break;
+            case "familiar":  ForceSet(visible, v => FamiliarVisible = v, () => FamiliarVisible); break;
+            case "death":     ForceSet(visible, v => DeathVisible    = v, () => DeathVisible);    break;
+            case "assess":    ForceSet(visible, v => AssessVisible   = v, () => AssessVisible);   break;
             case "log":       ForceSet(visible, v => LogVisible      = v, () => LogVisible);      break;
             case "itemlog":   ForceSet(visible, v => ItemLogVisible  = v, () => ItemLogVisible);  break;
             case "scripts":   ForceSet(visible, v => ScriptsVisible  = v, () => ScriptsVisible);  break;
             case "scene":     ForceSet(visible, v => SceneVisible    = v, () => SceneVisible);    break;
+            case "mobs":      ForceSet(visible, v => MobsVisible     = v, () => MobsVisible);     break;
+            case "players":   ForceSet(visible, v => PlayersVisible  = v, () => PlayersVisible);  break;
         }
 
         static void ForceSet(bool target, Action<bool> set, Func<bool> get)
@@ -2384,27 +2458,25 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         }
     }
 
-    private async Task ConnectAsync(ConnectionConfig cfg, ConnectionProfile? profile)
+    /// <summary>Connect (or reconnect) the given config/profile. Builds the one
+    /// persistent <see cref="GenieCore"/> and its once-per-app App wiring on first
+    /// use (<see cref="EnsureCoreBuilt"/> → <see cref="WireCore"/>), then runs a
+    /// single per-connect pass and dials. The core, engines, a running <c>.cmd</c>
+    /// and all rule/script state survive disconnect→reconnect (issue #88 / #46
+    /// Phase 3) — we no longer dispose-and-rebuild the core per connect.</summary>
+    private async Task ConnectAsync(ConnectionConfig cfg, ConnectionProfile? profile, bool isAutoReconnect = false)
     {
-        if (_core is not null)
-            await _core.DisposeAsync();
+        EnsureCoreBuilt(profile);
+        if (_core is null) return;   // ctor failure (already logged) — nothing to connect
+        WarnIfDataRootMismatch(profile);
 
-        // Per-profile data root: if the chosen profile points at its own folder,
-        // carry that into the core so its data resolves there instead of the
-        // default (AppData / portable) root.
-        if (profile is { DataDirectory.Length: > 0 })
-            cfg = cfg with { DataDirectoryOverride = profile.DataDirectory };
-
-        _core                = new GenieCore(cfg, loggerFactory: null);
+        // Auto-reconnect owns its own backoff ladder (ScheduleReconnect), so the
+        // core does a SINGLE establish attempt — otherwise GameConnection's
+        // internal retry loop would compound with the VM-level one.
+        var coreCfg          = isAutoReconnect ? cfg with { MaxReconnectAttempts = 0 } : cfg;
         ConnectedProfile     = profile;   // null if user typed credentials without picking a saved profile
-        LastConnectionConfig = cfg;       // remembered so reopening Connect after disconnect pre-fills
+        LastConnectionConfig = cfg;       // original cadence preserved for the Connect dialog + manual reconnects
         CharacterGuild       = "";        // cleared until this session's `info` reveals the guild
-
-        // Guild for the title bar — fires when the player runs `info`. DR has
-        // no structured guild tag, so we parse it from the info output.
-        _core.GameEvents.OfType<GuildEvent>()
-            .ObserveOn(RxApp.MainThreadScheduler)
-            .Subscribe(e => CharacterGuild = e.Guild);
 
         // Scope the per-profile layout store to this profile (global-only for
         // bare-credential connects), refresh the Load menu, and auto-apply the
@@ -2414,37 +2486,159 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         RefreshSavedLayoutList();
         ApplyDefaultLayoutForConnect(profile);
 
+        // Clear-then-load the rule files ONLY on a character change. The engines
+        // persist now (the core isn't rebuilt per connect), so without this a
+        // second character in the same session would inherit the first's rules.
+        // A same-character reconnect (auto-reconnect / #reconnect) keeps reloadRules
+        // false so runtime-added rules and a running script's state survive — the
+        // whole point of the persistent core (issue #88 / #46 Phase 3). The same
+        // flag gates the core's own .cfg load so both rule formats stay in lockstep.
+        var ruleKey      = $"{cfg.CharacterName} {cfg.AccountName}";
+        var alreadyLoaded = string.Equals(ruleKey, _loadedRuleKey, StringComparison.OrdinalIgnoreCase);
+        // CLEAR the previous character's rules ONLY on a genuine A→B switch; the
+        // first connect from offline must NOT clear (a logon script's #var/#class
+        // setup, or a same-char reconnect's runtime rules, must survive). LOAD the
+        // profile rules whenever they differ (first connect loads them ON TOP).
+        var charSwitch   = _loadedRuleKey.Length > 0 && !alreadyLoaded;
+        var reloadRules  = !alreadyLoaded;
+        if (reloadRules)
+        {
+            if (charSwitch) _core!.ResetRuleEngines();   // drop the PREVIOUS character's rules — never the offline/first-connect setup
+            LoadSavedConfiguration(_core);    // replay this character's saved .json rules
+            _loadedRuleKey = ruleKey;
+        }
+
+        // Re-arm the per-session overlay/metrics that DisconnectAsync detaches.
+        UserHighlights.Metrics = _core!.Metrics;   // time the render-path highlight pass
+        Perf.Attach(_core.Metrics);
+
+        // AutoLog (Genie 4): begin the rendered-text session log if enabled. The
+        // notice is emitted BEFORE Start subscribes, so it isn't itself logged.
+        if (_core.Config.AutoLog)
+        {
+            GameText.AddSystemLine("[autolog] session logging on → Logs folder. Turn off with #config autolog false.");
+            AutoLogger.Start(GameText, cfg.CharacterName, cfg.GameCode);
+        }
+
+        // Honour ShowLinks + conndebug for this connect (both can change between
+        // sessions via #config).
+        Highlighting.DefaultHighlights.LinksEnabled = _core.Config.ShowLinks;
+        _core.ConnectionVerboseDiag = _core.Config.ConnDebug;
+
+        await _core.ConnectAsync(coreCfg, reloadRules: reloadRules, clearPerCharacter: charSwitch);
+    }
+
+    /// <summary>Build the one persistent core + run all once-per-app App wiring the
+    /// first time it's needed (a connect, or the first command typed while offline).
+    /// The session data root is fixed here: from <paramref name="rootProfile"/> if
+    /// it specifies one, else the default discovered (AppData/portable) location.</summary>
+    private void EnsureCoreBuilt(ConnectionProfile? rootProfile, bool eagerLoadOfflineRules = false)
+    {
+        if (_core is not null) return;
+
+        _sessionDataRoot = rootProfile is { DataDirectory.Length: > 0 } ? rootProfile.DataDirectory : "";
+        _core = new GenieCore(
+            dataDirectoryOverride: string.IsNullOrEmpty(_sessionDataRoot) ? null : _sessionDataRoot,
+            aiConfig:              null,
+            loggerFactory:         null);
+
+        WireCore();
+
+        // Offline-before-connect (#88): when the core is built outside a connect —
+        // e.g. the user types a command or runs a logon script while disconnected —
+        // eagerly load the global/default saved rules so aliases/triggers/classes/
+        // variables are available immediately, instead of running against empty
+        // engines. ConnectedProfile is null here, so LoadSavedConfiguration resolves
+        // the global Config dir. We deliberately leave _loadedRuleKey empty: the
+        // first connect's clear-then-load (ConnectAsync) then reconciles to the
+        // connecting character's own profile rules. Skipped on the connect path,
+        // where ConnectAsync loads the profile's rules itself.
+        if (eagerLoadOfflineRules)
+            LoadSavedConfiguration(_core);
+    }
+
+    /// <summary>A later connect to a profile whose data directory differs from the
+    /// session's fixed root can't relocate everything live (the core is persistent),
+    /// so warn that a restart is needed rather than silently using the wrong root.</summary>
+    private void WarnIfDataRootMismatch(ConnectionProfile? profile)
+    {
+        var want = profile is { DataDirectory.Length: > 0 } ? Path.GetFullPath(profile.DataDirectory) : "";
+        var have = string.IsNullOrEmpty(_sessionDataRoot) ? "" : Path.GetFullPath(_sessionDataRoot);
+        if (!string.Equals(want, have, StringComparison.OrdinalIgnoreCase))
+            GameText.AddSystemLine(
+                "[data] this profile's data directory differs from the one in use this session — " +
+                $"restart Genie to switch data directories. In use: {(have.Length == 0 ? "(default)" : have)}.");
+    }
+
+    /// <summary>One-time wiring of the persistent core to the App: VM attaches,
+    /// observable subscriptions, #-command handlers, link/sound handlers, plugin
+    /// discovery, and the script tick pump. Runs exactly once per app session — the
+    /// core and its relay observables persist across reconnect, so these
+    /// subscriptions are taken once and never re-taken (re-taking would duplicate
+    /// every handler). Per-connect work lives in <see cref="ConnectAsync"/>.</summary>
+    private void WireCore()
+    {
+        if (_core is null) return;   // assigned by EnsureCoreBuilt immediately before this call
+
+        // Guild for the title bar — fires when the player runs `info`. DR has
+        // no structured guild tag, so we parse it from the info output.
+        _core.GameEvents.OfType<GuildEvent>()
+            .ObserveOn(RxApp.MainThreadScheduler)
+            .Subscribe(e => CharacterGuild = e.Guild);
+
         _core.ConnectionState.ObserveOn(RxApp.MainThreadScheduler)
             .Subscribe(e =>
             {
                 IsConnected      = e.Kind == ConnectionEventKind.Connected;
                 ConnectionStatus = e.Kind switch
                 {
-                    ConnectionEventKind.Connected    => $"Connected — {Genie.Core.Profiles.CharacterIdentity.Format(cfg.CharacterName, cfg.AccountName)}",
+                    ConnectionEventKind.Connected    => $"Connected — {Genie.Core.Profiles.CharacterIdentity.Format(LastConnectionConfig?.CharacterName ?? "", LastConnectionConfig?.AccountName ?? "")}",
                     ConnectionEventKind.Error        => "Connection failed",
                     ConnectionEventKind.Reconnecting => $"Reconnecting (attempt {e.Attempt})…",
                     _                                 => e.Kind.ToString(),
                 };
 
-                // Surface the FULL failure reason in the Game window — not just
-                // "Error" in the title bar. GameConnection already carries the
-                // verbose detail (SgeAuthClient produces actionable messages:
-                // bad password / unknown account, PROBLEM 1-4 = billing /
-                // already-logged-in / in-game / unavailable, TLS-handshake and
-                // timeout failures with host:port). Without this the user has no
-                // idea why login failed.
+                // Surface the FULL reason in the Game window. A drop AFTER we were
+                // connected (server idle-out, dead link, watchdog trip) is a
+                // "Connection lost"; an Error before we ever connected is a failed
+                // login — GameConnection carries the actionable detail either way
+                // (bad password / PROBLEM 1-4 / TLS / timeout). Before #87 the
+                // lost-link case printed nothing at all.
                 if (e.Kind == ConnectionEventKind.Error)
-                    ReportConnectionFailure(e.Message);
+                {
+                    if (_wasConnected)
+                        GameText.AddSystemLine($"⚠ Connection lost: {e.Message}");
+                    else
+                        ReportConnectionFailure(e.Message);
+                    _dropAnnounced = true;
+                }
 
-                // On connect, announce the login transport (TLS vs plaintext) and
-                // drive the status-bar padlock. Cleared on disconnect/error.
+                // On connect, announce the login transport (TLS vs plaintext),
+                // drive the status-bar padlock, and reset reconnect bookkeeping.
+                // Cleared on disconnect/error.
                 if (e.Kind == ConnectionEventKind.Connected)
+                {
                     ReportConnectionTransport(e.Message);
+                    OnConnectionEstablished();
+                }
                 else if (e.Kind is ConnectionEventKind.Disconnected or ConnectionEventKind.Error)
                 {
                     ConnectionSecurity    = "";
                     ConnectionSecurityTip = "";
                 }
+
+                // Clean close (server FIN / manual disconnect) with no reason
+                // already printed → Genie 4's "Connection closed." (#87).
+                if (e.Kind == ConnectionEventKind.Disconnected)
+                {
+                    if (!_dropAnnounced)
+                        GameText.AddSystemLine("Connection closed.");
+                    _dropAnnounced = true;
+                }
+
+                // A dropped/failed established session may auto-reconnect.
+                if (e.Kind is ConnectionEventKind.Disconnected or ConnectionEventKind.Error)
+                    MaybeArmAutoReconnect();
 
                 // Close any in-flight analyst capture when the session ends, so
                 // its meta sidecar is written rather than left dangling.
@@ -2453,22 +2647,21 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                     StopCapture("disconnected");
             });
 
-        // Auto-load every saved rule file into the live engines so anything
-        // the user configured offline (via the Configuration dialog) is
-        // immediately active. Then expose Highlights to the renderer.
-        LoadSavedConfiguration(_core);
+        // Expose the persistent engines to the renderer once (rule reload itself
+        // is per-connect — LoadSavedConfiguration runs in ConnectAsync). The engines
+        // persist, so the renderer holds them for the whole session.
         UserHighlights.Engine  = _core.Highlights;
-        UserHighlights.Metrics = _core.Metrics;   // time the render-path highlight pass
         Highlighting.DefaultHighlights.PresetEngine = _core.Presets;  // preset colours (#19)
 
-        // ── Performance: attach the overlay + apply per-component safety ──────
-        // Push the user's current safety choices onto the freshly-built engines
-        // (defaults are ON), then hand the overlay this session's metrics.
+        // ── Performance / safety ──────────────────────────────────────────────
+        // Push the user's current safety choices onto the engines (defaults ON).
+        // The overlay attach + metrics handoff is per-connect (Perf.Detach() runs
+        // on disconnect), so it lives in ConnectAsync; only the once-per-session
+        // sinks are wired here.
         _core.Triggers.SafetyEnabled    = TriggersSafety;
         _core.Highlights.SafetyEnabled  = HighlightsSafety;
         _core.Substitutes.SafetyEnabled = SubstitutesSafety;
         _core.Gags.SafetyEnabled        = GagsSafety;
-        Perf.Attach(_core.Metrics);
         // JS overlay: time the .js line-dispatch into the JavaScript stage, and
         // feed the running-.js list. Record() no-ops when the overlay is hidden.
         _core.Scripts.JsDispatchMsSink = ms =>
@@ -2483,7 +2676,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // "get #49489411 in #49489410" (item exist-IDs).
         Highlighting.DefaultHighlights.OnLinkClicked = (cmd, displayText) =>
             _core?.ProcessInput(cmd, echoOverride: BuildLinkEcho(cmd, displayText));
-        Highlighting.DefaultHighlights.LinksEnabled  = _core.Config.ShowLinks;
+        // LinksEnabled is refreshed per connect in ConnectAsync (ShowLinks can
+        // change between sessions via #config).
 
         // External URL hyperlinks (<a href='URL'>) — DR emits these in the
         // news/login resources block (Simucoin Store, Elanthipedia, etc.).
@@ -2537,16 +2731,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // ShowGameText / ShowEchoText / ShowScriptText at subscription time.
         GameText.DisplaySettings = Display;
         GameText.Attach(_core);
-
-        // AutoLog (Genie 4): begin the rendered-text session log if enabled.
-        // The notice is emitted BEFORE Start subscribes, so it isn't itself
-        // logged. Uses the login character/game (State.CharacterName isn't
-        // populated until the server's name push arrives a moment later).
-        if (_core.Config.AutoLog)
-        {
-            GameText.AddSystemLine("[autolog] session logging on → Logs folder. Turn off with #config autolog false.");
-            AutoLogger.Start(GameText, cfg.CharacterName, cfg.GameCode);
-        }
+        // AutoLog start is per-connect (uses the login character/game) — see ConnectAsync.
 
         Vitals.Attach(_core);
         Room.Attach(_core);
@@ -2556,6 +2741,8 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Experience.Attach(_core);
         Scripts.Attach(_core);
         Scene.Attach(_core);
+        Mobs.Attach(_core);
+        Players.Attach(_core);
         AttachPluginWindows(_core);
 
         // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin
@@ -2589,23 +2776,9 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         _core.EditScriptRequested     += name =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => OpenScriptInEditor(name));
 
-        // ── Script tick pump (fixes #61: scripts stall on pause/delay) ───────
-        // The engine's time-based unblocks (PAUSE, delay, WAITFOR timeout,
-        // waitfor-condition re-eval) all fire inside Scripts.Tick(), which the
-        // engine otherwise only runs on incoming game events — so a paused
-        // script with no incoming text hangs forever. The whole pipeline runs
-        // on the UI thread (the read loop has no ConfigureAwait(false)), so a
-        // DispatcherTimer is the race-free pump. ScheduleTick gives RT-precise
-        // one-shot wakeups the engine requests; the heartbeat covers the
-        // pause/delay/condition waits the engine does NOT self-schedule.
-        _core.Scripts.ScheduleTick = delay =>
-            Avalonia.Threading.DispatcherTimer.RunOnce(() => _core?.Scripts.Tick(), delay);
-
-        _scriptHeartbeat ??= new Avalonia.Threading.DispatcherTimer
-            { Interval = TimeSpan.FromMilliseconds(100) };
-        _scriptHeartbeat.Tick -= OnScriptHeartbeat;   // de-dupe across reconnects
-        _scriptHeartbeat.Tick += OnScriptHeartbeat;
-        _scriptHeartbeat.Start();
+        // (The script tick pump — #61 — is wired at the end of WireCore so it runs
+        // for the core's whole life, including while disconnected, for offline
+        // scripts; #88.)
 
         // #layout … from the command bar — dock + store work happens on the
         // UI thread.
@@ -2686,6 +2859,9 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                     "whispers" => WhispersVisible,
                     "thoughts" => ThoughtsVisible,
                     "combat"   => CombatVisible,
+                    "familiar" => FamiliarVisible,
+                    "death"    => DeathVisible,
+                    "assess"   => AssessVisible,
                     _          => true   // main + non-tool streams: nothing to mirror
                 };
                 if (!streamVisible)
@@ -2695,16 +2871,24 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // Surface timed connect-progress (TLS attempt, per-SGE-step timings,
         // fallback, game-server connect) into the game window so a stall can be
         // pinned to an exact step. Marshalled to the UI thread (fires from the
-        // connection's background task).
+        // connection's background task). ConnectionVerboseDiag (the #config
+        // conndebug gate) is refreshed per connect in ConnectAsync.
         _core.ConnectionDiag = msg =>
             Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg));
 
-        // Granular per-step SGE marks only when the user opts in (#config
-        // conndebug true). The high-level status lines (trying TLS / login OK /
-        // fallback / 🔒 connected) always show regardless.
-        _core.ConnectionVerboseDiag = _core.Config.ConnDebug;
-
-        await _core.ConnectAsync();
+        // The script tick pump must run for the core's whole life — including while
+        // disconnected — so offline scripts' time-based unblocks (PAUSE/delay/
+        // WAITFOR) still fire (issue #88). Wired once here and never stopped on
+        // disconnect. ScheduleTick gives RT-precise one-shot wakeups; the 100ms
+        // heartbeat covers the pause/delay/condition waits the engine doesn't
+        // self-schedule (#61).
+        _core.Scripts.ScheduleTick = delay =>
+            Avalonia.Threading.DispatcherTimer.RunOnce(() => _core?.Scripts.Tick(), delay);
+        _scriptHeartbeat ??= new Avalonia.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromMilliseconds(100) };
+        _scriptHeartbeat.Tick -= OnScriptHeartbeat;
+        _scriptHeartbeat.Tick += OnScriptHeartbeat;
+        _scriptHeartbeat.Start();
     }
 
     // ── Command-line startup connect ──────────────────────────────────────────
@@ -2827,6 +3011,11 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
 
     private async Task DisconnectAsync()
     {
+        // User-initiated teardown: mark it so the resulting Disconnected event
+        // does NOT auto-reconnect, and cancel any reconnect already scheduled.
+        _manualDisconnect  = true;
+        CancelPendingReconnect();
+
         // Stop the raw-XML recorder when the user disconnects — letting it run
         // after the session ends just produces a file that trails off mid-tag.
         // The user can re-toggle Record Session on the next connect.
@@ -2834,7 +3023,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         AutoLogger.Stop();          // close the AutoLog rendered-text file (#15)
         Perf.Detach();              // stop the overlay timer + disable metrics collection
         UserHighlights.Metrics = null;
-        _scriptHeartbeat?.Stop();   // stop pumping Tick() once the session ends (#61)
+        // NOTE: the script heartbeat is intentionally NOT stopped here. With a
+        // persistent core a .cmd can keep running while disconnected (and a login
+        // script sets up + #connects), so its time-based unblocks must keep firing
+        // (issue #88). The pump is cheap when no scripts are active.
         if (_core is not null)
             await _core.DisconnectAsync();
     }
@@ -2842,6 +3034,142 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// <summary>Heartbeat handler — pumps the script engine so time-based
     /// unblocks (pause / delay / waitfor) resume without incoming game text (#61).</summary>
     private void OnScriptHeartbeat(object? sender, EventArgs e) => _core?.Scripts.Tick();
+
+    // ── Auto-reconnect (Genie 4 parity: Game.cs CheckReconnect) ───────────────
+
+    /// <summary>Reset reconnect bookkeeping on a fresh, successful connect.
+    /// Crucially re-arms the policy guard: the user must send a command in THIS
+    /// session before it will ever auto-reconnect.</summary>
+    private void OnConnectionEstablished()
+    {
+        _wasConnected          = true;
+        _manualDisconnect      = false;
+        _userInputSinceConnect = false;
+        _intentionalGameExit   = false;
+        _reconnectAttempts     = 0;
+        _reconnectAt           = null;
+        _dropAnnounced         = false;
+        EnsureReconnectTimer();
+    }
+
+    /// <summary>Decide whether a just-dropped session should auto-reconnect, and
+    /// if so schedule the first attempt. No-op for failed logins, manual
+    /// teardown, or when <c>#config reconnect</c> is off.</summary>
+    private void MaybeArmAutoReconnect()
+    {
+        if (_reconnectAt is not null) return;            // already scheduled for this drop
+        if (!_wasConnected)            return;            // never established (failed login) — don't loop
+        if (_manualDisconnect)         return;            // user/explicit teardown — stay down
+        if (_intentionalGameExit)      return;            // user typed quit/exit — they chose to leave
+        if (!(_core?.Config.Reconnect ?? false)) return; // auto-reconnect disabled (#config reconnect false)
+        if (LastConnectionConfig is null) return;
+
+        _wasConnected = false;                            // consume so the paired event doesn't re-arm
+
+        // Policy guard (DR ToS: no auto-reconnect-and-resume while away). Decided
+        // here, at drop time, so an unattended session says so once instead of
+        // flickering "Attempting…" then "aborted". A session the user actually
+        // drove (sent ≥1 command) is eligible.
+        if (!_userInputSinceConnect)
+        {
+            GameText.AddSystemLine("Auto-reconnect skipped — no commands were sent this session.");
+            return;
+        }
+
+        ScheduleReconnect();
+    }
+
+    /// <summary>Number of auto-reconnect attempts before giving up. The bounded
+    /// ladder is ~2 retries at 8s then 3 at 30s (≈1.75 min total), after which we
+    /// stop and show Disconnected rather than retrying forever.</summary>
+    private const int MaxAutoReconnectAttempts = 5;
+
+    /// <summary>Schedule the next reconnect attempt on the bounded backoff ladder:
+    /// the first couple of retries at 8s, then 30s, then give up at
+    /// <see cref="MaxAutoReconnectAttempts"/> and surface "Disconnected". <see
+    /// cref="_reconnectAttempts"/> is the count already made (incremented in
+    /// CheckReconnect before each attempt), so the switch picks the delay BEFORE the
+    /// next attempt.</summary>
+    private void ScheduleReconnect()
+    {
+        if (_reconnectAttempts >= MaxAutoReconnectAttempts)
+        {
+            // Ladder exhausted — stop retrying and tell the user plainly.
+            _reconnectAt = null;
+            IsConnected      = false;
+            ConnectionStatus = "Disconnected";
+            GameText.AddSystemLine(
+                $"Auto-reconnect gave up after {MaxAutoReconnectAttempts} attempts. Disconnected — use #connect to retry.");
+            return;
+        }
+
+        var delay = _reconnectAttempts switch
+        {
+            <= 1 => TimeSpan.FromSeconds(8),    // first couple, quick
+            _    => TimeSpan.FromSeconds(30),   // then hold at 30s
+        };
+        _reconnectAt = DateTime.Now + delay;
+        GameText.AddSystemLine(
+            $"Attempting to reconnect in {delay.TotalSeconds:0} seconds (attempt {_reconnectAttempts + 1}/{MaxAutoReconnectAttempts}).");
+        EnsureReconnectTimer();
+    }
+
+    private void CancelPendingReconnect()
+    {
+        _reconnectAt       = null;
+        _reconnectAttempts = 0;
+    }
+
+    /// <summary>Lazily create the 1s reconnect ticker. It only acts when a
+    /// reconnect is actually pending, so leaving it running idle is cheap.</summary>
+    private void EnsureReconnectTimer()
+    {
+        if (_reconnectTimer is not null) return;
+        _reconnectTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _reconnectTimer.Tick += (_, _) => CheckReconnect();
+        _reconnectTimer.Start();
+    }
+
+    /// <summary>Fire a due reconnect — but abort if the user never touched the
+    /// session (the DR-ToS "no auto-reconnect-and-resume while away" guard).</summary>
+    private void CheckReconnect()
+    {
+        if (_reconnectAt is null)              return;
+        if (DateTime.Now < _reconnectAt.Value) return;
+
+        if (!_userInputSinceConnect)
+        {
+            _reconnectAt = null;
+            GameText.AddSystemLine("Reconnect aborted — no user input since the last connect.");
+            return;
+        }
+
+        _reconnectAt = null;
+        _reconnectAttempts++;
+        _ = DoAutoReconnectAsync();
+    }
+
+    private async Task DoAutoReconnectAsync()
+    {
+        var cfg     = LastConnectionConfig;
+        var profile = ConnectedProfile;
+        if (cfg is null) return;
+
+        try
+        {
+            // Single establish attempt (isAutoReconnect) — success fires the
+            // Connected event, which resets all the bookkeeping above.
+            await ConnectAsync(cfg, profile, isAutoReconnect: true);
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Log("DoAutoReconnect", ex);
+            // Failed to re-establish: escalate and try again, unless the user
+            // disabled reconnect or tore things down while we were trying.
+            if ((_core?.Config.Reconnect ?? false) && !_manualDisconnect && !_intentionalGameExit)
+                ScheduleReconnect();
+        }
+    }
 
     /// <summary>
     /// Route the typed command through the full Genie pipeline:
@@ -3354,21 +3682,22 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     {
         if (string.IsNullOrWhiteSpace(cmd)) return Task.CompletedTask;
 
-        // Cold start: a #connect / #reconnect / #lichconnect must work even with
-        // no live core (disconnected) — that's the whole point of typing/scripting
-        // a connect. When a core exists the same verbs flow through ProcessInput →
-        // CommandEngine → ConnectRequested instead (see the wire in ConnectAsync).
-        if (_core is null)
-        {
-            // Anything that isn't a connect verb has no command processor to run
-            // (the engine lives in the core, which doesn't exist until connect).
-            // Echo a hint instead of swallowing the input silently.
-            if (!TryHandleColdConnect(cmd))
-                GameText.AddSystemLine(
-                    "[not connected] use #connect <profile>, " +
-                    "#connect account password character game, or the Connect dialog.");
+        // Cold #connect / #reconnect / #lichconnect typed as the FIRST action:
+        // handle it before the core is built so the chosen profile's data root is
+        // honored when the core is first constructed (the persistent core's data
+        // root is fixed at build time). Once a core exists these verbs flow through
+        // ProcessInput → CommandEngine → ConnectRequested → HandleConnectRequest.
+        if (_core is null && TryHandleColdConnect(cmd))
             return Task.CompletedTask;
-        }
+
+        // Persistent core: build it on first use so commands, scripts, #var/#class,
+        // aliases, triggers etc. all work while disconnected — a logon script can
+        // set variables, toggle trigger classes, then #connect (issue #88). Built
+        // with the default data root; a subsequent connect to a custom-root profile
+        // warns rather than relocating (see WarnIfDataRootMismatch). The eager flag
+        // loads the user's saved global rules so this very first offline command /
+        // logon script sees them, not empty engines (M4).
+        EnsureCoreBuilt(null, eagerLoadOfflineRules: true);
 
         // Typed user input cancels any in-flight auto-walk — per the
         // compliance review, "any non-map-click input cancels." The
@@ -3380,7 +3709,21 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         if (Mapper.AutoWalk?.Current is not null)
             Mapper.AutoWalk.Cancel("user took manual command");
 
-        _core.ProcessInput(cmd);
+        // Policy guard for auto-reconnect: the user has actively driven this
+        // session, so a later unexpected drop may be auto-reconnected.
+        _userInputSinceConnect = true;
+
+        // DR's disconnect verbs (the login banner literally says "Type QUIT or
+        // EXIT!"): a server close that follows a deliberate quit/exit is the user
+        // CHOOSING to leave, so it must NOT auto-reconnect (both a UX fix and the
+        // sharpest edge of the DR "no auto-reconnect-and-resume" policy). Any other
+        // command means they're still playing, so clear the flag — that covers a
+        // quit the game rejected (e.g. mid-roundtime).
+        var verb = cmd.Trim();
+        _intentionalGameExit = verb.Equals("quit", StringComparison.OrdinalIgnoreCase)
+                            || verb.Equals("exit", StringComparison.OrdinalIgnoreCase);
+
+        _core!.ProcessInput(cmd);
         return Task.CompletedTask;
     }
 
@@ -3476,9 +3819,13 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         var who = string.IsNullOrWhiteSpace(cfg.CharacterName) ? "last session" : cfg.CharacterName;
         GameText.AddSystemLine($"[connect] connecting {who}...");
 
+        // An explicit connect supersedes any pending auto-reconnect.
+        CancelPendingReconnect();
+
         try
         {
             if (IsConnected) await DisconnectAsync();
+            else _manualDisconnect = true;   // ensure an in-flight drop doesn't race an auto-reconnect
             await ConnectAsync(cfg, profile);
         }
         catch (Exception ex)

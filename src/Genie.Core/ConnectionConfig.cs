@@ -107,6 +107,17 @@ public sealed record ConnectionConfig
     public int    MaxReconnectAttempts { get; init; } = 10;
 
     /// <summary>
+    /// Optional application-level dead-link backstop. When &gt; 0, a watchdog
+    /// declares the connection dead if no byte arrives from the server for this
+    /// many milliseconds. <b>Default 0 (off)</b> because it cannot tell a healthy
+    /// idle session from a dead one — TCP keepalive (always on) is the primary,
+    /// false-positive-free detector. Enable only if you also want to catch the
+    /// rare "peer ACKs keepalive but the game stream has wedged" case, and set it
+    /// comfortably longer than the longest silence you ever see while idle.
+    /// </summary>
+    public int    ServerActivityTimeoutMs { get; init; } = 0;
+
+    /// <summary>
     /// Overall deadline for a single connect+auth attempt. Async socket
     /// connect/read have no inherent timeout, so without this a server that
     /// accepts the TCP connection but never answers (rate-limit after repeated

@@ -14,6 +14,11 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <ResourceInclude Source="avares://Genie/Themes/MdiDocumentWindowSkin.axaml" />
+        <!-- #80: overrides the stock ToolControl theme with a cached, per-dockable
+             content host so stacked tool tabs of different types each keep their own
+             view instead of all showing the first-built one. Full writeup lives in
+             the file header. -->
+        <ResourceInclude Source="avares://Genie/Themes/ToolControlCachedSkin.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>
@@ -170,6 +175,58 @@
                                IsVisible="{Binding ViewModel.Objects, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
         </StackPanel>
       </ScrollViewer>
+    </DataTemplate>
+
+    <!-- ── Mobs ───────────────────────────────────────────────────────────── -->
+    <!-- Creatures in the room, one per line (issue #86). Sourced from the
+         engine's ignore-filtered Creatures list, so ground items don't show. -->
+    <DataTemplate DataType="docking:MobsTool">
+      <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0" Margin="8,6,8,2" FontSize="10"
+                   Foreground="#7a92a8" FontWeight="SemiBold"
+                   Text="{Binding ViewModel.Count, StringFormat='MOBS ({0})'}"/>
+        <ScrollViewer Grid.Row="1">
+          <StackPanel Margin="8,2,8,8">
+            <TextBlock Text="No creatures here." Foreground="#777" FontSize="11"
+                       IsVisible="{Binding ViewModel.IsEmpty}"/>
+            <ItemsControl ItemsSource="{Binding ViewModel.Mobs}"
+                          IsVisible="{Binding !ViewModel.IsEmpty}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="x:String">
+                  <SelectableTextBlock Text="{Binding}" Foreground="#e0a060"
+                                       FontSize="12" TextWrapping="Wrap" Margin="0,1"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </DataTemplate>
+
+    <!-- ── Players ──────────────────────────────────────────────────────────── -->
+    <!-- Other players in the room, one per line (issue #86). Parsed best-effort
+         from DR's "Also here: …" room-players line. -->
+    <DataTemplate DataType="docking:PlayersTool">
+      <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0" Margin="8,6,8,2" FontSize="10"
+                   Foreground="#7a92a8" FontWeight="SemiBold"
+                   Text="{Binding ViewModel.Count, StringFormat='PLAYERS ({0})'}"/>
+        <ScrollViewer Grid.Row="1">
+          <StackPanel Margin="8,2,8,8">
+            <TextBlock Text="No other players here." Foreground="#777" FontSize="11"
+                       IsVisible="{Binding ViewModel.IsEmpty}"/>
+            <ItemsControl ItemsSource="{Binding ViewModel.Players}"
+                          IsVisible="{Binding !ViewModel.IsEmpty}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="x:String">
+                  <SelectableTextBlock Text="{Binding}" Foreground="#8d8"
+                                       FontSize="12" TextWrapping="Wrap" Margin="0,1"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
     </DataTemplate>
 
     <!-- ── Scene ─────────────────────────────────────────────────────────── -->
@@ -352,7 +409,7 @@
                               VerticalAlignment="Center">
                     <TextBlock Text="⚡" Foreground="#8ad8e8" FontSize="13"
                                VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding ViewModel.AutoWalk.Current.StatusMessage}"
+                    <TextBlock Text="{Binding ViewModel.AutoWalk.CurrentStatus}"
                                Foreground="#cdd" FontSize="11" FontWeight="SemiBold"
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"/>

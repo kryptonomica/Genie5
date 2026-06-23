@@ -3,6 +3,7 @@ using System.Reactive.Subjects;
 using Avalonia.Threading;
 using Genie.Core;
 using Genie.Core.Mapper;
+using Genie.Core.Models;
 using ReactiveUI;
 using ReactiveUI.Fody.Helpers;
 
@@ -64,6 +65,15 @@ public sealed class AutoWalkService : ReactiveObject
     /// being non-null.
     /// </summary>
     [Reactive] public AutoWalkSession? Current { get; private set; }
+
+    /// <summary>Live status line for the active walk — a reactive mirror of
+    /// <see cref="AutoWalkSession.StatusMessage"/>. The session's own
+    /// StatusMessage is a plain (non-observable) field and <see cref="Current"/>
+    /// is reassigned only at walk start/end, so binding the banner directly to
+    /// <c>Current.StatusMessage</c> froze it at the initial "Walking to…" text and
+    /// never surfaced the per-step gate reason (e.g. "waiting (sitting)"). The
+    /// banner binds here instead; updated on every <see cref="SessionChanges"/> push.</summary>
+    [Reactive] public string? CurrentStatus { get; private set; }
 
     /// <summary>
     /// True when at least one session has completed (Finished or Cancelled)
@@ -131,6 +141,19 @@ public sealed class AutoWalkService : ReactiveObject
     private DispatcherTimer? _stepTimer;
     private const int StepTimeoutSeconds = 15;
 
+    // Pre-send pacing (Issue #5): the next move is held until roundtime clears and
+    // the character can actually move (not stunned/webbed/prone/…). This timer
+    // re-checks and fires the deferred step. Distinct from the post-send watchdog.
+    private DispatcherTimer? _pacingTimer;
+
+    // Issue #5 auto-stand: a posture block (sitting/kneeling/prone) only clears
+    // when the character stands. The walker sends `stand` itself ONCE per block
+    // — typing it would trip SendCommand's "typed command cancels the walk"
+    // guard, killing the very walk that's waiting to stand. This latches true
+    // after we send `stand` so the 0.5s retry poll doesn't spam the verb; it
+    // re-arms whenever the movability gate next clears.
+    private bool _autoStoodForBlock;
+
     /// <summary>
     /// Id of the room we were standing in when the most recent move was
     /// dispatched — i.e. the room we expect this step to take us OUT of. The
@@ -184,6 +207,12 @@ public sealed class AutoWalkService : ReactiveObject
         // thread because the engine event can fire from any thread the
         // parser observable is hopping through.
         _mapEngine.CurrentNodeChanged += () => Dispatcher.UIThread.Post(OnRoomChanged);
+
+        // Mirror the active session's StatusMessage into the reactive CurrentStatus
+        // so the walk banner reflects mid-walk changes (waiting/paused/arrived);
+        // AutoWalkSession.StatusMessage isn't observable on its own. Every
+        // StatusMessage write is already followed by _sessionChanges.OnNext(Current).
+        _sessionChanges.Subscribe(s => CurrentStatus = s?.StatusMessage);
     }
 
     /// <summary>
@@ -245,6 +274,7 @@ public sealed class AutoWalkService : ReactiveObject
         IsCurrentPaused = false;
         // Seed the departure room so the first dispatched move is gated
         // against the origin, not against a stale id from a prior walk (#69).
+        _autoStoodForBlock     = false;
         _departureNodeId       = origin.Id;
         _departureServerRoomId = _mapEngine.CurrentServerRoomId;
 
@@ -266,12 +296,14 @@ public sealed class AutoWalkService : ReactiveObject
         FlashStatus(Current.StatusMessage);
         _sessionChanges.OnNext(Current);
         Current = null;
+        _autoStoodForBlock = false;
         _departureNodeId = null;
         _departureServerRoomId = null;
         IsCurrentPaused = false;
         StopUnfocusTimer();
         StopWaitCountdown();
         StopStepWatchdog();
+        StopPacingTimer();
     }
 
     /// <summary>
@@ -287,6 +319,7 @@ public sealed class AutoWalkService : ReactiveObject
         IsCurrentPaused = true;
         _sessionChanges.OnNext(Current);
         StopStepWatchdog();   // not expecting a move while paused; Resume re-arms
+        StopPacingTimer();    // drop any held "waiting for RT/status" retry too
         // Don't kill the wait countdown on pause — the boat doesn't
         // stop because the user alt-tabbed. The bar keeps ticking;
         // when they Resume the walker is just waiting for the room
@@ -370,6 +403,68 @@ public sealed class AutoWalkService : ReactiveObject
         _stepTimer = null;
     }
 
+    /// <summary>True when the character can take the next move RIGHT NOW: no
+    /// roundtime and no movement-blocking status. When false, <paramref
+    /// name="retryIn"/> is how long to wait before re-checking and <paramref
+    /// name="reason"/> names the blocker (for the indicator).</summary>
+    private bool CanMoveNow(out TimeSpan retryIn, out string reason)
+    {
+        var combat = _core.State.Combat;
+        if (combat.InRoundTime)
+        {
+            // Wait out the remaining RT (+a hair), capped so a stale/huge value
+            // can't park the walk; clamped up so we don't busy-spin.
+            retryIn = TimeSpan.FromSeconds(Math.Clamp(combat.RoundTimeRemaining + 0.2, 0.25, 5.0));
+            reason  = "roundtime";
+            return false;
+        }
+        if (MovementBlocker(_core.State) is { } blocker)
+        {
+            retryIn = TimeSpan.FromMilliseconds(500);   // poll until it clears (user stands / stun fades)
+            reason  = blocker;
+            return false;
+        }
+        retryIn = TimeSpan.Zero;
+        reason  = "";
+        return true;
+    }
+
+    /// <summary>Name of the first movement-blocking status, or null if the
+    /// character can move. (Posture states need a stand first; stun/web pin you.)</summary>
+    private static string? MovementBlocker(GameState st)
+    {
+        if (st.ActiveStatuses.Contains(CharacterStatus.Stunned))  return "stunned";
+        if (st.ActiveStatuses.Contains(CharacterStatus.Webbed))   return "webbed";
+        if (st.ActiveStatuses.Contains(CharacterStatus.Prone))    return "prone";
+        if (st.ActiveStatuses.Contains(CharacterStatus.Kneeling)) return "kneeling";
+        if (st.ActiveStatuses.Contains(CharacterStatus.Sitting))  return "sitting";
+        return null;
+    }
+
+    /// <summary>True for posture blocks that require a <c>stand</c> to clear
+    /// (sitting / kneeling / prone), as opposed to passive blocks (roundtime /
+    /// stunned / webbed) that clear on their own without a command.</summary>
+    private static bool IsPostureBlock(string? reason) =>
+        reason is "sitting" or "kneeling" or "prone";
+
+    /// <summary>Re-attempt the held step after <paramref name="delay"/> (the
+    /// remaining RT, or a short poll while a status blocks). DispatchNextStep
+    /// re-checks <see cref="CanMoveNow"/> and either sends or re-defers.</summary>
+    private void ScheduleMovabilityRetry(TimeSpan delay)
+    {
+        StopPacingTimer();
+        var interval = delay <= TimeSpan.Zero ? TimeSpan.FromMilliseconds(250) : delay;
+        _pacingTimer = new DispatcherTimer { Interval = interval };
+        _pacingTimer.Tick += (_, _) => { StopPacingTimer(); DispatchNextStep(); };
+        _pacingTimer.Start();
+    }
+
+    private void StopPacingTimer()
+    {
+        _pacingTimer?.Stop();
+        _pacingTimer = null;
+    }
+
     private void OnRoomChanged()
     {
         if (Current is null || Current.State != AutoWalkState.Active) return;
@@ -447,6 +542,39 @@ public sealed class AutoWalkService : ReactiveObject
     {
         if (Current is null || Current.State != AutoWalkState.Active) return;
         if (Current.StepsCompleted >= Current.Plan.Count) return;
+
+        // Pace to the game (Issue #5): hold the next move until roundtime has
+        // cleared AND the character can move (not stunned / webbed / prone /
+        // kneeling / sitting). Otherwise DR bounces the verb ("...wait N seconds")
+        // or queues it unpredictably — the walker must be responsive, not spammy.
+        // Re-check shortly (after the remaining RT, or every 0.5s while blocked).
+        if (!CanMoveNow(out var retryIn, out var blockReason))
+        {
+            // Auto-stand (Issue #5): a posture block only clears when the
+            // character stands, but a typed `stand` would trip SendCommand's
+            // "typed command cancels the walk" guard. So the walker stands the
+            // character itself, ONCE per block, via the same core command path
+            // the moves use (not the typed-command path, so no self-cancel).
+            // Passive blocks (roundtime / stunned / webbed) clear on their own —
+            // just wait those out.
+            if (IsPostureBlock(blockReason) && !_autoStoodForBlock)
+            {
+                _autoStoodForBlock    = true;
+                Current.StatusMessage =
+                    $"Walking to {Current.Destination.Title} — standing up to continue · Esc to cancel";
+                _sessionChanges.OnNext(Current);
+                _core.Commands.ProcessInput("stand");
+                ScheduleMovabilityRetry(TimeSpan.FromMilliseconds(750));  // let the stand (+ its RT) resolve
+                return;
+            }
+
+            Current.StatusMessage =
+                $"Walking to {Current.Destination.Title} — waiting ({blockReason}) · Esc to cancel";
+            _sessionChanges.OnNext(Current);
+            ScheduleMovabilityRetry(retryIn);
+            return;
+        }
+        _autoStoodForBlock = false;   // gate passed — re-arm auto-stand for any later posture block
 
         var step = Current.Plan[Current.StepsCompleted];
 

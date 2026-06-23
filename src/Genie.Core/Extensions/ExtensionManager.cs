@@ -48,4 +48,37 @@ public sealed class ExtensionManager
             try { e.OnPrompt(); } catch (Exception ex) { _host.Echo($"[ext] {e.Name}: {ex.Message}"); }
         }
     }
+
+    public void DispatchGameEvent(Genie.Core.Events.GameEvent ev)
+    {
+        for (int i = 0; i < _extensions.Count; i++)
+        {
+            var e = _extensions[i]; if (!e.Enabled) continue;
+            try { e.OnGameEvent(ev); } catch (Exception ex) { _host.Echo($"[ext] {e.Name}: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>Per-character clean slate (character switch). Called regardless of
+    /// Enabled — a disabled extension must still drop stale state so it doesn't
+    /// reappear if re-enabled mid-session.</summary>
+    public void DispatchReset()
+    {
+        for (int i = 0; i < _extensions.Count; i++)
+        {
+            try { _extensions[i].OnReset(); } catch (Exception ex) { _host.Echo($"[ext] {_extensions[i].Name}: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>Offer a typed <c>/command</c> to each extension in turn; the first to
+    /// claim it (return true) swallows it. Returns true if any extension handled it.</summary>
+    public bool DispatchSlashCommand(string input)
+    {
+        for (int i = 0; i < _extensions.Count; i++)
+        {
+            var e = _extensions[i]; if (!e.Enabled) continue;
+            try { if (e.OnSlashCommand(input)) return true; }
+            catch (Exception ex) { _host.Echo($"[ext] {e.Name}: {ex.Message}"); }
+        }
+        return false;
+    }
 }

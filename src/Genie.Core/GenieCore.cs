@@ -85,18 +85,51 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     }
 
     // ── Network / parser layer ─────────────────────────────────────────────────
-    private readonly GameConnection    _connection;
-    private readonly DrXmlParser       _parser;
-    private readonly GameStateEngine   _stateEngine;
-    private readonly IDisposable       _parserFeed;
-    private readonly IDisposable       _settingsInfoSub;
-    private readonly IDisposable       _gameHostSub;
-    private readonly IDisposable       _gameEventSub;
-    private readonly IDisposable       _pluginXmlSub;
+    // PERSISTENT-CORE NOTE: the connection/parser/state-engine and their event
+    // subscriptions are the *per-connection* layer — rebuilt by BuildConnection()
+    // on every ConnectAsync(cfg) and torn down by TeardownConnection(). They are
+    // therefore mutable (no `readonly`). Everything above the relay subjects (the
+    // engines, ScriptEngine, AutoMapper, Plugins, the persistent GameState) lives
+    // for the whole app session and is built once in the constructor.
+    private GameConnection?    _connection;
+    private DrXmlParser?       _parser;
+    private GameStateEngine?   _stateEngine;
+    private IDisposable?       _parserFeed;
+    private IDisposable?       _settingsInfoSub;
+    private IDisposable?       _gameHostSub;
+    private IDisposable?       _connectedVarSub;
+    private IDisposable?       _gameEventSub;
+    private IDisposable?       _pluginXmlSub;
     private readonly Plugins.GameStateView _pluginStateView;
+
+    /// <summary>The one persistent game-state snapshot. Lives for the core's whole
+    /// life (consumers hold it by reference); <see cref="Models.GameState.Reset"/>
+    /// clears it in place at the start of each connect.</summary>
+    private readonly Models.GameState _state;
+
+    // ── Relay subjects (stable public-observable identity — the linchpin) ───────
+    // The public GameEvents / RawXmlStream / ConnectionState observables are
+    // long-lived relays the core owns. Each new per-connection parser/connection
+    // is subscribed *into* these relays by BuildConnection(); the inner feed subs
+    // are torn down per connect but the relays themselves persist. App-side
+    // subscribers (the 12 VM Attach() calls, which have no Detach) subscribe ONCE
+    // and survive every reconnect — that's what makes a persistent core possible
+    // without re-attaching the UI on each connect.
+    private readonly System.Reactive.Subjects.Subject<GameEvent>       _gameEventsRelay = new();
+    private readonly System.Reactive.Subjects.Subject<string>          _rawXmlRelay     = new();
+    private readonly System.Reactive.Subjects.Subject<ConnectionEvent> _connStateRelay  = new();
+    private IDisposable? _gameEventsRelaySub;
+    private IDisposable? _rawXmlRelaySub;
+    private IDisposable? _connStateRelaySub;
 
     // ── Configuration / runtime ────────────────────────────────────────────────
     private readonly LocalDirectoryService _localDir;
+
+    // Stored at construction so BuildConnection() can (re)build the per-connection
+    // layer on each connect: the logger factory makes new GameConnection/parser/
+    // state-engine loggers; the AI config (if any) gates a fresh AiContextBuffer.
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly AiConfig?      _aiConfig;
 
     /// <summary>Loaded configuration. Survives across sessions.</summary>
     public GenieConfig Config { get; }
@@ -131,7 +164,9 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     public Plugins.PluginManager Plugins      { get; }
 
     // ── Mapper ────────────────────────────────────────────────────────────────
-    private readonly MapperGameStateAdapter _mapperAdapter;
+    // AutoMapperEngine itself is persistent (built once); the adapter that feeds
+    // it from the live parser/state is per-connection (rebuilt by BuildConnection).
+    private MapperGameStateAdapter? _mapperAdapter;
 
     /// <summary>
     /// JSON load/save for <see cref="MapZone"/>. Exposed so the UI layer can
@@ -144,28 +179,33 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
     // ── Scripting ──────────────────────────────────────────────────────────────
     private readonly TypeAheadSession _typeAhead;
-    private readonly ScriptGlobalsSync _globalsSync;
+    // ScriptGlobalsSync mirrors live game state → script globals; it binds to the
+    // per-connection parser + identity, so it is rebuilt per connect.
+    private ScriptGlobalsSync? _globalsSync;
     private readonly Diagnostics.LiveAudit _liveAudit;
 
     /// <summary>Set when a room-defining event arrives (NavEvent or the
-    /// room-title component); consumed on the next prompt to unblock the
-    /// script <c>move</c> command. Coalescing to the prompt lets uid-less
-    /// "(**)" rooms — which emit no NavEvent — still wake a paused move.</summary>
+    /// room-title component); consumed on the next prompt to unblock the script
+    /// <c>move</c> command. Coalescing to the prompt lets uid-less "(**)" rooms —
+    /// which emit no NavEvent — still wake a paused move (PR #92). Reset per
+    /// connect (the persistent core keeps this field across reconnect).</summary>
     private bool _roomChangedSincePrompt;
 
     /// <summary>.cmd script runner. Includes built-in EXP and info trackers.</summary>
     public ScriptEngine Scripts { get; }
 
-    // ── Public observables (unchanged surface) ─────────────────────────────────
+    // ── Public observables (stable surface, relay-backed) ───────────────────────
+    // These return the persistent relay subjects (see above), NOT the per-connection
+    // parser/connection directly — so a subscription taken once survives reconnect.
 
     /// <summary>Typed game events (TextEvent, ProgressBarEvent, RoundTimeEvent, …).</summary>
-    public IObservable<GameEvent>       GameEvents      => _parser.GameEvents;
+    public IObservable<GameEvent>       GameEvents      => _gameEventsRelay;
 
     /// <summary>Raw XML stream — subscribe for logging, recording, or custom processing.</summary>
-    public IObservable<string>          RawXmlStream    => _connection.RawXmlStream;
+    public IObservable<string>          RawXmlStream    => _rawXmlRelay;
 
     /// <summary>Connection lifecycle events.</summary>
-    public IObservable<ConnectionEvent> ConnectionState => _connection.StateStream;
+    public IObservable<ConnectionEvent> ConnectionState => _connStateRelay;
 
     // ── Type-ahead (UI counter) ─────────────────────────────────────────────
     /// <summary>Commands sent to the game awaiting a prompt — the live
@@ -184,28 +224,34 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
     /// <summary>Timed connect-progress sink (TLS attempt, per-step SGE timings,
     /// fallback, game-server connect) surfaced to the game window so a stall can
-    /// be isolated to an exact step. Set by the host before connecting.</summary>
+    /// be isolated to an exact step. Set once by the host; persisted on the core
+    /// and applied to each per-connection <see cref="GameConnection"/> as it's
+    /// built (the connection doesn't exist until the first connect).</summary>
+    private Action<string>? _connectionDiag;
     public Action<string>? ConnectionDiag
     {
-        get => _connection.Diag;
-        set => _connection.Diag = value;
+        get => _connectionDiag;
+        set { _connectionDiag = value; if (_connection is not null) _connection.Diag = value; }
     }
 
     /// <summary>When <c>true</c>, the granular per-step SGE marks are emitted to
     /// <see cref="ConnectionDiag"/> alongside the always-on high-level status
-    /// lines. Driven by <c>#config conndebug</c>; set by the host before
-    /// connecting.</summary>
+    /// lines. Driven by <c>#config conndebug</c>; set by the host. Persisted on the
+    /// core and applied to each per-connection connection as it's built.</summary>
+    private bool _connectionVerboseDiag;
     public bool ConnectionVerboseDiag
     {
-        get => _connection.VerboseDiag;
-        set => _connection.VerboseDiag = value;
+        get => _connectionVerboseDiag;
+        set { _connectionVerboseDiag = value; if (_connection is not null) _connection.VerboseDiag = value; }
     }
 
-    /// <summary>Current live game state snapshot.</summary>
-    public Models.GameState             State           => _stateEngine.State;
+    /// <summary>Current live game state snapshot. One persistent instance for the
+    /// core's life (reset in place per connect), so consumers can hold it by ref.</summary>
+    public Models.GameState             State           => _state;
 
-    /// <summary>AI context buffer and analyzer. Null if no AiConfig was provided.</summary>
-    public AiContextBuffer?             AiBuffer        { get; }
+    /// <summary>AI context buffer and analyzer. Null until a connect builds it (and
+    /// only when an AiConfig was provided). Rebuilt per connect.</summary>
+    public AiContextBuffer?             AiBuffer        { get; private set; }
 
     /// <summary>Resolved per-character profile directory chosen at construction time.</summary>
     public string                       ProfileDirectory { get; private set; } = string.Empty;
@@ -239,64 +285,45 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     // ── Constructor ────────────────────────────────────────────────────────────
 
     public GenieCore(
-        ConnectionConfig cfg,
-        AiConfig?        aiConfig      = null,
-        ILoggerFactory?  loggerFactory = null)
+        string?         dataDirectoryOverride = null,
+        AiConfig?       aiConfig      = null,
+        ILoggerFactory? loggerFactory = null)
     {
-        var lf = loggerFactory ?? NullLoggerFactory.Instance;
+        _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+        _aiConfig      = aiConfig;
 
-        // ── Config (loaded early so it can influence the network handshake) ────
+        // ── Config (data root fixed for the whole app session) ─────────────────
+        // The root is the discovered AppData/portable location, or an explicit
+        // override taken from the startup/first profile. It is NOT repointed per
+        // connect — a later connect to a profile with a different data directory
+        // warns (App-side) rather than relocating everything live.
         _localDir = new LocalDirectoryService("Genie5", AppContext.BaseDirectory);
+        if (!string.IsNullOrWhiteSpace(dataDirectoryOverride))
+            _localDir.UseExplicitRoot(dataDirectoryOverride);
 
-        // Per-profile data root: if this connection's profile specified its own
-        // folder, repoint the data root BEFORE loading settings so everything
-        // (settings.cfg, Scripts, Maps, …) resolves under it.
-        if (!string.IsNullOrWhiteSpace(cfg.DataDirectoryOverride))
-            _localDir.UseExplicitRoot(cfg.DataDirectoryOverride);
-
-        Config    = new GenieConfig(_localDir);
+        Config = new GenieConfig(_localDir);
         Config.Load();
 
-        // Apply user-configured FE identifier (e.g. STORM vs GENIE). DR appears
-        // to send richer click markup to clients identifying as STORM. The
-        // setting persists in settings.cfg; toggle via `#config frontend storm`.
-        if (!string.IsNullOrWhiteSpace(Config.FrontEndIdentifier) &&
-            !cfg.FrontEndId.Equals(Config.FrontEndIdentifier, StringComparison.OrdinalIgnoreCase))
-        {
-            cfg = cfg with { FrontEndId = Config.FrontEndIdentifier };
-        }
-
-        // ── Network stack ──────────────────────────────────────────────────────
-        _connection  = new GameConnection(cfg,
-            new SgeAuthClient(lf.CreateLogger<SgeAuthClient>()),
-            lf.CreateLogger<GameConnection>());
-
-        _parser      = new DrXmlParser(lf.CreateLogger<DrXmlParser>());
-
-        var state    = new Models.GameState();
-        _stateEngine = new GameStateEngine(_parser.GameEvents, state,
-            lf.CreateLogger<GameStateEngine>());
-        // Live config for RoundTimeOffset (applied to each RoundTimeEvent).
-        _stateEngine.Config = Config;
+        // ── Persistent game state ───────────────────────────────────────────────
+        // One instance for the core's whole life: the plugin state view, the script
+        // globals mirror, the mapper adapter and AutoMapper.Skills all hold it by
+        // reference, so each connect clears it in place (State.Reset) — never
+        // replaces it — and those consumers keep working across reconnect.
+        _state = new Models.GameState();
 
         // Plugin layer — read-only state view + manager (this GenieCore is the
-        // IPluginHost). Must exist before the game-event subscription below
-        // dispatches to it.
-        _pluginStateView = new Plugins.GameStateView(state);
+        // IPluginHost). The view wraps the persistent state, so it survives reconnect.
+        _pluginStateView = new Plugins.GameStateView(_state);
         Plugins          = new Plugins.PluginManager(this);
-        // No builtin plugins — the Experience tracker is now an external DLL
-        // (Plugin_EXPTrackerV5) loaded from {AppData}/Genie5/Plugins by the App
-        // on connect. Drop the DLL there to enable exp tracking.
+        // The Spell Timer, Experience and Time Tracker trackers are built in to
+        // Core (Genie.Core/Extensions/Builtin), registered on the ScriptEngine's
+        // ExtensionManager. The PluginManager handles only external DLL plugins
+        // (e.g. InventoryView) loaded from {AppData}/Genie5/Plugins on connect.
 
         // Route caught regex match-timeouts (from the trigger/highlight/
         // substitute/gag safety layer) into the metrics collector so the overlay
         // can surface a per-component timeout count.
         RegexSafety.TimeoutSink = Metrics.RecordTimeout;
-
-        // Wire raw XML → parser (timed as the Parse stage; no-op overhead when
-        // the overlay is hidden because Metrics.Enabled is false).
-        _parserFeed = _connection.RawXmlStream.Subscribe(
-            xml => Metrics.Time(PipelineStage.Parse, () => _parser.Feed(xml)));
 
         // ── Command pipeline ───────────────────────────────────────────────────
         _commandQueue = new CommandQueue();
@@ -340,18 +367,19 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // Start with an empty zone; the user opts in to auto-mapping via the UI
         // (IsEnabled = false by default = lookup-only mode).
         AutoMapper     = new AutoMapperEngine(new MapZone { Name = "(unsaved)" });
-        _mapperAdapter = new MapperGameStateAdapter(state, _parser.GameEvents);
-        AutoMapper.Attach(_mapperAdapter);
+        // The adapter that feeds AutoMapper from the live parser/state is built
+        // per connect (BuildConnection); the engine itself persists.
 
         // Skill-weighted pathfinding: hand the engine a reference to the
         // live SkillStore so FindPath can filter out exits the character
         // can't take. Character class + level (circle) are pulled from
-        // GameState below; both update as the parser sees them.
-        AutoMapper.Skills = state.LiveSkills;
-        AutoMapper.CharacterClass = state.Guild != Genie.Core.Models.DrGuild.Unknown
-            ? state.Guild.ToString()
+        // GameState below; both update as the parser sees them. LiveSkills is a
+        // member of the persistent state, so this reference stays valid forever.
+        AutoMapper.Skills = _state.LiveSkills;
+        AutoMapper.CharacterClass = _state.Guild != Genie.Core.Models.DrGuild.Unknown
+            ? _state.Guild.ToString()
             : null;
-        AutoMapper.CharacterLevel = state.Circle;
+        AutoMapper.CharacterLevel = _state.Circle;
 
         // ── Scripting ──────────────────────────────────────────────────────────
         _typeAhead = new TypeAheadSession();
@@ -374,7 +402,11 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                            {
                                ScriptOutputLine?.Invoke(cmd);
                                _typeAhead.NotifySent();
-                               _ = _connection.SendCommandAsync(cmd);
+                               // Offline (no live connection) the game-bound send is
+                               // dropped — a script can still run, set variables,
+                               // toggle trigger classes and #connect (issue #88).
+                               // Sends resume the moment a connection exists.
+                               _ = _connection?.SendCommandAsync(cmd);
                            },
             echo:          msg => ScriptOutputLine?.Invoke(msg),
             handleHashCmd: cmd => Commands.ProcessInput(cmd, interactive: false));
@@ -383,25 +415,30 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // MaxGoSubDepth, AbortDupeScript, ScriptExtension).
         Scripts.Config = Config;
 
-        // Wire game-state callbacks for RT-gated script pausing
-        Scripts.InRoundtime              = () => state.Combat.InRoundTime;
-        Scripts.RoundTimeRemainingSeconds = () => (int)Math.Ceiling(state.Combat.RoundTimeRemaining);
+        // Wire game-state callbacks for RT-gated script pausing (closures over the
+        // persistent state, so they stay valid across reconnect).
+        Scripts.InRoundtime              = () => _state.Combat.InRoundTime;
+        Scripts.RoundTimeRemainingSeconds = () => (int)Math.Ceiling(_state.Combat.RoundTimeRemaining);
         // $spelltime — seconds since the current spell was prepared (Genie 4).
-        Scripts.SpellTimeSeconds          = () => (int)state.Combat.SpellTimeSeconds;
+        Scripts.SpellTimeSeconds          = () => (int)_state.Combat.SpellTimeSeconds;
         Scripts.EchoTo                   = (msg, win, color) => EchoToWindow?.Invoke(msg, win, color);
+        // Named-window seam for the built-in trackers (Spell Timer / Experience /
+        // Time Tracker), which re-render a whole dock panel each prompt. Same event
+        // the App's ExperienceViewModel + generic PluginWindowViewModel consume.
+        Scripts.SetWindow                = (win, content) => SetPluginWindow?.Invoke(win, content);
+        // Let scripts read $name for a persistent #var value (Variables.Store) —
+        // the script engine's own Globals hold only live game state + #tvar
+        // session globals. Fixes #82 ($var set via `put #var …` now readable +
+        // persistable like a typed #var).
+        Scripts.UserVarLookup            = name => Variables?.Store.Get(name);
 
-        // Mirror live game state into Scripts.Globals so community scripts
-        // can read $righthand / $stamina / $hidden / $gameroomid / the
-        // per-exit booleans ($north etc.) and the rest of Genie 4's
-        // reserved-variable vocabulary. Subscribes to game events with
-        // event-typed dispatch so each callback only touches the 1-12
-        // variables relevant to that event.
-        _globalsSync = new ScriptGlobalsSync(
-            state, Scripts.Globals, _parser.GameEvents,
-            gameCode:      cfg.GameCode,
-            characterName: cfg.CharacterName,
-            accountName:   cfg.AccountName,
-            clientVersion: HostVersionString);
+        // Honour the settings.cfg tracker toggles, and re-sync when they change.
+        SyncTrackerToggles();
+        Config.ConfigChanged += field => { if (field == Genie.Core.Config.ConfigFieldUpdated.Trackers) SyncTrackerToggles(); };
+
+        // ScriptGlobalsSync (the live-game-state → $globals mirror) binds to the
+        // per-connection parser + the connect's character identity, so it is built
+        // per connect in BuildConnection().
 
         // Mirror the AutoMapper's current location into the script globals so
         // scripts can read $roomid / $zoneid / $zonename / $roomnote (Genie 4
@@ -424,12 +461,82 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
             name => Scripts.Globals.TryGetValue(name, out var v) ? v : "");
         // Log every top-level command (incl. script-fired #goto) to the audit.
         Commands.CommandObserved = cmd => _liveAudit.Note("CMD", cmd);
+    }
+
+    /// <summary>
+    /// Build (or rebuild) the per-connection layer for <paramref name="cfg"/>: the
+    /// <see cref="GameConnection"/>, parser, state-engine, and all their event
+    /// subscriptions, the mapper adapter, the script-globals mirror, and the AI
+    /// buffer. Called by <see cref="ConnectAsync(ConnectionConfig, CancellationToken)"/>
+    /// after <see cref="TeardownConnection"/> has disposed any previous connection.
+    /// The engines, ScriptEngine, AutoMapper, Plugins and the relay subjects are
+    /// NOT rebuilt — they persist for the whole app session.
+    /// </summary>
+    private void BuildConnection(ConnectionConfig cfg, bool reloadRules = true)
+    {
+        var lf = _loggerFactory;
+
+        // Apply user-configured FE identifier (e.g. STORM vs GENIE). DR appears
+        // to send richer click markup to clients identifying as STORM. The
+        // setting persists in settings.cfg; toggle via `#config frontend storm`.
+        if (!string.IsNullOrWhiteSpace(Config.FrontEndIdentifier) &&
+            !cfg.FrontEndId.Equals(Config.FrontEndIdentifier, StringComparison.OrdinalIgnoreCase))
+        {
+            cfg = cfg with { FrontEndId = Config.FrontEndIdentifier };
+        }
+
+        // ── Network stack (per connection) ───────────────────────────────────────
+        var connection = new GameConnection(cfg,
+            new SgeAuthClient(lf.CreateLogger<SgeAuthClient>()),
+            lf.CreateLogger<GameConnection>());
+        var parser      = new DrXmlParser(lf.CreateLogger<DrXmlParser>());
+        var stateEngine = new GameStateEngine(parser.GameEvents, _state,
+            lf.CreateLogger<GameStateEngine>());
+        // Live config for RoundTimeOffset (applied to each RoundTimeEvent).
+        stateEngine.Config = Config;
+
+        _connection  = connection;
+        _parser      = parser;
+        _stateEngine = stateEngine;
+
+        // Re-apply the host-set connect-progress sinks to the fresh connection
+        // (the host sets these once on the core; the connection is new each time).
+        connection.Diag        = _connectionDiag;
+        connection.VerboseDiag = _connectionVerboseDiag;
+
+        // Wire raw XML → parser (timed as the Parse stage; no-op overhead when
+        // the overlay is hidden because Metrics.Enabled is false).
+        _parserFeed = connection.RawXmlStream.Subscribe(
+            xml => Metrics.Time(PipelineStage.Parse, () => parser.Feed(xml)));
+
+        // Mapper adapter — feeds the persistent AutoMapper from this parser/state.
+        var mapperAdapter = new MapperGameStateAdapter(_state, parser.GameEvents);
+        _mapperAdapter = mapperAdapter;
+        AutoMapper.Attach(mapperAdapter);
+
+        // Mirror live game state into Scripts.Globals so community scripts can read
+        // $righthand / $stamina / $hidden / $gameroomid / the per-exit booleans
+        // ($north etc.) and the rest of Genie 4's reserved-variable vocabulary.
+        // Bound to this connection's parser + character identity; its ctor seeds the
+        // initial globals (gamehost="", gameport="0", clientVersion, …).
+        _globalsSync = new ScriptGlobalsSync(
+            _state, Scripts.Globals, parser.GameEvents,
+            gameCode:      cfg.GameCode,
+            characterName: cfg.CharacterName,
+            accountName:   cfg.AccountName,
+            clientVersion: HostVersionString);
 
         // ── Game event routing ─────────────────────────────────────────────────
         // Note: Scripts.OnGameLine already calls Extensions.DispatchGameLine internally —
         // no need to route TextEvents to the extension manager separately.
-        _gameEventSub = _parser.GameEvents.Subscribe(evt =>
+        _gameEventSub = parser.GameEvents.Subscribe(evt =>
         {
+            // Built-in trackers consume fully-parsed events (Spell Timer's
+            // percWindow TextEvents + ClearStreamEvent, the Experience tracker's
+            // exp ComponentEvents) — reliable across the connection's tag-splitting
+            // chunk boundaries, unlike raw XML.
+            Scripts.OnGameEvent(evt);
+
             switch (evt)
             {
                 case TextEvent te:
@@ -459,19 +566,25 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
                 case PromptEvent:
                     _typeAhead.NotifyConsumed();   // server caught up → free a type-ahead slot
-                    Scripts.OnPrompt();            // advance RT-gated script execution
-                    // Unblock `move` once the room has settled. We key off the
-                    // prompt (turn boundary) rather than NavEvent directly because
-                    // DR emits NO NavEvent for "(**)" rooms (no server uid) — yet
-                    // the player IS in a new room. Without this, `move go guild`
-                    // into such a room reaches it but never unblocks. The flag is
-                    // set by NavEvent OR the room-title component below, so both
-                    // uid and uid-less rooms wake the script.
+                    // Unblock `move` BEFORE resuming RT/pause scripts (OnPrompt).
+                    // We coalesce the room-change to the prompt (turn boundary)
+                    // because DR emits NO NavEvent for "(**)" rooms (no server uid)
+                    // — yet the player IS in a new room; the flag is set by NavEvent
+                    // OR the room-title component below, so both uid and uid-less
+                    // rooms wake the script (PR #92). Order matters: a `move` that a
+                    // pause/wait-resumed script issues DURING OnPrompt must wait for
+                    // the NEXT room change, not be unblocked by THIS turn's (which
+                    // preceded it). Running OnRoomChanged first restores the pre-#92
+                    // NavEvent-before-prompt order and avoids that premature unblock
+                    // (harness MOVEORDER / the F1 finding); it does not regress
+                    // normal walking, where a move parked from a prior turn unblocks
+                    // here either way.
                     if (_roomChangedSincePrompt)
                     {
                         _roomChangedSincePrompt = false;
-                        Scripts.OnRoomChanged();
+                        Scripts.OnRoomChanged();   // unblock `move` in running scripts
                     }
+                    Scripts.OnPrompt();            // advance RT-gated script execution
                     Plugins.DispatchPrompt();
                     break;
 
@@ -489,7 +602,7 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
         // Plugins see raw XML chunks (Genie 4 ParseXML parity) for structured
         // data the typed events don't surface — e.g. <component id='exp X'>.
-        _pluginXmlSub = _connection.RawXmlStream.Subscribe(
+        _pluginXmlSub = connection.RawXmlStream.Subscribe(
             xml => Metrics.Time(PipelineStage.Plugins, () => Plugins.DispatchXml(xml)));
 
         // ── Ready-for-input signal ─────────────────────────────────────────────
@@ -497,14 +610,14 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // Wizard mode: no XML tags arrive, fire on TCP connect instead.
         if (cfg.ClientMode == GameClientMode.Wizard)
         {
-            _settingsInfoSub = _connection.StateStream
+            _settingsInfoSub = connection.StateStream
                 .Where(e => e.Kind == ConnectionEventKind.Connected)
                 .Take(1)
                 .Subscribe(_ => OnConnectReady());
         }
         else
         {
-            _settingsInfoSub = _parser.GameEvents
+            _settingsInfoSub = parser.GameEvents
                 .OfType<SettingsInfoEvent>()
                 .Take(1)
                 .Subscribe(_ => OnConnectReady());
@@ -515,13 +628,13 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // the connection reports Connected (Genie 4 parity, unblocks #45). NOT
         // Take(1) — it must refresh on every reconnect (e.g. a #connect to a
         // different character). Seeded empty/0 by ScriptGlobalsSync.SeedInitial.
-        _gameHostSub = _connection.StateStream
+        _gameHostSub = connection.StateStream
             .Where(e => e.Kind == ConnectionEventKind.Connected)
             .Subscribe(_ =>
             {
-                Scripts.Globals["gamehost"] = _connection.ResolvedGameHost;
-                Scripts.Globals["gameport"] = _connection.ResolvedGamePort > 0
-                    ? _connection.ResolvedGamePort.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                Scripts.Globals["gamehost"] = connection.ResolvedGameHost;
+                Scripts.Globals["gameport"] = connection.ResolvedGamePort > 0
+                    ? connection.ResolvedGamePort.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     : "0";
 
                 // Seed the DR type-ahead limit from the account tier reported by
@@ -531,12 +644,29 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                 // Only DirectSGE knows the tier; Lich/DevReplay keep the default
                 // and rely on cap-message calibration. Refreshes each (re)connect.
                 if (cfg.Mode == ConnectionMode.DirectSGE)
-                    _typeAhead.Limit = _connection.AccountPremium ? 2 : 1;
+                    _typeAhead.Limit = connection.AccountPremium ? 2 : 1;
 
                 // Fresh session → clear any stale type-ahead count so the UI
                 // counter starts empty.
                 _typeAhead.ResetInFlight();
             });
+
+        // ── $connected ─────────────────────────────────────────────────────────
+        // Genie 4 parity (Game.cs GameSocket_EventConnected/EventDisconnected):
+        // $connected tracks the live link, "1" while connected and "0" once it
+        // drops — for ANY reason (clean close, server idle-out, dead link). Before
+        // this, $connected was seeded "1" at construction and never reset, so a
+        // script polling it after a drop saw a stale "1" forever (issue #87).
+        // Plugins are notified too (OnVariableChanged), matching Genie 4's
+        // VariableChanged broadcast.
+        _connectedVarSub = connection.StateStream.Subscribe(e =>
+        {
+            var value = e.Kind == ConnectionEventKind.Connected ? "1" : "0";
+            if (Scripts.Globals.TryGetValue("connected", out var current) && current == value)
+                return;   // no change — don't churn the var or spam plugins
+            Scripts.Globals["connected"] = value;
+            Plugins.DispatchVariableChanged("connected", value);
+        });
 
         // ── Per-character profile directory ────────────────────────────────────
         // Switch ConfigProfileDir to Profiles/{Char}-{Acct}/ so each character
@@ -552,33 +682,52 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // the profile directory at startup. We mirror that here so #*  save
         // persists across launches. Skip silently when a file doesn't exist
         // so a fresh install isn't greeted by a wall of "no … file" warnings.
-        var profileDir = Config.ConfigProfileDir;
-        if (File.Exists(Path.Combine(profileDir, "classes.cfg")))
-            Commands.ProcessInput("#class load");
-        if (File.Exists(Path.Combine(profileDir, "aliases.cfg")))
-            Commands.ProcessInput("#alias load");
-        if (File.Exists(Path.Combine(profileDir, "variables.cfg")))
-            Commands.ProcessInput("#var load");
-        if (File.Exists(Path.Combine(profileDir, "highlights.cfg")))
-            Commands.ProcessInput("#highlight load");
-        if (File.Exists(Path.Combine(profileDir, "triggers.cfg")))
-            Commands.ProcessInput("#trigger load");
-        if (File.Exists(Path.Combine(profileDir, "substitutes.cfg")))
-            Commands.ProcessInput("#substitute load");
-        if (File.Exists(Path.Combine(profileDir, "gags.cfg")))
-            Commands.ProcessInput("#gag load");
-        if (File.Exists(Path.Combine(profileDir, "macros.cfg")))
-            Commands.ProcessInput("#macro load");
+        //
+        // Gated by reloadRules: the host clears the persistent engines and reloads
+        // only on a CHARACTER change (clear-then-load). A same-character reconnect
+        // passes reloadRules=false so a running script's runtime-added rules survive
+        // (issue #88 / #46 Phase 3). The host's own .json rule load is gated the
+        // same way, so both formats stay in lockstep.
+        if (reloadRules)
+        {
+            var profileDir = Config.ConfigProfileDir;
+            if (File.Exists(Path.Combine(profileDir, "classes.cfg")))
+                Commands.ProcessInput("#class load");
+            if (File.Exists(Path.Combine(profileDir, "aliases.cfg")))
+                Commands.ProcessInput("#alias load");
+            if (File.Exists(Path.Combine(profileDir, "variables.cfg")))
+                Commands.ProcessInput("#var load");
+            if (File.Exists(Path.Combine(profileDir, "highlights.cfg")))
+                Commands.ProcessInput("#highlight load");
+            if (File.Exists(Path.Combine(profileDir, "triggers.cfg")))
+                Commands.ProcessInput("#trigger load");
+            if (File.Exists(Path.Combine(profileDir, "substitutes.cfg")))
+                Commands.ProcessInput("#substitute load");
+            if (File.Exists(Path.Combine(profileDir, "gags.cfg")))
+                Commands.ProcessInput("#gag load");
+            if (File.Exists(Path.Combine(profileDir, "macros.cfg")))
+                Commands.ProcessInput("#macro load");
+        }
 
         // ── AI buffer (optional) ───────────────────────────────────────────────
-        if (aiConfig is not null)
+        if (_aiConfig is not null)
         {
             AiBuffer = new AiContextBuffer(
-                _connection.AiRawStream,
-                state,
-                aiConfig,
+                connection.AiRawStream,
+                _state,
+                _aiConfig,
                 lf.CreateLogger<AiContextBuffer>());
         }
+
+        // ── Relay feeds (LAST — so the internal consumers above run before UI) ───
+        // Forward THIS connection's streams into the persistent relay subjects the
+        // App subscribed to once (and which survive every reconnect). onError is
+        // swallowed and OnCompleted is intentionally NOT forwarded, so tearing down
+        // a connection can never complete/error the relays out from under live
+        // subscribers. These three subs are disposed first in TeardownConnection.
+        _gameEventsRelaySub = parser.GameEvents.Subscribe(e => _gameEventsRelay.OnNext(e), static _ => { });
+        _rawXmlRelaySub     = connection.RawXmlStream.Subscribe(x => _rawXmlRelay.OnNext(x), static _ => { });
+        _connStateRelaySub  = connection.StateStream.Subscribe(s => _connStateRelay.OnNext(s), static _ => { });
     }
 
     // ── ICommandHost ───────────────────────────────────────────────────────────
@@ -607,7 +756,10 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         Scripts.Globals["lastcommand"] = text;
 
         _typeAhead.NotifySent();
-        _ = _connection.SendCommandAsync(text);
+        // Offline (no live connection) the send is dropped — user input is still
+        // echoed and observed by the mapper above, so the command bar stays usable
+        // while disconnected (issue #88).
+        _ = _connection?.SendCommandAsync(text);
     }
 
     void ICommandHost.RunScript(string text)
@@ -655,13 +807,29 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
     private void OnConnectReady()
     {
-        var __ = _connection.SendCommandAsync("look");
+        var __ = _connection?.SendCommandAsync("look");
 
         var connectScript = Config.ConnectScript;
         if (!string.IsNullOrWhiteSpace(connectScript))
         {
             try { Scripts.TryStart(connectScript.Trim(), Array.Empty<string>()); }
             catch { /* never let a connect-script error abort the session */ }
+        }
+    }
+
+    /// <summary>Apply the settings.cfg tracker toggles (spelltimer / showexperience /
+    /// showtimetracker) to the built-in tracker extensions' Enabled flags. Matching
+    /// is by extension Name; unknown names are ignored.</summary>
+    private void SyncTrackerToggles()
+    {
+        foreach (var ext in Scripts.Extensions.Extensions)
+        {
+            switch (ext.Name)
+            {
+                case "SpellTimer":  ext.Enabled = Config.ShowSpellTimer;  break;
+                case "Experience":  ext.Enabled = Config.ShowExperience;  break;
+                case "TimeTracker": ext.Enabled = Config.ShowTimeTracker; break;
+            }
         }
     }
 
@@ -934,25 +1102,111 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    public Task ConnectAsync(CancellationToken ct = default)
-        => _connection.ConnectAsync(ct);
+    /// <summary>
+    /// Connect (or reconnect) using <paramref name="cfg"/>. Tears down any previous
+    /// connection, resets the persistent game state in place, builds a fresh
+    /// per-connection layer (<see cref="BuildConnection"/>), and dials. The engines,
+    /// ScriptEngine, AutoMapper, Plugins, a running <c>.cmd</c>, and all script
+    /// globals/rule state SURVIVE this — that's the persistent core (issue #88 /
+    /// #46 Phase 3). The host builds one <see cref="GenieCore"/> per app session and
+    /// calls this for every connect.
+    /// </summary>
+    public async Task ConnectAsync(ConnectionConfig cfg, CancellationToken ct = default,
+                                   bool reloadRules = true, bool clearPerCharacter = true)
+    {
+        await TeardownConnectionAsync();
+        // Fresh session → clear the persistent state in place (consumers hold it by
+        // reference). Transient world/vitals always reset; per-character identity +
+        // live skill ranks only on a genuine character SWITCH (clearPerCharacter) —
+        // a same-char reconnect or the first connect from offline keeps them so the
+        // Mapper doesn't re-prompt for info/exp (issue #88 / #46 Phase 3, Change #4).
+        _state.Reset(clearPerCharacter);
+        _roomChangedSincePrompt = false;   // don't carry a dangling room-change flag across reconnect (PR #92)
+        // On a character SWITCH, also drop the builtin trackers' accumulated
+        // per-character state so the Experience/Active-Spells panels and their
+        // $Skill.*/$SpellTimer.* globals don't bleed the previous character's data
+        // into the next. A same-character reconnect / first-from-offline keeps it.
+        if (clearPerCharacter) Scripts.Extensions.DispatchReset();
+        // reloadRules drives the per-connection .cfg auto-load: replay the
+        // connecting character's saved rules (true on first connect AND on a switch;
+        // false on a same-char reconnect so runtime-added rules survive).
+        BuildConnection(cfg, reloadRules);
+        await _connection!.ConnectAsync(ct);
+    }
+
+    /// <summary>
+    /// Clear every per-character rule set from the persistent engines (classes,
+    /// user variables, aliases, triggers, highlights, substitutes, gags, macros)
+    /// so the NEXT character's saved rules load into a clean slate instead of
+    /// inheriting the previous character's. The host calls this on a character
+    /// change before re-loading rule files (clear-then-load); a same-character
+    /// reconnect skips it so runtime-added rules and a running script's state
+    /// survive (issue #88 / #46 Phase 3). NameHighlights and Presets are
+    /// session/global (not per-character loaded), so they are left intact; only
+    /// USER-scope variables are dropped (system/reserved globals persist).
+    /// </summary>
+    public void ResetRuleEngines()
+    {
+        Classes.Clear();
+        Variables.Store.ClearUserVariables();
+        Aliases.Clear();
+        Triggers.Clear();
+        Highlights.Clear();
+        Substitutes.Clear();
+        Gags.Clear();
+        Macros.Clear();
+    }
+
+    /// <summary>
+    /// Tear down ONLY the per-connection layer (connection, parser, state-engine and
+    /// their subscriptions, mapper adapter, globals mirror, AI buffer). The engines,
+    /// ScriptEngine, AutoMapper, Plugins and the relay subjects are left intact. A
+    /// no-op when no connection has been built yet (cold start / offline).
+    /// </summary>
+    private async Task TeardownConnectionAsync()
+    {
+        // Stop feeding the relays FIRST: a disposing parser/connection must never
+        // complete/error the persistent relay subjects the App is subscribed to.
+        _gameEventsRelaySub?.Dispose(); _gameEventsRelaySub = null;
+        _rawXmlRelaySub?.Dispose();     _rawXmlRelaySub     = null;
+        _connStateRelaySub?.Dispose();  _connStateRelaySub  = null;
+
+        _gameEventSub?.Dispose();    _gameEventSub    = null;
+        _pluginXmlSub?.Dispose();    _pluginXmlSub    = null;
+        _parserFeed?.Dispose();      _parserFeed      = null;
+        _settingsInfoSub?.Dispose(); _settingsInfoSub = null;
+        _gameHostSub?.Dispose();     _gameHostSub     = null;
+        _connectedVarSub?.Dispose(); _connectedVarSub = null;
+        _globalsSync?.Dispose();     _globalsSync     = null;
+        _mapperAdapter?.Dispose();   _mapperAdapter   = null;
+        AiBuffer?.Dispose();         AiBuffer         = null;
+        _stateEngine?.Dispose();     _stateEngine     = null;
+        _parser?.Dispose();          _parser          = null;
+
+        var conn = _connection;
+        _connection = null;
+        if (conn is not null)
+            await conn.DisposeAsync();
+    }
 
     /// <summary>
     /// Sends a raw game command, bypassing the alias/separator pipeline.
-    /// Use <c>ProcessInput</c> for user-typed input.
+    /// Use <c>ProcessInput</c> for user-typed input. A no-op while disconnected.
     /// </summary>
     public async Task SendCommandAsync(string command, CancellationToken ct = default)
     {
+        var conn = _connection;
+        if (conn is null) return;   // offline → drop (issue #88)
         if (!command.Contains(';'))
         {
-            await _connection.SendCommandAsync(command, ct);
+            await conn.SendCommandAsync(command, ct);
             return;
         }
         foreach (var part in command.Split(';'))
         {
             var trimmed = part.Trim();
             if (trimmed.Length > 0)
-                await _connection.SendCommandAsync(trimmed, ct);
+                await conn.SendCommandAsync(trimmed, ct);
         }
     }
 
@@ -962,6 +1216,14 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// </summary>
     public void ProcessInput(string input, string? echoOverride = null)
     {
+        // Console /commands owned by a built-in tracker (e.g. /spelltimer, /exp,
+        // /tt) are handled client-side and never reach the game or the triggers.
+        // Only offered at this genuine user-input boundary — programmatic sends go
+        // straight to Commands.ProcessInput.
+        if (!string.IsNullOrEmpty(input) && input.TrimStart().StartsWith('/')
+            && Scripts.Extensions.DispatchSlashCommand(input))
+            return;
+
         // TriggerOnInput (Genie 4 parity): evaluate triggers against the user's
         // typed line itself, not just game output, when enabled. Fired here at
         // the genuine user-input entry point — programmatic sends (scripts,
@@ -974,17 +1236,22 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         Commands.ProcessInput(input, echoOverride);
     }
 
+    /// <summary>Gracefully close the live connection (a no-op while disconnected).
+    /// The core, engines, scripts and relay subscriptions stay alive — a subsequent
+    /// <see cref="ConnectAsync(ConnectionConfig, CancellationToken)"/> tears the dead
+    /// connection down and builds a fresh one.</summary>
     public Task DisconnectAsync()
-        => _connection.DisconnectAsync();
+        => _connection?.DisconnectAsync() ?? Task.CompletedTask;
 
     /// <summary>
     /// Toggle the AI raw stream pipe without disconnecting.
     /// When disabled, AI processing is suspended but the game connection and parser continue.
+    /// No-op while disconnected (the pipe lives on the per-connection layer).
     /// </summary>
     public bool AiPipeEnabled
     {
-        get => _connection.AiPipeEnabled;
-        set => _connection.AiPipeEnabled = value;
+        get => _connection?.AiPipeEnabled ?? false;
+        set { if (_connection is not null) _connection.AiPipeEnabled = value; }
     }
 
     /// <summary>
@@ -1031,22 +1298,27 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// the mapper's LoadStatus) into the same chronological stream.</summary>
     public Diagnostics.LiveAudit Audit => _liveAudit;
 
+    /// <summary>App-shutdown disposal: tear down the per-connection layer (if any),
+    /// then the persistent engines/relays/scripts. After this the core is dead — the
+    /// host builds a new one only on a fresh app session.</summary>
     public async ValueTask DisposeAsync()
     {
+        // Per-connection layer first (connection, parser, subs, mapper adapter, AI).
+        await TeardownConnectionAsync();
+
+        // Then the once-per-app layer.
         _liveAudit.Dispose();
         AutoMapper.CurrentNodeChanged -= SyncMapperGlobals;
-        _gameEventSub.Dispose();
-        _pluginXmlSub.Dispose();
         Plugins.Shutdown();
-        _parserFeed.Dispose();
-        _settingsInfoSub.Dispose();
-        _gameHostSub.Dispose();
-        _mapperAdapter.Dispose();
-        _globalsSync.Dispose();
         Scripts.StopAll();
-        AiBuffer?.Dispose();
-        _stateEngine.Dispose();
-        _parser.Dispose();
-        await _connection.DisposeAsync();
+
+        // Complete the relay subjects so any lingering subscriber sees the stream
+        // end (the feed subs were already disposed by TeardownConnectionAsync).
+        _gameEventsRelay.OnCompleted();
+        _rawXmlRelay.OnCompleted();
+        _connStateRelay.OnCompleted();
+        _gameEventsRelay.Dispose();
+        _rawXmlRelay.Dispose();
+        _connStateRelay.Dispose();
     }
 }

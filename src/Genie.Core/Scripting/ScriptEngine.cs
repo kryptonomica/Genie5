@@ -131,11 +131,15 @@ public sealed class ScriptEngine
         _echo         = echo;
         _handleHashCmd = handleHashCmd;
         Extensions   = new ExtensionManager(new EngineExtensionHost(this));
-        // Exp tracking moved to the Experience plugin (Plugin_EXPTrackerV5), which
-        // now owns the $Skill.* / TDPs globals scripts read. The old
-        // ExpTrackerExtension was removed to avoid a second, parallel exp parser
-        // (it also had a stale mindstate table).
         Extensions.Register(new InfoTrackerExtension());
+        // The Spell Timer, Experience and Time Tracker trackers are built in to
+        // Core (no longer external plugins). Each owns its Genie 4-parity script
+        // globals ($SpellTimer.*, $Skill.* / $TDPs) and re-renders to its dock
+        // panel via the named-window seam. The host gates them from settings.cfg
+        // (spelltimer / showexperience / showtimetracker) after construction.
+        Extensions.Register(new SpellTimerExtension());
+        Extensions.Register(new ExperienceExtension());
+        Extensions.Register(new TimeTrackerExtension());
         Directory.CreateDirectory(_scriptsDir);
 
         _js = new JsScriptRuntime(
@@ -167,6 +171,33 @@ public sealed class ScriptEngine
         public IDictionary<string, string> Globals  => _engine.Globals;
         public void Echo(string text)               => _engine._echo(text);
         public void SendCommand(string command)     => _engine._sendCommand(command);
+        public void SetWindow(string window, string content)
+            => _engine.SetWindow?.Invoke(window, content);
+        public string ConfigDir                     => _engine.Config?.ConfigDir ?? _engine._scriptsDir;
+        public void Log(string message)             => _engine._echo(message);
+    }
+
+    /// <summary>Wired by the host to the named-window seam (GenieCore's
+    /// <c>SetPluginWindow</c> event / the App dock panels). Replaces a whole
+    /// window's contents; the built-in trackers (Spell Timer, Experience, Time
+    /// Tracker) re-render through this on each prompt.</summary>
+    public Action<string, string>? SetWindow { get; set; }
+
+    /// <summary>Read-through to the host's persistent user-variable store
+    /// (<c>#var</c> values / <c>Variables.Store</c>). Lets a script resolve
+    /// <c>$name</c> for a value set via <c>#var name value</c> — the script
+    /// engine's own <see cref="Globals"/> holds only live game-state + #tvar
+    /// session globals. Returns null when the name isn't a user variable.</summary>
+    public Func<string, string?>? UserVarLookup { get; set; }
+
+    /// <summary>Feed a fully-parsed game event to the extensions (the Spell Timer's
+    /// percWindow stream + clear boundary, the Experience tracker's
+    /// <c>&lt;component id='exp X'&gt;</c>). Called by the host from the parser's typed
+    /// event stream — reliable across the connection's tag-splitting chunk
+    /// boundaries, unlike raw XML.</summary>
+    public void OnGameEvent(Genie.Core.Events.GameEvent ev)
+    {
+        if (ev is not null) Extensions.DispatchGameEvent(ev);
     }
 
     public string ScriptsDir => _scriptsDir;
@@ -1501,13 +1532,13 @@ public sealed class ScriptEngine
                 if (name.Length > 0) Globals[name] = value;
                 return;
             }
-            case "#var":
-            {
-                // #var Name Value — script-local
-                var (name, value) = SplitCmd(rest);
-                if (name.Length > 0) inst.Vars[name] = value;
-                return;
-            }
+            // NOTE: #var is intentionally NOT handled here. It is the global,
+            // persistent user-variable command (Genie 4 parity) and must behave
+            // identically whether typed or run from a script — including `#var save`
+            // writing variables.cfg. It therefore falls through to the default case
+            // and is forwarded to the host's command engine (→ HandleVar →
+            // Variables.Store). Script-LOCAL variables use the `var` / `setvariable`
+            // statement (%name), handled separately above.
             case "#echo":
             {
                 // #echo [>Window] [#RRGGBB | ColorName] message
@@ -1972,6 +2003,14 @@ public sealed class ScriptEngine
             { value = (SpellTimeSeconds?.Invoke() ?? 0).ToString(CultureInfo.InvariantCulture); return true; }
             if (Globals.TryGetValue(name, out var gv))
             { value = gv ?? string.Empty; return true; }
+            // Persistent user variables (#var). Resolved after live-state globals
+            // (so reserved vars win, matching the command engine's ExpandVariables
+            // order) but before the computed reserved vars below, so a #var can
+            // still shadow $scriptlist / a clock var. This is what makes a value
+            // set via `#var name value` — typed OR from a script's `put #var …` —
+            // readable as $name in a running script.
+            if (UserVarLookup?.Invoke(name) is { } uv)
+            { value = uv; return true; }
             // $scriptlist — '|'-separated names of running scripts, or "none"
             // (Genie 4 parity). Computed on read so it's always current.
             if (name.Equals("scriptlist", StringComparison.OrdinalIgnoreCase))

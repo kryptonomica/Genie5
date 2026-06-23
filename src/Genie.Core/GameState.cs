@@ -22,7 +22,7 @@ public enum Stance { Offensive, Advance, Forward, Neutral, Guarded, Defensive, U
 public enum CharacterStatus
 {
     Normal, Kneeling, Prone, Sitting, Stunned, Webbed,
-    Bleeding, Poisoned, Diseased, Hidden, Dead
+    Bleeding, Poisoned, Diseased, Hidden, Invisible, Joined, Dead
 }
 
 // ── Core character attributes (8 DR stats from Elanthipedia) ────────────────
@@ -165,4 +165,65 @@ public sealed class GameState
 
     // Raw component text (all received component IDs → latest content)
     public ConcurrentDictionary<string, string> Components { get; } = new();
+
+    /// <summary>
+    /// Clear the snapshot back to defaults <b>in place</b>, preserving the identity
+    /// of every nested object (<see cref="Attributes"/>, <see cref="Vitals"/>,
+    /// <see cref="Room"/>, <see cref="Combat"/>, <see cref="Inventory"/>,
+    /// <see cref="LiveSkills"/>, <see cref="ActiveStatuses"/>, <see cref="Components"/>).
+    /// The persistent core holds these by reference across reconnect, so we mutate
+    /// rather than replace. Called at the start of each connect.
+    ///
+    /// <para><paramref name="clearPerCharacter"/> distinguishes a genuine character
+    /// SWITCH (true → also drop the previous character's identity + live skill ranks)
+    /// from a same-character reconnect or the first connect from offline (false →
+    /// keep <see cref="LiveSkills"/> + guild/circle so the Mapper doesn't re-prompt
+    /// for <c>info</c>/<c>exp</c> and pathfinding weights survive). The transient
+    /// world/vitals/combat state always resets — it repopulates from the new
+    /// session immediately.</para>
+    /// </summary>
+    public void Reset(bool clearPerCharacter = true)
+    {
+        // Per-character data — only dropped on a real character switch. Live skill
+        // ranks (and guild/circle) don't auto-refresh on connect (they need
+        // info/exp), so clearing them on a same-char reconnect would force the user
+        // to re-fetch and re-trigger the Mapper's skills prompt.
+        if (clearPerCharacter)
+        {
+            CharacterName = "";
+            Race          = DrRace.Unknown;
+            Guild         = DrGuild.Unknown;
+            GuildName     = "";
+            Circle        = 0;
+            Skills        = [];
+            LiveSkills.Clear();
+        }
+
+        // Core stats (transient — refresh from the new session).
+        Attributes.Strength = Attributes.Reflex = Attributes.Agility = Attributes.Charisma =
+            Attributes.Discipline = Attributes.Wisdom = Attributes.Intelligence = Attributes.Stamina = 0;
+        Vitals.Health = Vitals.Mana = Vitals.Spirit = Vitals.StaminaFatigue = Vitals.Concentration = 100;
+        Vitals.Encumbrance = 0;
+
+        // World
+        Room.Title = Room.Description = Room.Exits = Room.Objects = Room.Players =
+            Room.CompassExits = Room.ImageId = "";
+        Room.Creatures    = System.Array.Empty<string>();
+        Room.MonsterCount = 0;
+        Room.RoomId       = 0;
+
+        Combat.Target = Combat.PreparedSpell = "";
+        Combat.RoundTimeEnd  = default;
+        Combat.CastTimeEnd   = default;
+        Combat.SpellTimeStart = null;
+        Combat.Stance        = Stance.Neutral;
+
+        Inventory.LeftHand = Inventory.RightHand = Inventory.LeftExistId = Inventory.RightExistId = "";
+
+        // Status / misc
+        ActiveStatuses.Clear();
+        Components.Clear();
+        ActiveStream = "main";
+        LastPrompt   = default;
+    }
 }

@@ -186,6 +186,16 @@
                   ToggleType="CheckBox"
                   IsChecked="{Binding RoomVisible, Mode=OneWay}"
                   Command="{Binding ToggleRoomCommand}"/>
+        <MenuItem Header="_Mobs"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding MobsVisible, Mode=OneWay}"
+                  Command="{Binding ToggleMobsCommand}"
+                  ToolTip.Tip="Creatures in the current room, one per line (Genie 3/4 Mobs window). Filtered through the ignore list, so ground items don't show."/>
+        <MenuItem Header="Pla_yers"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding PlayersVisible, Mode=OneWay}"
+                  Command="{Binding TogglePlayersCommand}"
+                  ToolTip.Tip="Other players in the current room, one per line (Genie 3/4 Players window)."/>
         <MenuItem Header="_Backpack"
                   ToggleType="CheckBox"
                   IsChecked="{Binding BackpackVisible, Mode=OneWay}"
@@ -214,6 +224,21 @@
                   ToggleType="CheckBox"
                   IsChecked="{Binding CombatVisible, Mode=OneWay}"
                   Command="{Binding ToggleCombatCommand}"/>
+        <MenuItem Header="_Familiar"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding FamiliarVisible, Mode=OneWay}"
+                  Command="{Binding ToggleFamiliarCommand}"
+                  ToolTip.Tip="Familiar / creature-watching feed — the server `familiar` stream."/>
+        <MenuItem Header="_Deaths"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding DeathVisible, Mode=OneWay}"
+                  Command="{Binding ToggleDeathCommand}"
+                  ToolTip.Tip="Death log — the server `death` stream (e.g. &quot;* X was just struck down!&quot;)."/>
+        <MenuItem Header="_Assess"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding AssessVisible, Mode=OneWay}"
+                  Command="{Binding ToggleAssessCommand}"
+                  ToolTip.Tip="Assess feed — the server `assess` stream."/>
         <MenuItem Header="Lo_g"
                   ToggleType="CheckBox"
                   IsChecked="{Binding LogVisible, Mode=OneWay}"

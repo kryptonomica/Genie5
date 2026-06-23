@@ -9,10 +9,10 @@
     <AssemblyName>Genie</AssemblyName>
 
     <!-- ── Versioning (shown in File Properties → Details + About box) ── -->
-    <Version>5.0.0-alpha.6.2</Version>
+    <Version>5.0.0-alpha.7</Version>
     <AssemblyVersion>5.0.0.0</AssemblyVersion>
     <FileVersion>5.0.0.0</FileVersion>
-    <InformationalVersion>5.0.0-alpha.6.2</InformationalVersion>
+    <InformationalVersion>5.0.0-alpha.7</InformationalVersion>
     <Product>Genie 5</Product>
     <Company>Genie 5 Project</Company>
     <Copyright>Copyright © 2026 — GPL-3.0</Copyright>
@@ -58,7 +58,18 @@
          which would break ReactiveUI.Fody). The app's own view-models keep
          ReactiveUI + Fody; only the dock Tool/Document/Factory classes use the
          MVVM base (ObservableObject). Pinned to 11.3.11.22 to match the
-         windowed-mode skin (MdiDocumentWindowSkin) authored against that API. -->
+         windowed-mode skin (MdiDocumentWindowSkin) authored against that API.
+
+         #80 (FIXED, Themes/ToolControlCachedSkin.axaml): 11.3.11's stock ToolControl
+         theme hosts the active tool in a single recycled ContentControl whose
+         ControlRecyclingDataTemplate.Match() always returns true. Avalonia's
+         ContentPresenter then reuses the realized child across a tab switch and only
+         swaps its DataContext, so stacked tabs of DIFFERENT tool types render the
+         first-built tab's view (Avalonia #16891/#14863). We override ToolControl with
+         Dock's own cached, per-dockable content host (one ContentControl per tool,
+         visibility-toggled) instead of downgrading — the MDI skin depends on
+         11.3.11-only capability APIs (DockCapabilityOverrides/Policy, Can*MultiConverter)
+         that no recycling-free Dock release has. -->
     <PackageReference Include="Dock.Avalonia" Version="11.3.11.22" />
     <PackageReference Include="Dock.Avalonia.Themes.Fluent" Version="11.3.11.22" />
     <PackageReference Include="Dock.Model.Mvvm" Version="11.3.11.22" />

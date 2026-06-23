@@ -150,9 +150,10 @@ public class GameTextViewModel : ReactiveObject
 
         // ── Player status (for the promptforce composer) ──────────────────
         // Mirror <indicator> XML into local flags. VitalsViewModel keeps its
-        // own copies for the status bar; the prompt composer needs Invisible
-        // and Joined too (absent from GameState's CharacterStatus enum), so we
-        // track all ten here rather than read GameState.ActiveStatuses.
+        // own copies for the status bar. GameState.ActiveStatuses now covers
+        // all ten (incl. Invisible/Joined), but the prompt composer wants the
+        // values as individual bools, so we keep this lightweight local mirror
+        // rather than project the HashSet on every prompt.
         core.GameEvents
             .OfType<IndicatorEvent>()
             .ObserveOn(RxApp.MainThreadScheduler)

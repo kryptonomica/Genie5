@@ -14,5 +14,8 @@ public enum ConfigFieldUpdated
     ImagesEnabled,
     SizeInputToGame,
     AlwaysOnTop,
-    UpdateMapperScripts
+    UpdateMapperScripts,
+    /// <summary>A built-in tracker toggle changed (spelltimer / showexperience /
+    /// showtimetracker) — the host re-syncs each extension's Enabled flag.</summary>
+    Trackers
 }

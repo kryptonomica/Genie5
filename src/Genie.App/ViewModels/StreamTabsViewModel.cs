@@ -14,6 +14,20 @@ public class StreamTabsViewModel : ReactiveObject
     public StreamBuffer Thoughts { get; } = new("Thoughts");
     public StreamBuffer Combat   { get; } = new("Combat");
 
+    /// <summary>Familiar / creature-watching feed — the server's
+    /// <c>familiar</c> stream (declared <c>styleIfClosed="watching"</c>).</summary>
+    public StreamBuffer Familiar { get; } = new("Familiar");
+
+    /// <summary>Death log — the server's <c>death</c> stream
+    /// ("* X was just struck down!"), declared with <c>timestamp="on"</c>.
+    /// Server title is "Deaths"; the buffer/tool id stays <c>death</c> to match
+    /// the stream id the parser emits.</summary>
+    public StreamBuffer Death    { get; } = new("Death");
+
+    /// <summary>Assess feed — the server's <c>assess</c> stream
+    /// (declared <c>ifClosed="main"</c>).</summary>
+    public StreamBuffer Assess   { get; } = new("Assess");
+
     /// <summary>Consolidated conversation log — mirrors the speech streams
     /// (talk / whispers), Genie 4 "Log" window parity. Also an <c>#echo &gt;log</c>
     /// target (wired in MainWindowViewModel).</summary>
@@ -23,7 +37,8 @@ public class StreamTabsViewModel : ReactiveObject
     /// <c>#echo &gt;itemlog</c> from scripts.</summary>
     public StreamBuffer ItemLog  { get; } = new("ItemLog");
 
-    public IReadOnlyList<StreamBuffer> All => [Logons, Talk, Whispers, Thoughts, Combat, Log, ItemLog];
+    public IReadOnlyList<StreamBuffer> All =>
+        [Logons, Talk, Whispers, Thoughts, Combat, Familiar, Death, Assess, Log, ItemLog];
 
     public void Attach(GenieCore core)
     {
@@ -39,6 +54,9 @@ public class StreamTabsViewModel : ReactiveObject
                     "whispers"             => Whispers,
                     "thoughts"             => Thoughts,
                     "combat"               => Combat,
+                    "familiar"             => Familiar,
+                    "death"                => Death,
+                    "assess"               => Assess,
                     "itemlog" or "itemLog" => ItemLog,
                     _                      => null
                 };

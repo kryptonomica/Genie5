@@ -1,0 +1,134 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:dmc="using:Dock.Model.Controls"
+                    xmlns:core="using:Dock.Model.Core"
+                    xmlns:converters="using:Dock.Avalonia.Converters"
+                    x:DataType="dmc:IToolDock"
+                    x:CompileBindings="True">
+
+  <!-- ============================================================ #80 =====
+       Cached per-tool content host for docked ToolDocks.
+
+       THE BUG (stacked tool tabs of different types show the wrong content):
+       Dock 11.3.11's stock ToolControl theme (DockFluentTheme) hosts the active
+       tool in a SINGLE DeferredContentControl bound to ActiveDockable, whose
+       ContentTemplate is a <ControlRecyclingDataTemplate>. That template's
+       Match() ALWAYS returns true, so on a tab switch Avalonia's ContentPresenter
+       treats the template as unchanged, takes its child-reuse fast path, keeps the
+       already-realized child and only re-points its DataContext to the newly
+       active tool — it never rebuilds for the new tool's type. (Avalonia content-
+       recycling, issues #16891 / #14863.) The recycler is never even consulted,
+       which is why feeding it an Id-keyed ControlRecycling did nothing.
+
+       Result: a same-type stack (the stream tabs — all StreamTool) survives,
+       because the reused view's template still fits the swapped data; a MIXED-type
+       stack (Backpack / Experience / Scripts / Scene / Time Tracker) renders every
+       tab with whichever tool built the shared view first ("the second window
+       takes over all tabs"). This is the regression the Dock 11.3.11 (MDI) bump
+       introduced and the failure AVALONIA_NOTES.md warned about.
+
+       THE FIX:
+       Override ToolControl with Dock's OWN cached-content pattern — the same shape
+       as the DockDocumentControlCachedContentTemplate that ships for DocumentControl
+       but was never provided for ToolControl. Every visible dockable gets its OWN
+       ContentControl, materialized once into a shared Grid cell and shown/hidden by
+       IsVisible == Owner.ActiveDockable. No single shared host, no always-match
+       recycling template, no DataContext swap — so each tool keeps its own correctly
+       typed view (and its scroll position) no matter how tabs are stacked. Tab strip,
+       drag/dock targets, sizing and surface styling are a faithful copy of the stock
+       ToolControl theme; only PART_Border's content host changed. Pin / float / close
+       live in ToolChromeControl (a separate control) and are untouched.
+       ===================================================================== -->
+  <ControlTheme x:Key="{x:Type ToolControl}" TargetType="ToolControl">
+
+    <Setter Property="(DockProperties.IsDragEnabled)" Value="{Binding CanDrag}" />
+    <Setter Property="(DockProperties.IsDropEnabled)" Value="{Binding CanDrop}" />
+    <Setter Property="(DockProperties.DockGroup)" Value="{Binding DockGroup}" />
+    <Setter Property="MinWidth" Value="{Binding MinWidth}" />
+    <Setter Property="MaxWidth" Value="{Binding MaxWidth}" />
+    <Setter Property="MinHeight" Value="{Binding MinHeight}" />
+    <Setter Property="MaxHeight" Value="{Binding MaxHeight}" />
+
+    <Setter Property="IconTemplate">
+      <DataTemplate DataType="core:IDockable">
+        <Panel />
+      </DataTemplate>
+    </Setter>
+
+    <Setter Property="HeaderTemplate">
+      <DataTemplate DataType="core:IDockable">
+        <TextBlock Text="{Binding Title}" Padding="{DynamicResource DockHeaderContentPadding}" />
+      </DataTemplate>
+    </Setter>
+
+    <Setter Property="ModifiedTemplate">
+      <DataTemplate DataType="core:IDockable">
+        <TextBlock VerticalAlignment="Center"
+                   Text="*"
+                   Margin="{DynamicResource DockModifiedIndicatorMargin}" />
+      </DataTemplate>
+    </Setter>
+
+    <Setter Property="Template">
+      <ControlTemplate>
+        <DockPanel x:Name="PART_DockPanel"
+                   DockProperties.IsDropArea="True"
+                   DockProperties.IsDockTarget="True">
+          <ToolTabStrip x:Name="PART_TabStrip"
+                        ItemsSource="{Binding VisibleDockables}"
+                        SelectedItem="{Binding ActiveDockable, Mode=TwoWay}"
+                        IconTemplate="{TemplateBinding IconTemplate}"
+                        HeaderTemplate="{TemplateBinding HeaderTemplate}"
+                        ModifiedTemplate="{TemplateBinding ModifiedTemplate}"
+                        DockPanel.Dock="Bottom"
+                        DockProperties.IsDropArea="True"
+                        DockProperties.DockAdornerHost="{Binding #PART_DockPanel}" />
+          <Border x:Name="PART_Border">
+            <!-- One ContentControl per dockable; only the active one is visible.
+                 Mirrors Dock's DockDocumentControlCachedContentTemplate so there
+                 is no shared, recycled content presenter to swap DataContext on. -->
+            <ItemsControl x:Name="PART_CachedContentHost"
+                          ItemsSource="{Binding VisibleDockables}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <Grid />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="core:IDockable">
+                  <DockableControl TrackingMode="Visible">
+                    <DockableControl.IsVisible>
+                      <MultiBinding Converter="{x:Static converters:ReferenceEqualsMultiConverter.Instance}">
+                        <Binding />
+                        <Binding Path="((core:IDock)Owner).ActiveDockable" />
+                      </MultiBinding>
+                    </DockableControl.IsVisible>
+                    <ContentControl x:Name="PART_CachedContentPresenter"
+                                    HorizontalAlignment="Stretch"
+                                    VerticalAlignment="Stretch"
+                                    Content="{Binding}" />
+                  </DockableControl>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Border>
+        </DockPanel>
+      </ControlTemplate>
+    </Setter>
+
+    <Style Selector="^/template/ DockPanel#PART_DockPanel">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="ZIndex" Value="1" />
+    </Style>
+
+    <Style Selector="^/template/ Border#PART_Border">
+      <Setter Property="ZIndex" Value="-1" />
+      <Setter Property="Background" Value="{DynamicResource DockSurfacePanelBrush}" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="BorderBrush" Value="{DynamicResource DockBorderSubtleBrush}" />
+      <Setter Property="BorderThickness" Value="1 0 1 0" />
+    </Style>
+
+  </ControlTheme>
+
+</ResourceDictionary>

@@ -53,6 +53,16 @@ public sealed class SkillStore
     public IReadOnlyDictionary<string, int> Snapshot()
         => new Dictionary<string, int>(_ranks, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Drop all known ranks (e.g. on a fresh connect, so a previous
+    /// character's skills don't bleed into the next). Clears in place — callers
+    /// that hold this store by reference keep working.</summary>
+    public void Clear()
+    {
+        if (_ranks.IsEmpty) return;
+        _ranks.Clear();
+        Changed?.Invoke();
+    }
+
     /// <summary>Fires whenever a rank is updated. UI may want to refresh.</summary>
     public event Action? Changed;
 }

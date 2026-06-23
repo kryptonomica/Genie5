@@ -51,11 +51,23 @@ public sealed record ExitRequirement
     /// </summary>
     public bool IsMet(SkillStore? skills, string? characterClass, int characterLevel)
     {
+        // Unknown class (null/empty) → pass: we haven't read the character's
+        // guild/class yet, so assume reachable rather than silently excluding
+        // every class-gated edge. Matches the skill-rank "unknown → pass" rule
+        // below, AutoMapperEngine.CharacterClass's documented contract ("null
+        // means no class info yet — passes all class checks"), and the mapper's
+        // "every gated exit is assumed reachable" banner. Only block when we
+        // KNOW the class and it doesn't match.
         if (RequiredClass is not null &&
+            !string.IsNullOrEmpty(characterClass) &&
             !string.Equals(characterClass, RequiredClass, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (MinLevel.HasValue && characterLevel < MinLevel.Value)
+        // Unknown level/circle (<= 0) → pass, same rationale: 0 means "no data
+        // yet" (circle is frequently unpopulated), not "level zero". Without
+        // this guard every `level>=N` gate fails before stats are read and the
+        // pathfinder returns "No path".
+        if (MinLevel.HasValue && characterLevel > 0 && characterLevel < MinLevel.Value)
             return false;
 
         if (skills is not null)
@@ -77,10 +89,11 @@ public sealed record ExitRequirement
     {
         var reasons = new List<string>();
         if (RequiredClass is not null &&
+            !string.IsNullOrEmpty(characterClass) &&
             !string.Equals(characterClass, RequiredClass, StringComparison.OrdinalIgnoreCase))
-            reasons.Add($"requires class {RequiredClass} (you are {characterClass ?? "unknown"})");
+            reasons.Add($"requires class {RequiredClass} (you are {characterClass})");
 
-        if (MinLevel.HasValue && characterLevel < MinLevel.Value)
+        if (MinLevel.HasValue && characterLevel > 0 && characterLevel < MinLevel.Value)
             reasons.Add($"requires level {MinLevel} (you are {characterLevel})");
 
         if (skills is not null)
