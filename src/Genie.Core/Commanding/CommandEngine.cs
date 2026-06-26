@@ -339,6 +339,19 @@ public sealed class CommandEngine
                     _host.Echo("Usage: #audit on | off | xmlhunting");
                 break;
             }
+            case "parse":
+            {
+                // #parse <text> — inject a synthetic game line (Genie 4 parity).
+                // Feeds scripts (waitfor/match), the global trigger list, and
+                // plugins as if the server emitted it; never echoes or sends to
+                // the game. Take the verbatim tail after the verb (not a
+                // re-joined parts list) so meaningful whitespace a trigger might
+                // match on is preserved. ProcessInput already $-expanded the line.
+                int sp = command.IndexOf(' ');
+                var tail = sp >= 0 ? command[(sp + 1)..] : string.Empty;
+                if (tail.Length > 0) _host.InjectParsedLine(tail);
+                break;
+            }
             case "mapper":
             {
                 // #mapper reset — re-resolve the current room (Genie 3/4 parity).

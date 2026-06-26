@@ -418,7 +418,8 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
                                _ = _connection?.SendCommandAsync(cmd);
                            },
             echo:          msg => ScriptOutputLine?.Invoke(msg),
-            handleHashCmd: cmd => Commands.ProcessInput(cmd, interactive: false));
+            handleHashCmd: cmd => Commands.ProcessInput(cmd, interactive: false),
+            injectGameLine: line => InjectParsedLine(line));
 
         // Live config for the runtime script settings (ScriptTimeout,
         // MaxGoSubDepth, AbortDupeScript, ScriptExtension).
@@ -816,6 +817,30 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         };
         if (cap >= 1 && cap != _typeAhead.Limit)
             _typeAhead.Limit = cap;
+    }
+
+    /// <summary>
+    /// Inject a synthetic line into the full per-line pipeline as if the server
+    /// had emitted it — the Genie 4 <c>#parse</c> primitive. Runs the same three
+    /// legs as a live <see cref="TextEvent"/> (scripts' waitfor/match + built-in
+    /// trackers, the global user-trigger list, and plugins) but deliberately
+    /// omits the game-only bits: it never echoes to a window, never reaches the
+    /// game socket, and skips type-ahead calibration. Reached from a scripted
+    /// <c>#parse</c> (via the ScriptEngine injector callback) and a typed
+    /// <c>#parse</c> from the command bar (via the command host). The argument
+    /// arrives already <c>$</c>/<c>%</c>-expanded by the caller, matching Genie 4's
+    /// <c>ParseGlobalVars</c> on the #parse argument.
+    /// </summary>
+    public void InjectParsedLine(string line)
+    {
+        if (string.IsNullOrEmpty(line)) return;
+        // Treat as the main stream so the ParseGameOnly gate (below) always
+        // lets injected text reach triggers — Genie 4 fed #parse to triggers
+        // unconditionally.
+        Scripts.OnGameLine(line);                       // scripts (waitfor/match) + built-in trackers + JS waiters
+        if (!(Config?.ParseGameOnly ?? false))
+            Triggers.ProcessLine(line);                 // global user-defined triggers
+        Plugins.DispatchGameText(line, "main");         // plugins observe the line
     }
 
     private void OnConnectReady()

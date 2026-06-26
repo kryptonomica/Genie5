@@ -33,6 +33,16 @@ public interface ICommandHost
     void RunScript(string text);
 
     /// <summary>
+    /// Inject a synthetic line into the full per-line pipeline as if the server
+    /// had emitted it — the Genie 4 <c>#parse</c> command. Feeds running scripts'
+    /// <c>waitfor</c>/<c>match</c>, the global user-trigger list, and plugins, but
+    /// never echoes to a window and never reaches the game socket. The argument
+    /// arrives already <c>$</c>/<c>%</c>-expanded (the command bar expands at entry).
+    /// The Console build with no live session feeds whatever script engine exists.
+    /// </summary>
+    void InjectParsedLine(string line);
+
+    /// <summary>
     /// Stop a running script. <paramref name="name"/> null/empty stops the
     /// most recently started script; a name stops that specific script.
     /// Used by <c>#stop</c> from the command bar.

@@ -26,6 +26,7 @@ public sealed class ScriptEngine
     private readonly Action<string>       _sendCommand;
     private readonly Action<string>       _echo;
     private readonly Action<string>?      _handleHashCmd;
+    private readonly Action<string>?      _injectGameLine;
     private readonly string               _scriptsDir;
 
     /// <summary>Threaded runtime for <c>.js</c> scripts. The .cmd tick loop is
@@ -131,13 +132,15 @@ public sealed class ScriptEngine
 
     public ScriptEngine(string scriptsDir, TypeAheadSession typeAhead,
                         Action<string> sendCommand, Action<string> echo,
-                        Action<string>? handleHashCmd = null)
+                        Action<string>? handleHashCmd = null,
+                        Action<string>? injectGameLine = null)
     {
         _scriptsDir   = scriptsDir;
         _typeAhead    = typeAhead;
         _sendCommand  = sendCommand;
         _echo         = echo;
         _handleHashCmd = handleHashCmd;
+        _injectGameLine = injectGameLine;
         Extensions   = new ExtensionManager(new EngineExtensionHost(this));
         Extensions.Register(new InfoTrackerExtension());
         // The Spell Timer, Experience and Time Tracker trackers are built in to
@@ -1614,9 +1617,15 @@ public sealed class ScriptEngine
                 _handleHashCmd?.Invoke(text);
                 return;
             case "#parse":
-                // Inject fake game text — feeds match/action/waitfor pipelines
-                // as if the server had emitted it.
-                OnGameLine(rest);
+                // Inject fake game text as if the server had emitted it. Genie 4's
+                // #parse fed all three per-line legs — scripts (waitfor/match),
+                // the global user-trigger list, and plugins — so route through the
+                // host injector that runs the full pipeline. Fall back to the
+                // script-only feed when no host is wired (Core-only / TestHarness):
+                // calling OnGameLine directly here would double-feed scripts if the
+                // injector also ran, so it's one or the other.
+                if (_injectGameLine is not null) _injectGameLine(rest);
+                else                             OnGameLine(rest);
                 return;
             default:
                 // Forward unhandled # commands (e.g. #goto, #script) to the
