@@ -380,14 +380,15 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
 
         // Skill-weighted pathfinding: hand the engine a reference to the
         // live SkillStore so FindPath can filter out exits the character
-        // can't take. Character class + level (circle) are pulled from
-        // GameState below; both update as the parser sees them. LiveSkills is a
-        // member of the persistent state, so this reference stays valid forever.
+        // can't take. LiveSkills is a member of the persistent state, so this
+        // reference stays valid forever.
         AutoMapper.Skills = _state.LiveSkills;
-        AutoMapper.CharacterClass = _state.Guild != Genie.Core.Models.DrGuild.Unknown
-            ? _state.Guild.ToString()
-            : null;
-        AutoMapper.CharacterLevel = _state.Circle;
+        // CharacterClass + CharacterLevel are deliberately NOT set here. Setting
+        // them once at construction would freeze them at the app-start values
+        // (guild Unknown, circle 0), so class/level-gated exits would never
+        // enforce (#95). They're refreshed from live state in SyncMapperGlobals
+        // (runs once at build, then on every room change) once the parser has
+        // seen the guild and `info` has filled in the circle.
 
         // ── Scripting ──────────────────────────────────────────────────────────
         _typeAhead = new TypeAheadSession();
@@ -1288,6 +1289,24 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
         // $roomnote — the current room's map note/label (Genie 4 reserved var,
         // the last of the deferred mapper-sourced set from #45). Empty off-map.
         Scripts.Globals["roomnote"] = node?.Notes ?? string.Empty;
+
+        // #95: refresh the pathfinder's character class + circle from live state
+        // so class/level-gated exits (climbs, swims, guild passages) actually
+        // enforce once the game has told us who we are. Setting these once at
+        // construction froze them at app-start (guild Unknown, circle 0).
+        //  • Class comes straight from the live guild.
+        //  • Circle is mirrored from the $circle global the InfoTracker fills in
+        //    from `info` — nothing else assigns _state.Circle, so this is also
+        //    what finally populates it for every other consumer (AI context,
+        //    GameStateView). Guard on > 0 so a missing/zero circle never clobbers
+        //    a good value back to 0.
+        AutoMapper.CharacterClass = _state.Guild != Genie.Core.Models.DrGuild.Unknown
+            ? _state.Guild.ToString()
+            : null;
+        if (Scripts.Globals.TryGetValue("circle", out var circleStr) &&
+            int.TryParse(circleStr, out var circle) && circle > 0)
+            _state.Circle = circle;
+        AutoMapper.CharacterLevel = _state.Circle;
     }
 
     /// <summary>

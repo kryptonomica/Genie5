@@ -50,6 +50,7 @@ using Genie.Core;
 using Genie.Core.AI;
 using Genie.Core.Connection;
 using Genie.Core.Events;
+using Genie.Core.Mapper;
 using Microsoft.Extensions.Logging;
 
 // All generated files (raw sessions, replay outputs, compare results) land here.
@@ -294,6 +295,17 @@ switch (mode)
         // known-and-failing gates blocked.
         var okrq = RunReqGateRepro();
         Environment.ExitCode = okrq ? 0 : 1;
+        return;
+    }
+
+    case "GATEPATH":
+    {
+        // #95: end-to-end proof that the engine's CharacterClass / CharacterLevel
+        // actually gate FindPath routing — the payoff of refreshing them from live
+        // state. Builds a tiny zone where the short way is class/level-gated and a
+        // longer detour is open, then asserts the route changes as those fields do.
+        var okgp = RunGatePathRepro();
+        Environment.ExitCode = okgp ? 0 : 1;
         return;
     }
 
@@ -1325,6 +1337,94 @@ static bool RunReqGateRepro()
         ? "[REQGATE] unknown class/level/skill assumed-reachable (no false 'No path');\n" +
           "          known-and-failing gates still block. Contract honored."
         : "[REQGATE] gating contract violated — see failures above.");
+    Console.ResetColor();
+    return allPass;
+}
+
+static bool RunGatePathRepro()
+{
+    // Mini-zone:  (1) --north[gated]--> (2)      short, but the exit is gated
+    //             (1) --east--> (3) --north--> (2)  longer detour, always open
+    // FindPath returns the move-command list, so the gated short way is ["north"]
+    // (len 1) and the open detour is ["east","north"] (len 2). Which one comes back
+    // tells us whether the gate blocked the short edge.
+    static AutoMapperEngine BuildEngine(string requires)
+    {
+        var zone = new Genie.Core.Mapper.MapZone { Name = "gatepath-test" };
+        var n1 = new Genie.Core.Mapper.MapNode { Id = 1 };
+        var n2 = new Genie.Core.Mapper.MapNode { Id = 2 };
+        var n3 = new Genie.Core.Mapper.MapNode { Id = 3 };
+        n1.Exits.Add(new Genie.Core.Mapper.MapExit {
+            Direction = Genie.Core.Mapper.Direction.North, MoveCommand = "north",
+            DestinationId = 2, Requires = requires });
+        n1.Exits.Add(new Genie.Core.Mapper.MapExit {
+            Direction = Genie.Core.Mapper.Direction.East,  MoveCommand = "east",  DestinationId = 3 });
+        n3.Exits.Add(new Genie.Core.Mapper.MapExit {
+            Direction = Genie.Core.Mapper.Direction.North, MoveCommand = "north", DestinationId = 2 });
+        zone.Nodes[1] = n1; zone.Nodes[2] = n2; zone.Nodes[3] = n3;
+        return new AutoMapperEngine(zone);
+    }
+    static (MapNode a, MapNode b) Ends(AutoMapperEngine e) =>
+        (e.ActiveZone!.Nodes[1], e.ActiveZone!.Nodes[2]);
+
+    var checks = new List<(string name, bool pass, string detail)>();
+
+    // ── level gate (level>=25) ──────────────────────────────────────────────
+    {
+        var e = BuildEngine("level>=25"); var (a, b) = Ends(e);
+
+        e.CharacterLevel = 0;                       // UNKNOWN → assume reachable → short
+        var pUnknown = e.FindPath(a, b);
+        checks.Add(("level UNKNOWN (0) takes the gated short way",
+            pUnknown is { Count: 1 }, "assumed reachable → [north]"));
+
+        e.CharacterLevel = 10;                      // KNOWN low → gate blocks → detour
+        var pLow = e.FindPath(a, b);
+        checks.Add(("level KNOWN-low (10<25) is routed around the gate",
+            pLow is { Count: 2 }, "blocked → [east,north]"));
+
+        e.CharacterLevel = 30;                      // KNOWN high → gate passes → short
+        var pHigh = e.FindPath(a, b);
+        checks.Add(("level KNOWN-high (30>=25) takes the gated short way",
+            pHigh is { Count: 1 }, "passes → [north]"));
+    }
+
+    // ── class gate (class=Thief) ────────────────────────────────────────────
+    {
+        var e = BuildEngine("class=Thief"); var (a, b) = Ends(e);
+
+        e.CharacterClass = null;                    // UNKNOWN → assume reachable → short
+        var pUnknown = e.FindPath(a, b);
+        checks.Add(("class UNKNOWN (null) takes the gated short way",
+            pUnknown is { Count: 1 }, "assumed reachable → [north]"));
+
+        e.CharacterClass = "Empath";                // KNOWN wrong → gate blocks → detour
+        var pWrong = e.FindPath(a, b);
+        checks.Add(("class KNOWN-wrong (Empath) is routed around the gate",
+            pWrong is { Count: 2 }, "blocked → [east,north]"));
+
+        e.CharacterClass = "Thief";                 // KNOWN right → gate passes → short
+        var pRight = e.FindPath(a, b);
+        checks.Add(("class KNOWN-right (Thief) takes the gated short way",
+            pRight is { Count: 1 }, "passes → [north]"));
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("============ FINDPATH CLASS/LEVEL GATING (#95 live-refresh payoff) =======");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-54} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("=========================================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass
+        ? "[GATEPATH] FindPath honors the engine's class/level — so refreshing them\n" +
+          "           from live state (SyncMapperGlobals) makes gated routing enforce."
+        : "[GATEPATH] FindPath did not respond to class/level — see failures above.");
     Console.ResetColor();
     return allPass;
 }
