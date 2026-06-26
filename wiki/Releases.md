@@ -4,7 +4,19 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.7.1 — Maps & polish
+## Latest: v5.0.0-alpha.7.2 — JavaScript libraries
+
+Call JavaScript functions from your `.cmd` scripts — the Genie 4 "array script" pattern. Keep a library of functions in a `.js`, `include` it, and call it.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.7.2** as a delta.
+
+- **Call JS functions from a `.cmd`** — `include foo.js` loads a function library for the running script; **`js <expr>`** runs a function and **`jscall <var> <expr>`** stores its result in `%var`. Functions read/write your script's variables via bare `getVar`/`setVar` (→ `%vars`) and `getGlobal`/`setGlobal` (→ `$globals`) — great for list/array work ([#104](https://github.com/GenieClient/Genie5/issues/104)).
+- **Genie 4 libraries port cleanly** — `include` auto-converts the old `array.length()` idiom to `array.length`, so existing Genie 4 `.js` array libraries run unchanged.
+- **New [JavaScript Scripting](JavaScript-Scripting) page** — covers standalone `.js` scripts and the new function-library interop, with a sample for every call.
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.7.2)
+
+## v5.0.0-alpha.7.1 — Maps & polish
 
 A maps-and-polish point release on top of the Persistent Core.
 

@@ -94,7 +94,9 @@ Regex captures from `matchre` / `waitforre` / actions land in the current `$0..$
 | --- | --- |
 | `echo text` | Print to the echo channel (main window + Scripts panel). |
 | `debug N` | Per-script trace verbosity (1 = goto/gosub/return … 10 = every line). |
-| `js …` / `plugin …` | Parsed for Genie 4 parity; JavaScript execution is a 🚧 roadmap item (see below). |
+| `include <file>.js` | Load a JavaScript function library for this script run — see [JavaScript Scripting](JavaScript-Scripting). |
+| `js <expr>` / `jscall <var> <expr>` | Call a JS library function; `jscall` stores the result in `%var`. |
+| `plugin …` | Parsed for Genie 4 parity; .NET plugin execution is not supported. |
 
 ## Variables and scope
 
@@ -144,10 +146,6 @@ Commands you `put` to the game contribute to an in-flight counter that's decreme
 - **Per-character script folders** (see [Application Folders](Application-Folders)).
 - **`gosub` for reusable routines** — jumping into a nested/indented label isn't reliable.
 - **Comment rule** — `#` is a comment only before whitespace/end-of-line; `#put north` is a meta-command.
-
-## Roadmap
-
-- 🚧 **JavaScript `.js` array scripts** — some community scripts use Genie 4's `.js` engine. Genie 5 currently runs only `.cmd`; `.js` support is planned (with no host access by default, for safety).
 
 ## Related
 

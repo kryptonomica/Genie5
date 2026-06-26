@@ -1,3 +1,44 @@
+# Genie 5 — v5.0.0-alpha.7.2
+
+The **JavaScript libraries** release. Keep a library of JavaScript functions in a
+`.js` file, `include` it from a `.cmd`, and call those functions with `js` /
+`jscall` — the Genie 4 "array script" pattern — with the functions reading and
+writing your `.cmd`'s variables.
+
+> **Alpha software.** Builds are **unsigned** for most platforms — Windows
+> SmartScreen will warn on first launch (More info → Run anyway). Signing is
+> tracked in #33.
+
+## ✨ New since alpha.7.1
+
+- **Call JavaScript functions from a `.cmd` (#104)** — `include foo.js` loads a
+  function library for the running script; **`js <expr>`** runs a function and
+  **`jscall <var> <expr>`** stores its result in `%var`. The library reads and
+  writes your script's variables through bare `getVar`/`setVar` (→ your `%vars`)
+  and `getGlobal`/`setGlobal` (→ `$globals`) — ideal for list/array work that's
+  awkward in plain `.cmd`.
+- **Genie 4 `.js` libraries port cleanly** — `include` **auto-converts** the old
+  `array.length()` (method-call) idiom to standard `array.length`, so existing
+  Genie 4 array libraries load and run unchanged. (Genie 4 ran an older JavaScript
+  engine; Genie 5's is current and spec-compliant.)
+- **New docs** — a **JavaScript Scripting** wiki page covering both standalone
+  `.js` scripts and the new function-library interop, with a sample for every call.
+
+## ⬇️ Downloads
+
+Grab the installer or portable build for your platform from the assets below:
+
+| Platform | Installer | Portable |
+|---|---|---|
+| Windows | `01-Windows-Genie5-Setup.exe` | `01-Windows-Genie5-Portable.zip` |
+| macOS (Apple Silicon) | `02-macOS-Apple-Silicon-Genie5.dmg` | `02-…-Portable.zip` |
+| macOS (Intel) | `03-macOS-Intel-Genie5.dmg` | `03-…-Portable.zip` |
+| Linux (x64) | `04-Linux-Genie5.AppImage` | — |
+
+**Full changelog:** https://github.com/GenieClient/Genie5/compare/v5.0.0-alpha.7.1...v5.0.0-alpha.7.2
+
+---
+
 # Genie 5 — v5.0.0-alpha.7.1
 
 A **maps & polish** point release on top of the Persistent Core. The headline is

@@ -162,18 +162,20 @@ public static class ScriptParser
             {
                 var incName = t[8..].Trim();
 
-                // `include` is a parse-time splice for .cmd/.inc script fragments.
-                // A .js file fed here would be spliced in as command lines and run
-                // verbatim through the .cmd interpreter — the JavaScript engine never
-                // sees it, so every line (function bodies, comments, …) gets sent to
-                // the game (issue #104). Reject it with an actionable error instead of
-                // silently mangling the script.
+                // #104: a .js include pulls in a JavaScript function library so the
+                // .cmd can call its functions with `js` / `jscall`. The JS context
+                // is per-running-script, so this can't be a parse-time splice like a
+                // .cmd/.inc include — emit a runtime `__jsinclude <path>` directive
+                // the engine loads at runtime (BOM-stripped + .length()→.length
+                // compatibility rewrite). The path resolves against the scripts dir.
                 if (incName.EndsWith(".js", StringComparison.OrdinalIgnoreCase))
                 {
-                    var jsBase = Path.GetFileNameWithoutExtension(incName);
-                    output.Add((origin, i + 1,
-                        $"echo [script] include: '{incName}' is a JavaScript file — " +
-                        $"'include' only loads .cmd/.inc scripts. Run it directly with .{jsBase}"));
+                    var jsPath = (Path.IsPathRooted(incName) || incName.IndexOfAny(new[] { '\\', '/' }) >= 0)
+                        ? incName
+                        : Path.Combine(scriptsDir, incName);
+                    output.Add((origin, i + 1, File.Exists(jsPath)
+                        ? $"__jsinclude {jsPath}"
+                        : $"echo [script] include not found: {incName}"));
                     continue;
                 }
 

@@ -19,6 +19,7 @@
 
 **🏃 Going deeper**
 - [Scripting Reference](Scripting-Reference)
+- [JavaScript Scripting](JavaScript-Scripting)
 - [Cross-Zone Travel](Cross-Zone-Travel)
 - [Plugins](Plugins)
 - [Keeping Up to Date](Updates)

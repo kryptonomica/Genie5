@@ -12,6 +12,12 @@ public sealed class ScriptInstance
     public Dictionary<string, string> Vars = new(StringComparer.OrdinalIgnoreCase);
     public Stack<int> GosubStack = new();
 
+    /// <summary>Lazy per-script JavaScript library context (#104): created on the
+    /// first <c>include &lt;file&gt;.js</c> / <c>js</c> / <c>jscall</c>. Holds the
+    /// persistent Jint engine whose functions read/write THIS script's variables.
+    /// Null until first use; lives for the script's run.</summary>
+    internal Js.JsLibraryContext? JsLib;
+
     // $0..$9 are a SEPARATE scope from %0..%9. They hold gosub arguments or
     // the most recent regex capture groups, and are pushed/popped with the
     // gosub stack — unlike script args (%N), which live in Vars for the

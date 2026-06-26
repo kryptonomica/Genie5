@@ -142,5 +142,6 @@ The community [DR-Genie-Scripts](https://github.com/Tirost/DR-Genie-Scripts) rep
 ## Related
 
 - [Scripting Reference](Scripting-Reference) — the complete language: every statement, variable scoping, the roundtime gate, type-ahead.
+- [JavaScript Scripting](JavaScript-Scripting) — `.js` scripts and Genie 4-style function libraries (`include` + `js` / `jscall`).
 - [Configuration & Rules](Configuration) — triggers and variables that scripts build on.
 - [Lich 5 Integration](Lich-5-Integration) — running Ruby scripts alongside `.cmd`.

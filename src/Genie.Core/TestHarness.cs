@@ -297,6 +297,18 @@ switch (mode)
         return;
     }
 
+    case "JSINTEROP":
+    {
+        // #104: JS function-library interop. Runs AzaraelDR's actual doSort /
+        // findIndex idioms (`.length()` method calls + `localeCompare()==1/-1`,
+        // getVar/setVar) through JsLibraryContext end-to-end — proving the
+        // `.length()` compat rewrite + the variable bridge + the BOM strip, and
+        // surfacing any localeCompare-magnitude gap.
+        var okjs = RunJsInteropRepro();
+        Environment.ExitCode = okjs ? 0 : 1;
+        return;
+    }
+
     case "LICH":
         connCfg = new ConnectionConfig
         {
@@ -1313,6 +1325,105 @@ static bool RunReqGateRepro()
         ? "[REQGATE] unknown class/level/skill assumed-reachable (no false 'No path');\n" +
           "          known-and-failing gates still block. Contract honored."
         : "[REQGATE] gating contract violated — see failures above.");
+    Console.ResetColor();
+    return allPass;
+}
+
+// #104 acceptance: drive AzaraelDR's actual array-library idioms through the new
+// per-script JS context. The library uses Genie 4's `.length()` (method call) and
+// `localeCompare() == 1 / == -1` — exactly the two parity risks — so a green run
+// proves the `.length()` rewrite works AND that modern Jint's localeCompare
+// returns ±1 (or flags it if not). The .js is written with a leading BOM to
+// exercise the strip.
+static bool RunJsInteropRepro()
+{
+    var vars    = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var globals = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var echoes  = new List<string>();
+
+    var ctx = new Genie.Core.Scripting.Js.JsLibraryContext(
+        getVar:    n => vars.TryGetValue(n, out var v) ? v : "",
+        setVar:    (n, v) => vars[n] = v,
+        getGlobal: n => globals.TryGetValue(n, out var g) ? g : "",
+        setGlobal: (n, v) => globals[n] = v,
+        echo:      m => echoes.Add(m),
+        put:       _ => { });
+
+    // doSort + findIndex transcribed from AzaraelDR's js_arrays.js (#104): the
+    // `.length()` method-call and the `localeCompare()==1/-1` comparisons are
+    // verbatim — single quotes only, so it embeds cleanly in a C# verbatim string.
+    const string lib = @"
+function doSort(arrayname, sorting) {
+    var list = getVar(arrayname).toString().split('|');
+    switch (sorting) {
+    case 0:
+        for (i = 0; i < list.length() - 1; i++) {
+            if (list[i].localeCompare(list[i + 1]) == 1) {
+                var temp = list[i]; list[i] = list[i + 1]; list[i + 1] = temp; i = -1;
+            }
+        }
+        break;
+    case 1:
+        for (i = 0; i < list.length() - 1; i++) {
+            if (list[i].localeCompare(list[i + 1]) == -1) {
+                var temp = list[i]; list[i] = list[i + 1]; list[i + 1] = temp; i = -1;
+            }
+        }
+        break;
+    }
+    setVar(arrayname, list.join('|'));
+}
+function findIndex(arrayname, srch) {
+    var list = getVar(arrayname).toString().split('|');
+    for (i = 0; i < list.length(); i++) { if (list[i].localeCompare(srch) == 0) return i; }
+    return -1;
+}
+";
+
+    Directory.CreateDirectory(ResultsDir);
+    var libPath = Path.Combine(ResultsDir, "jsinterop_lib.js");
+    File.WriteAllText(libPath, "﻿" + lib);   // leading BOM → exercises StripBom
+
+    var loaded = ctx.LoadLibrary(libPath);
+
+    vars["testarray"] = "Beta|Gamma|Epsilon|Alpha|Omega|Theta";
+    ctx.Evaluate("doSort(\"testarray\", 0)");                    // ascending
+    var asc = vars["testarray"];
+    var idx = ctx.Evaluate("findIndex(\"testarray\", \"Gamma\")");  // expect 3 (issue's own check)
+    ctx.Evaluate("doSort(\"testarray\", 1)");                    // descending
+    var desc = vars["testarray"];
+
+    const string expectAsc  = "Alpha|Beta|Epsilon|Gamma|Omega|Theta";
+    const string expectDesc = "Theta|Omega|Gamma|Epsilon|Beta|Alpha";
+
+    Console.WriteLine();
+    Console.WriteLine($"  loaded={loaded}  asc='{asc}'  idx='{idx}'  desc='{desc}'");
+    if (echoes.Count > 0) Console.WriteLine("  echoes: " + string.Join(" | ", echoes));
+
+    var checks = new List<(string name, bool pass, string detail)>
+    {
+        ("library loaded (BOM stripped, no JS error)", loaded && echoes.All(e => !e.Contains("error", StringComparison.OrdinalIgnoreCase)), "include"),
+        (".length() rewrite + localeCompare==1 → ascending sort", asc  == expectAsc,  $"want '{expectAsc}'"),
+        ("findIndex returns the issue's expected index (3)",      idx  == "3",        $"got '{idx}'"),
+        (".length() rewrite + localeCompare==-1 → descending sort", desc == expectDesc, $"want '{expectDesc}'"),
+    };
+
+    Console.WriteLine("============ JS LIBRARY INTEROP (#104) ============");
+    var allPass = true;
+    foreach (var (name, pass, detail) in checks)
+    {
+        allPass &= pass;
+        Console.ForegroundColor = pass ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine($"  [{(pass ? "PASS" : "FAIL")}] {name,-52} — {detail}");
+    }
+    Console.ResetColor();
+    Console.WriteLine("===================================================");
+    Console.ForegroundColor = allPass ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(allPass
+        ? "[JSINTEROP] AzaraelDR's array idioms run via the per-script JS context —\n" +
+          "            .length() rewrite works AND localeCompare returns ±1. Option A holds."
+        : "[JSINTEROP] a check failed — if only the SORTS failed, modern Jint's\n" +
+          "            localeCompare isn't returning ±1 (needs the §6 companion fix).");
     Console.ResetColor();
     return allPass;
 }

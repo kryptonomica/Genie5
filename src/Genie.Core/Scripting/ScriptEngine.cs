@@ -890,11 +890,21 @@ public sealed class ScriptEngine
                             (t.StartsWith("action ", StringComparison.OrdinalIgnoreCase) ||
                              t.Equals("action",     StringComparison.OrdinalIgnoreCase));
 
+        // `js <expr>` / `jscall <var> <expr>` hand their JS body to the engine
+        // RAW: Genie 4 array libraries resolve %/$ themselves (getVar/getGlobal)
+        // inside the function, so pre-substituting would bypass that AND risk
+        // breaking the JS string literal / injecting. `__jsinclude` (parser-
+        // emitted .js include) carries a file path that must pass through intact.
+        bool isJsStmt = t.StartsWith("js ", StringComparison.OrdinalIgnoreCase) ||
+                        t.StartsWith("javascript ", StringComparison.OrdinalIgnoreCase) ||
+                        t.StartsWith("jscall ", StringComparison.OrdinalIgnoreCase) ||
+                        t.StartsWith("__jsinclude ", StringComparison.OrdinalIgnoreCase);
+
         // Clear stale AbortReason before substituting this line. The flag
         // is set by SubstituteVars when an undefined $var is encountered and
         // is checked again after the call.
         inst.AbortReason = null;
-        var substituted = isActionStmt ? t : SubstituteVars(t, inst);
+        var substituted = (isActionStmt || isJsStmt) ? t : SubstituteVars(t, inst);
 
         // Undefined $var encountered during substitution — stop now with a
         // clear reason rather than dispatching a malformed line. Patterns
@@ -1410,23 +1420,29 @@ public sealed class ScriptEngine
                 HandleAction(rest, inst, lineNo);
                 return true;
 
-            // Genie4 Jint/plugin commands. Not ported — Genie5 has no embedded
-            // JS engine or .NET plugin host. Emit a one-time per-script echo
-            // so the user knows the call was a no-op, and (for jscall/plugin
-            // forms that take a result var) clear the target var so downstream
-            // logic doesn't read stale values.
+            // ── JavaScript interop (#104): call a .js function library from a
+            // .cmd. `js <expr>` evaluates (result discarded); `jscall <var> <expr>`
+            // stores the result in %var; `__jsinclude <path>` (parser-emitted by
+            // `include <file>.js`) loads a library into this script's JS context.
+            // The JS body is passed RAW (not %/$-substituted) — Genie 4 libraries
+            // resolve those themselves via getVar/getGlobal. See JsLibraryContext.
             case "js":
             case "javascript":
-                _echo($"[script] {inst.Name}:{lineNo} '{lower}' is not supported in Genie5 (no JS engine)");
+                EnsureJsLib(inst).Evaluate(rest);
                 return true;
 
             case "jscall":
             {
-                var (vn, _) = SplitCmd(rest);
-                if (vn.Length > 0) inst.Vars[vn.Trim()] = string.Empty;
-                _echo($"[script] {inst.Name}:{lineNo} 'jscall' is not supported in Genie5; cleared %{vn.Trim()}");
+                var (vn, jexpr) = SplitCmd(rest);
+                var jr = EnsureJsLib(inst).Evaluate(jexpr);
+                if (vn.Length > 0) inst.Vars[vn.Trim()] = jr;
+                DbgEcho(inst, 4, $"jscall {vn.Trim()} = \"{jr}\"");
                 return true;
             }
+
+            case "__jsinclude":   // parser-emitted by `include <file>.js`
+                EnsureJsLib(inst).LoadLibrary(rest.Trim());
+                return true;
 
             case "plugin":
             {
@@ -1883,6 +1899,19 @@ public sealed class ScriptEngine
         if (i < 0) return (s, string.Empty);
         return (s[..i], s[(i + 1)..].Trim());
     }
+
+    /// <summary>Lazily build the per-script JavaScript library context (#104),
+    /// bound to THIS instance's variable scope: bare getVar/setVar → the script's
+    /// %vars; getGlobal/setGlobal → session globals / user #vars; echo/put → the
+    /// script's normal output / game send.</summary>
+    private Js.JsLibraryContext EnsureJsLib(ScriptInstance inst) =>
+        inst.JsLib ??= new Js.JsLibraryContext(
+            getVar:    n => inst.Vars.TryGetValue(n, out var v) ? v : "",
+            setVar:    (n, v) => inst.Vars[n] = v,
+            getGlobal: n => Globals.TryGetValue(n, out var g) ? g : (UserVarLookup?.Invoke(n) ?? ""),
+            setGlobal: (n, v) => Globals[n] = v,
+            echo:      m => _echo(m),
+            put:       c => _sendCommand(c));
 
     private string SubstituteVars(string text, ScriptInstance inst)
     {
