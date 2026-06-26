@@ -84,6 +84,33 @@
     <!-- ── Game text ──────────────────────────────────────────────────────── -->
     <DataTemplate DataType="docking:GameTextDocument">
       <Grid Background="{Binding ToolBackground}">
+        <!-- Suppress SelectableTextBlock's built-in Copy flyout so right-click on
+             game text surfaces the window menu below (Ctrl+C / Ctrl+Shift+C still
+             copy). -->
+        <Grid.Styles>
+          <Style Selector="SelectableTextBlock">
+            <Setter Property="ContextFlyout" Value="{x:Null}" />
+          </Style>
+        </Grid.Styles>
+        <!-- Per-window right-click menu (the game window is a Document, hosted
+             outside the ToolControl theme that carries the menu for tool windows,
+             so it gets its own copy). No "Close Window" — it's the primary
+             document. -->
+        <Grid.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="Clear"
+                      Command="{Binding WindowMenu.ClearCommand}"
+                      IsVisible="{Binding WindowMenu.ShowClear}" />
+            <MenuItem Header="Time Stamp"
+                      ToggleType="CheckBox"
+                      IsChecked="{Binding WindowMenu.IsTimestampOn, Mode=TwoWay}"
+                      IsVisible="{Binding WindowMenu.ShowTimestamp}" />
+            <MenuItem Header="Name List Only"
+                      ToggleType="CheckBox"
+                      IsChecked="{Binding WindowMenu.IsNameListOnlyOn, Mode=TwoWay}"
+                      IsVisible="{Binding WindowMenu.ShowNameListOnly}" />
+          </ContextMenu>
+        </Grid.ContextMenu>
         <ScrollViewer x:Name="gameScroll"
                       HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
@@ -461,6 +488,7 @@
                                     RenderTick="{Binding ViewModel.RenderTick}"
                                     Zoom="{Binding ViewModel.ZoomLevel}"
                                     MapBackgroundBrush="{Binding ViewModel.MapBackgroundBrush}"
+                                    LabelTextBrush="{Binding ViewModel.MapTextBrush}"
                                     AutoMapperAlpha="{Binding ViewModel.AutoMapperAlpha}"
                                     NodeClickedCommand="{Binding ViewModel.GotoNodeCommand}"
                                     EditExitCommand="{Binding ViewModel.EditExitCommand}"
@@ -623,6 +651,11 @@
                                IsAlphaEnabled="False"
                                HorizontalAlignment="Left"
                                ToolTip.Tip="Pick any colour for the map canvas. Cream/tan (e.g. #F5EFD8) matches the Genie 4 AutoMapper look."/>
+                  <TextBlock Text="Map text:" Foreground="#888" FontSize="11"/>
+                  <ColorPicker Color="{Binding ViewModel.MapTextColor, Mode=TwoWay}"
+                               IsAlphaEnabled="False"
+                               HorizontalAlignment="Left"
+                               ToolTip.Tip="Colour of the map's label text (landmark names). Black matches the Genie 4 AutoMapper look on a tan canvas."/>
                 </StackPanel>
 
                 <TextBlock Text="Tip: hover a room for details, right-click for a context menu, mouse-wheel to zoom."

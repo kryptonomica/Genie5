@@ -69,10 +69,17 @@
     <TabControl Grid.Row="1" TabStripPlacement="Top">
 
       <!-- ════════════════════════════════════════════════════════════════
-           Layout — per-window display settings (title, font, fg/bg, redirect)
+           Layout — per-window display settings (title, font, fg/bg, redirect).
+           Window-related settings live under a "Windows" sub-section, mirroring
+           Genie 4's Layout → Windows (and the Highlights tab's nested-tab style).
+           Leaves room for a future "Settings" sub-tab alongside it.
            ════════════════════════════════════════════════════════════════ -->
       <TabItem Header="Layout">
-        <views:LayoutPanel Name="LayoutPanelCtrl"/>
+        <TabControl>
+          <TabItem Header="Windows">
+            <views:LayoutPanel Name="LayoutPanelCtrl"/>
+          </TabItem>
+        </TabControl>
       </TabItem>
 
       <!-- ════════════════════════════════════════════════════════════════

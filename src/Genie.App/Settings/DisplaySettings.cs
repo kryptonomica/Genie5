@@ -36,12 +36,21 @@ public sealed class DisplaySettings : ReactiveObject
 
     /// <summary>
     /// Background colour of the Mapper canvas. User-editable via a
-    /// ColorPickerButton in the Mapper panel's Details expander. Default
-    /// matches the rest of the dark theme; users who prefer the cream/tan
-    /// Genie 4 AutoMapper aesthetic can pick something like #F5EFD8 and the
-    /// canvas updates live.
+    /// ColorPickerButton in the Mapper panel's Details expander. Defaults to
+    /// PaleGoldenrod (#EEE8AA) — the cream/tan Genie 4 AutoMapper canvas the
+    /// map palette (black cardinal lines, blue cross-zone borders) is designed
+    /// for. The old dark default (#1A1A1A) is migrated to this on load (see
+    /// <c>MapperViewModel.AttachDisplay</c>) so existing users get the look
+    /// without losing a genuinely custom colour.
     /// </summary>
-    [Reactive] public string MapBackgroundHex { get; set; } = "#1A1A1A";
+    [Reactive] public string MapBackgroundHex { get; set; } = "#EEE8AA";
+
+    /// <summary>
+    /// Colour of the map's on-canvas <c>&lt;label&gt;</c> text (landmark names).
+    /// User-editable via a ColorPickerButton in the Mapper panel's Details
+    /// expander. Defaults to black — Genie 4's label colour on the tan canvas.
+    /// </summary>
+    [Reactive] public string MapTextHex { get; set; } = "#000000";
 
     /// <summary>
     /// Whether the Wrayth-style horizontal status bar (health/mana/stamina/spirit/

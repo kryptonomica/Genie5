@@ -9,9 +9,12 @@ namespace Genie.App.Docking;
 /// default; re-open via Window → Players. Only the title syncs from
 /// <see cref="WindowSettings"/>; the list keeps its own colour coding.
 /// </summary>
-public class PlayersTool : Tool
+public class PlayersTool : Tool, IWindowMenuHost
 {
     public PlayersViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public PlayersTool(PlayersViewModel vm, WindowSettings? settings = null)
     {

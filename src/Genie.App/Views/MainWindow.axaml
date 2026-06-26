@@ -77,9 +77,14 @@
         <Separator/>
         <MenuItem Header="_Reset to Default Layout"
                   Command="{Binding ResetLayoutCommand}"
-                  ToolTip.Tip="Restore the factory-default 3-column arrangement (Room+Streams / Game+Mapper / Backpack)."/>
-      </MenuItem>
-      <MenuItem Header="_Window" SubmenuOpened="OnWindowMenuOpened">
+                  ToolTip.Tip="Restore the factory-default 3-column arrangement (Room+Streams / Game+Mapper / Inventory)."/>
+
+        <Separator/>
+        <!-- ════════════════════════════════════════════════════════════════
+             Window-chrome + layout-mode settings moved here from the Window
+             menu (per request — Window keeps only panel show/hide toggles).
+             Layout still needs a tidy-up pass to regroup these.
+             ════════════════════════════════════════════════════════════════ -->
 
         <!-- ── Hands strip (top / bottom chrome, not a dockable tool) ──── -->
         <!-- All hands-strip controls grouped here so the user sees the toggle,
@@ -156,6 +161,15 @@
 
         <Separator/>
 
+        <!-- Layout reset (moved from the Window menu; dedupe with
+             "Reset to Default Layout" above in the cleanup pass). -->
+        <MenuItem Header="Reset _Layout"
+                  Command="{Binding ResetLayoutCommand}"
+                  ToolTip.Tip="Restore all windows to visible (does not move them back to default positions)"/>
+
+      </MenuItem>
+      <MenuItem Header="_Window" SubmenuOpened="OnWindowMenuOpened">
+
         <!-- ── Main document ─────────────────────────────────────────── -->
         <MenuItem Header="_Game"
                   ToggleType="CheckBox"
@@ -207,7 +221,7 @@
                   IsChecked="{Binding PlayersVisible, Mode=OneWay}"
                   Command="{Binding TogglePlayersCommand}"
                   ToolTip.Tip="Other players in the current room, one per line (Genie 3/4 Players window)."/>
-        <MenuItem Header="_Backpack"
+        <MenuItem Header="_Inventory"
                   ToggleType="CheckBox"
                   IsChecked="{Binding BackpackVisible, Mode=OneWay}"
                   Command="{Binding ToggleBackpackCommand}"/>
@@ -301,12 +315,6 @@
             </Style>
           </MenuItem.Styles>
         </MenuItem>
-
-        <Separator/>
-
-        <MenuItem Header="Reset _Layout"
-                  Command="{Binding ResetLayoutCommand}"
-                  ToolTip.Tip="Restore all windows to visible (does not move them back to default positions)"/>
 
       </MenuItem>
 

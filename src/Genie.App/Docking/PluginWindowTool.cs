@@ -18,9 +18,12 @@ namespace Genie.App.Docking;
 /// through saved layouts and the Window menu's visibility toggles just like a
 /// built-in tool.</para>
 /// </summary>
-public class PluginWindowTool : Tool
+public class PluginWindowTool : Tool, IWindowMenuHost
 {
     public PluginWindowViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Clear / Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public FontFamily ToolFontFamily { get; } =
         new("Cascadia Mono,Consolas,Courier New,monospace");

@@ -9,9 +9,12 @@ namespace Genie.App.Docking;
 /// image). Hidden by default; re-open via Window → Scene. Only the title syncs
 /// from <see cref="WindowSettings"/>; the image fills the panel.
 /// </summary>
-public class SceneTool : Tool
+public class SceneTool : Tool, IWindowMenuHost
 {
     public SceneViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public SceneTool(SceneViewModel vm, WindowSettings? settings = null)
     {

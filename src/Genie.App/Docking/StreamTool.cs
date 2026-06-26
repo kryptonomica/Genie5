@@ -7,9 +7,13 @@ using Genie.Core.Layout;
 
 namespace Genie.App.Docking;
 
-public class StreamTool : Tool
+public class StreamTool : Tool, IWindowMenuHost
 {
     public StreamBuffer Buffer { get; }
+
+    /// <summary>Right-click window menu (Clear / Time Stamp / Name List Only /
+    /// Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     // Per-window appearance overrides. SetProperty-backed (Dock.Model.Mvvm base
     // is a CommunityToolkit ObservableObject) instead of Fody [Reactive].
@@ -35,6 +39,9 @@ public class StreamTool : Tool
 
         if (settings is not null)
         {
+            // #90: hand the buffer its live settings so StreamBuffer.Add can
+            // prepend a timestamp when the Layout-tab toggle is on.
+            Buffer.Settings = settings;
             ApplySettings(settings);
             settings.Changed += () => ApplySettings(settings);
         }

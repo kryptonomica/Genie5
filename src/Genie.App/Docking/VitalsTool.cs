@@ -9,9 +9,12 @@ namespace Genie.App.Docking;
 /// per-channel colours, so the per-window foreground/background isn't wired
 /// here. Only the title syncs from <see cref="WindowSettings"/> for now.
 /// </summary>
-public class VitalsTool : Tool
+public class VitalsTool : Tool, IWindowMenuHost
 {
     public VitalsViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public VitalsTool(VitalsViewModel vm, WindowSettings? settings = null)
     {

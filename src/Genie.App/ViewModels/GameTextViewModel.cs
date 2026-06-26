@@ -10,6 +10,7 @@ using Genie.App.Highlighting;
 using Genie.App.Settings;
 using Genie.Core;
 using Genie.Core.Events;
+using Genie.Core.Layout;
 using ReactiveUI;
 
 namespace Genie.App.ViewModels;
@@ -34,6 +35,24 @@ public class GameTextViewModel : ReactiveObject
                  _stInvisible, _stWebbed, _stBleeding, _stJoined, _stDead;
 
     public ObservableCollection<TextLine> Lines { get; } = [];
+
+    /// <summary>Live per-window settings for the main game window ("game-text"),
+    /// assigned by <see cref="Genie.App.Docking.GameTextDocument"/>. The instance
+    /// is mutated in place by the Layout tab, so reading
+    /// <see cref="WindowSettings.Timestamp"/> at append time always reflects the
+    /// latest toggle (#90).</summary>
+    public WindowSettings? Settings { get; set; }
+
+    /// <summary>Live Names engine (assigned in <see cref="Attach"/>), used by the
+    /// <see cref="NameListOnly"/> filter.</summary>
+    public Genie.Core.Highlights.NameHighlightEngine? Names { get; set; }
+
+    /// <summary>Genie 4 "Name List Only" — when true the main game feed only
+    /// shows lines mentioning a name in the player's Names list. Toggled from the
+    /// window right-click menu; mirrors <see cref="WindowSettings.NameListOnly"/>.
+    /// Applies to game text only (echoes / prompts / script lines pass through so
+    /// the window stays usable while filtered).</summary>
+    public bool NameListOnly { get; set; }
 
     /// <summary>
     /// Concat every visible line into a single newline-separated string and
@@ -80,6 +99,9 @@ public class GameTextViewModel : ReactiveObject
         // Scrollback cap from config (already clamped to [100, 100000]).
         _maxLines = core.Config?.ScrollbackLines ?? 2000;
 
+        // Live Names engine for the "Name List Only" right-click filter.
+        Names = core.NameHighlights;
+
         // ── Main-stream game text ──────────────────────────────────────────
         // Genie 4 applies the substitute pass first, then the gag check —
         // so a substitute can rewrite a line to one that a gag matches
@@ -97,6 +119,11 @@ public class GameTextViewModel : ReactiveObject
             .Subscribe(e =>
             {
                 if (DisplaySettings?.ShowGameText == false) return;
+                // Name List Only: drop game lines that don't mention a tracked
+                // name. Guarded on a non-empty Names list so the toggle never
+                // blanks the window when no names are configured (see StreamBuffer).
+                if (NameListOnly && Names is { Rules.Count: > 0 } && Names.Match(e.Text) is null)
+                    return;
                 // Timed into their own stages for the perf overlay (zero overhead
                 // when disabled). Substitute pass first, then the gag check.
                 var text = core.Metrics.Time(Genie.Core.Diagnostics.PipelineStage.Substitutes,
@@ -289,6 +316,21 @@ public class GameTextViewModel : ReactiveObject
                          IReadOnlyList<PresetSpan>? presets = null,
                          bool isPrompt = false)
     {
+        // #90: per-window timestamp. When the "game-text" window has the Layout-
+        // tab "prepend timestamp to each line" toggle on, stamp each content line
+        // as it arrives. Bare prompts are skipped (a stamped ">" is just noise).
+        // The link/bold/preset spans are ABSOLUTE offsets into the text, so they
+        // must be shifted right by the prefix length or highlights and clickable
+        // links would land on the wrong characters.
+        if (!isPrompt && Settings?.Timestamp == true)
+        {
+            var prefix = WindowTimestamp.Prefix();
+            var shift  = prefix.Length;
+            text    = prefix + text;
+            links   = links?.Select(s   => s with { Start = s.Start + shift }).ToList();
+            bolds   = bolds?.Select(s   => s with { Start = s.Start + shift }).ToList();
+            presets = presets?.Select(s => s with { Start = s.Start + shift }).ToList();
+        }
         Lines.Add(new TextLine(text, color, links, bolds, presets));
         while (Lines.Count > _maxLines)
             Lines.RemoveAt(0);
@@ -321,6 +363,8 @@ public class GameTextViewModel : ReactiveObject
     /// </summary>
     public void AddEcho(string text, string? color, bool mono)
     {
+        if (Settings?.Timestamp == true)              // #90: stamp echoes too
+            text = WindowTimestamp.Prefix() + text;
         Lines.Add(new TextLine(text, StreamColor.System, EchoColor: color, Mono: mono));
         while (Lines.Count > _maxLines)
             Lines.RemoveAt(0);

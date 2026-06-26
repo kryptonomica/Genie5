@@ -9,9 +9,12 @@ namespace Genie.App.Docking;
 /// re-open via Window → Mobs. Only the title syncs from
 /// <see cref="WindowSettings"/>; the list keeps its own colour coding.
 /// </summary>
-public class MobsTool : Tool
+public class MobsTool : Tool, IWindowMenuHost
 {
     public MobsViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public MobsTool(MobsViewModel vm, WindowSettings? settings = null)
     {

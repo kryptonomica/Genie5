@@ -42,36 +42,36 @@ public class MapCanvas : Control
     private double NodeSize => BaseNodeSize * Zoom;
     private double Padding  => BasePadding  * Zoom;
 
-    private static readonly IBrush  BackgroundBrush = new SolidColorBrush(Color.FromRgb(0x1a, 0x1a, 0x1a));
-    private static readonly IBrush  DefaultNodeFill = new SolidColorBrush(Color.FromRgb(0xdd, 0xdd, 0xdd));
-    private static readonly IBrush  NodeStroke      = new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
+    // Palette mirrors the Genie 4 AutoMapper defaults (Globals.SetDefaultPresets):
+    //   panel bg = PaleGoldenrod, node = White, node border / line = Black.
+    private static readonly IBrush  BackgroundBrush = new SolidColorBrush(Color.FromRgb(0xee, 0xe8, 0xaa)); // PaleGoldenrod (designer fallback)
+    private static readonly IBrush  DefaultNodeFill = new SolidColorBrush(Colors.White);
+    private static readonly IBrush  NodeStroke      = new SolidColorBrush(Colors.Black);
     private static readonly IBrush  CurrentStroke   = new SolidColorBrush(Color.FromRgb(0xff, 0x40, 0x40));
     private static readonly Pen     NodePen         = new(NodeStroke, 1.0);
     private static readonly Pen     CurrentPen      = new(CurrentStroke, 2.5);
+    // Cross-zone connector rooms (note references another .xml map) get a 2px
+    // blue border — Genie 4's "Other map" boxes that show how maps connect.
+    private static readonly Pen     CrossZonePen    = new(new SolidColorBrush(Colors.Blue), 2.0);
     // Selection outline (edit mode) — bright yellow dashed so it's distinct
     // from the red "you are here" current-room outline.
     private static readonly Pen     SelectedPen     = new(new SolidColorBrush(Color.FromRgb(0xff, 0xe0, 0x40)), 2.0)
                                                       { DashStyle = new DashStyle(new double[] { 2, 2 }, 0) };
     private static readonly IBrush  EmptyMessageBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x66, 0x66));
 
-    // Edge pens — colour-coded by exit type so the player can see at a glance
-    // which arcs are reachable via compass vs need a specific command.
-    //   Compass (N/NE/E/SE/S/SW/W/NW) → light grey, standard
-    //   Up / Down (same-level, rare)  → cyan, marks stairwell rooms
-    //   Non-compass (Direction.None,  → green, "go arched building" /
-    //     i.e. go-doors, climb-walls,    "climb trellis" / "swim river" etc.
-    //     swim-rivers, etc.)
-    private static readonly Pen     EdgePenCompass  = new(new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88)), EdgeWidth);
-    private static readonly Pen     EdgePenVertical = new(new SolidColorBrush(Color.FromRgb(0x40, 0xc8, 0xe0)), EdgeWidth);
-    private static readonly Pen     EdgePenSpecial  = new(new SolidColorBrush(Color.FromRgb(0x60, 0xc0, 0x60)), EdgeWidth);
+    // Edge pens — Genie 4 AutoMapper line palette (Globals.SetDefaultPresets):
+    //   Cardinal (N/NE/E/SE/S/SW/W/NW)  → black  (automapper.line)
+    //   Go / Up / Down / Out            → blue   (automapper.linego)
+    //   Climb                           → green  (automapper.lineclimb)
+    // Genie 5 lumps every non-compass arc into Direction.None, so climb-vs-go is
+    // disambiguated from the move verb (see EdgePenFor).
+    private static readonly Pen     EdgePenCardinal = new(new SolidColorBrush(Colors.Black), EdgeWidth);
+    private static readonly Pen     EdgePenGo       = new(new SolidColorBrush(Colors.Blue),  EdgeWidth);
+    private static readonly Pen     EdgePenClimb    = new(new SolidColorBrush(Color.FromRgb(0x00, 0x80, 0x00)), EdgeWidth);
 
-    // Room label paint — drawn next to nodes whose Notes attribute is set
-    // (e.g. "Spell Library", "Pawnshop"). The Genie 4 AutoMapper uses these
-    // labels as the primary way to orient the player in dense city zones.
-    private static readonly IBrush  RoomLabelBrush  = new SolidColorBrush(Color.FromRgb(0xc8, 0xc8, 0xc8));
-    // Dotted leader line tying a displaced label back to its node.
-    private static readonly Pen     LabelLeaderPen  = new(new SolidColorBrush(Color.FromRgb(0x77, 0x77, 0x77)), 1.0)
-                                                      { DashStyle = new DashStyle(new double[] { 1, 2 }, 0) };
+    // On-map label text — Genie 4 paints <label> elements in the panel's
+    // foreground colour (black on the PaleGoldenrod canvas).
+    private static readonly IBrush  RoomLabelBrush  = new SolidColorBrush(Colors.Black);
 
     // Hover badge — translucent panel + bright text drawn near the cursor.
     private static readonly IBrush  HoverBackgroundBrush = new SolidColorBrush(Color.FromArgb(0xee, 0x22, 0x22, 0x22));
@@ -143,6 +143,14 @@ public class MapCanvas : Control
         AvaloniaProperty.Register<MapCanvas, IBrush?>(nameof(MapBackgroundBrush));
 
     /// <summary>
+    /// User-chosen colour for on-map <c>&lt;label&gt;</c> text. Bound to
+    /// <see cref="ViewModels.MapperViewModel.MapTextBrush"/>. Null falls back to
+    /// the default black so designer previews without a DataContext still render.
+    /// </summary>
+    public static readonly StyledProperty<IBrush?> LabelTextBrushProperty =
+        AvaloniaProperty.Register<MapCanvas, IBrush?>(nameof(LabelTextBrush));
+
+    /// <summary>
     /// Opacity (0–255) of the "ghost" rooms drawn for the floors directly above
     /// and below the current level — Genie 4's <c>AutoMapperAlpha</c>. Bound from
     /// <see cref="ViewModels.MapperViewModel.AutoMapperAlpha"/> ←
@@ -172,12 +180,11 @@ public class MapCanvas : Control
     public static readonly StyledProperty<bool> LockPositionsProperty =
         AvaloniaProperty.Register<MapCanvas, bool>(nameof(LockPositions));
 
-    /// <summary>When true, room labels show the full <c>|</c>-separated Notes
-    /// string (all #goto labels). When false (default) only the primary label
-    /// (first segment) is drawn — much cleaner in dense zones. The full set is
-    /// always available in the hover badge.</summary>
+    /// <summary>When true (default), the zone's <c>&lt;label&gt;</c> text
+    /// (landmark names) is painted on the map. When false the labels are hidden
+    /// for a cleaner view. Driven by the toolbar "Labels" toggle.</summary>
     public static readonly StyledProperty<bool> FullLabelsProperty =
-        AvaloniaProperty.Register<MapCanvas, bool>(nameof(FullLabels));
+        AvaloniaProperty.Register<MapCanvas, bool>(nameof(FullLabels), defaultValue: true);
 
     /// <summary>The currently selected node (edit mode). Outlined in yellow.</summary>
     public static readonly StyledProperty<MapNode?> SelectedNodeProperty =
@@ -216,6 +223,7 @@ public class MapCanvas : Control
     public double    Zoom               { get => GetValue(ZoomProperty);               set => SetValue(ZoomProperty, value); }
     public IBrush?   CurrentRoomBrush   { get => GetValue(CurrentRoomBrushProperty);   set => SetValue(CurrentRoomBrushProperty, value); }
     public IBrush?   MapBackgroundBrush { get => GetValue(MapBackgroundBrushProperty); set => SetValue(MapBackgroundBrushProperty, value); }
+    public IBrush?   LabelTextBrush     { get => GetValue(LabelTextBrushProperty);     set => SetValue(LabelTextBrushProperty, value); }
     public int       AutoMapperAlpha    { get => GetValue(AutoMapperAlphaProperty);    set => SetValue(AutoMapperAlphaProperty, value); }
     public ICommand? EditExitCommand    { get => GetValue(EditExitCommandProperty);    set => SetValue(EditExitCommandProperty, value); }
 
@@ -247,7 +255,7 @@ public class MapCanvas : Control
         // Any of these changing means we need to repaint AND recompute size.
         AffectsRender<MapCanvas>(ZoneProperty, CurrentNodeProperty, LevelProperty, RenderTickProperty,
                                  ZoomProperty, CurrentRoomBrushProperty, MapBackgroundBrushProperty,
-                                 AutoMapperAlphaProperty,
+                                 LabelTextBrushProperty, AutoMapperAlphaProperty,
                                  EditModeProperty, SelectedNodeProperty, FullLabelsProperty);
         AffectsMeasure<MapCanvas>(ZoneProperty, LevelProperty, RenderTickProperty, ZoomProperty);
 
@@ -413,16 +421,9 @@ public class MapCanvas : Control
                 // Draw each edge only once — pick the side where source.Id < dest.Id.
                 if (node.Id > dest.Id) continue;
 
-                // Pen by exit type so the user can tell at a glance which arcs
-                // need a non-compass command vs vertical/standard.
-                var pen = exit.Direction switch
-                {
-                    Direction.None                       => EdgePenSpecial,   // go / climb / swim
-                    Direction.Up or Direction.Down       => EdgePenVertical,  // rare same-level vertical
-                    _                                    => EdgePenCompass,
-                };
+                // Pen by exit type, matching the Genie 4 line palette.
                 var toCenter = NodeCenter(dest, minX, minY);
-                context.DrawLine(pen, fromCenter, toCenter);
+                context.DrawLine(EdgePenFor(exit), fromCenter, toCenter);
             }
         }
 
@@ -442,7 +443,9 @@ public class MapCanvas : Control
             var fill = ParseColor(node.Color) ?? DefaultNodeFill;
 
             context.FillRectangle(fill, rect);
-            context.DrawRectangle(NodePen, rect);
+            // Cross-zone connector rooms get a 2px blue border (Genie 4 "Other
+            // map" boxes); ordinary rooms get the thin black border.
+            context.DrawRectangle(node.IsCrossZone ? CrossZonePen : NodePen, rect);
 
             if (CurrentNode is not null && node.Id == CurrentNode.Id)
             {
@@ -461,76 +464,31 @@ public class MapCanvas : Control
                 context.DrawRectangle(SelectedPen, rect.Inflate(4.0));
         }
 
-        // ── Pass 3: room labels (Notes) with collision-aware placement ──────
-        // Genie 4 draws the "note" attribute next to each node (Spell Library /
-        // Bank / Pawnshop). We do the same, but place each label in the first
-        // free slot around the node (right → left → above → below) so labels
-        // don't pile up in dense zones. When a label can't sit directly to the
-        // right, a dotted leader line ties it back to its node. Important rooms
-        // (current / selected / hovered) always get drawn even when crowded;
-        // other labels are skipped rather than overlap.
+        // ── Pass 3: map labels (<label> elements) ──────────────────────────
+        // Genie 4 paints the zone's free-floating <label> text (landmark names
+        // like "East Gate", "Guard House", "Driftwood Designs") in black at the
+        // positions the map author placed them — anchored top-left, no collision
+        // avoidance (the placements are hand-tuned). Node notes are NOT drawn
+        // here: they are #goto aliases, surfaced in the hover badge instead. This
+        // is why a cross-zone room no longer shows its raw "Map31_…xml|…" note.
         var labelTypeface = Typeface.Default;
         var labelSize     = Math.Max(9.0, 10.0 * Zoom);   // grows slightly with zoom
+        var labelBrush    = LabelTextBrush ?? RoomLabelBrush;   // user colour, default black
 
-        // Occupied rects seed with every visible node (labels avoid covering
-        // rooms) and grow as labels are placed.
-        var occupied = new List<Rect>();
-        foreach (var n in Zone.Nodes.Values)
-            if (n.Z == Level) occupied.Add(NodeRect(n, minX, minY));
-
-        int LabelPriority(MapNode n) =>
-            (CurrentNode  is not null && n.Id == CurrentNode.Id)  ? 0 :
-            (SelectedNode is not null && n.Id == SelectedNode.Id) ? 1 :
-            (_hoveredNode is not null && n.Id == _hoveredNode.Id) ? 2 : 3;
-
-        // Important labels first (best slots), then by id for stable placement.
-        var labelled = Zone.Nodes.Values
-            .Where(n => n.Z == Level && !string.IsNullOrEmpty(n.Notes))
-            .OrderBy(LabelPriority).ThenBy(n => n.Id);
-
-        const double gap = 4.0;
-        foreach (var node in labelled)
+        if (FullLabels)
+        foreach (var label in Zone.Labels)
         {
-            var text = FullLabels ? node.Notes : node.Notes.Split('|')[0].Trim();
-            if (string.IsNullOrEmpty(text)) continue;
+            if (label.Z != Level || string.IsNullOrEmpty(label.Text)) continue;
 
             var ft = new FormattedText(
-                text, System.Globalization.CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight, labelTypeface, labelSize, RoomLabelBrush);
+                label.Text, System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight, labelTypeface, labelSize, labelBrush);
 
-            var rect = NodeRect(node, minX, minY);
-            double cx = rect.Center.X, cy = rect.Center.Y, w = ft.Width, h = ft.Height;
-
-            // Candidate slots in preference order; the first (right) is the
-            // historical default and needs no leader line.
-            var cands = new (Rect r, bool leader)[]
-            {
-                (new Rect(rect.Right + gap,     cy - h / 2,         w, h), false), // right
-                (new Rect(rect.Left  - gap - w, cy - h / 2,         w, h), true),  // left
-                (new Rect(cx - w / 2,           rect.Top - gap - h, w, h), true),  // above
-                (new Rect(cx - w / 2,           rect.Bottom + gap,  w, h), true),  // below
-            };
-
-            Rect chosen = cands[0].r; bool leader = false; bool placed = false;
-            foreach (var (r, needsLeader) in cands)
-            {
-                bool clash = false;
-                foreach (var o in occupied) if (r.Intersects(o)) { clash = true; break; }
-                if (!clash) { chosen = r; leader = needsLeader; placed = true; break; }
-            }
-
-            if (!placed)
-            {
-                // Crowded. Only force-draw the important rooms; skip the rest.
-                if (LabelPriority(node) == 3) continue;
-                chosen = cands[0].r; leader = false;
-            }
-
-            if (leader)
-                context.DrawLine(LabelLeaderPen, new Point(cx, cy), chosen.Center);
-
-            context.DrawText(ft, chosen.Position);
-            occupied.Add(chosen);
+            // Anchor the label's top-left at its stored grid position (same
+            // origin as the nodes), matching Genie 4's placement.
+            var px = Padding + (label.X - minX) * GridSize;
+            var py = Padding + (label.Y - minY) * GridSize;
+            context.DrawText(ft, new Point(px, py));
         }
 
         // ── Pass 4: hover badge ───────────────────────────────────────────
@@ -1002,6 +960,32 @@ public class MapCanvas : Control
         if (string.IsNullOrWhiteSpace(hex)) return null;
         if (Color.TryParse(hex, out var c)) return new SolidColorBrush(c);
         return null;
+    }
+
+    /// <summary>
+    /// Pick the connector pen for an exit, following the Genie 4 line palette:
+    /// cardinal arcs are black, climb arcs green, and everything else (go-doors,
+    /// up/down/out, swim, etc.) blue. Genie 5 collapses all non-compass arcs into
+    /// <see cref="Direction.None"/>, so climb is recognised from the move verb.
+    /// </summary>
+    private static Pen EdgePenFor(MapExit exit)
+    {
+        switch (exit.Direction)
+        {
+            case Direction.North: case Direction.NorthEast:
+            case Direction.East:  case Direction.SouthEast:
+            case Direction.South: case Direction.SouthWest:
+            case Direction.West:  case Direction.NorthWest:
+                return EdgePenCardinal;   // black
+            case Direction.Up: case Direction.Down: case Direction.Out:
+                return EdgePenGo;         // blue
+            default: // None / In — disambiguate climb from go via the verb
+                var mc = exit.MoveCommand;
+                return !string.IsNullOrEmpty(mc)
+                       && mc.TrimStart().StartsWith("climb", StringComparison.OrdinalIgnoreCase)
+                    ? EdgePenClimb        // green
+                    : EdgePenGo;          // blue
+        }
     }
 
     private void DrawCenteredMessage(DrawingContext context, string text)

@@ -44,6 +44,16 @@ public sealed class WindowSettings
     public string  Background   { get; set; } = "";
 
     public bool    Timestamp    { get; set; } = false;
+
+    /// <summary>
+    /// Genie 4 "Name List Only" — when true the window only displays lines that
+    /// mention a name in the player's Names list (matched via
+    /// <c>NameHighlightEngine</c>). A live view filter applied at append time;
+    /// scrollback already shown is not retroactively hidden. Toggled from the
+    /// window right-click menu and persisted per-window.
+    /// </summary>
+    public bool    NameListOnly { get; set; } = false;
+
     public string? IfClosed     { get; set; }
     public event Action? Changed;
     public void NotifyChanged() => Changed?.Invoke();

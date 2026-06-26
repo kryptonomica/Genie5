@@ -702,7 +702,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("game-text", "Game");
         WindowSettings.Register("vitals",    "Vitals");
         WindowSettings.Register("room",      "Room");
-        WindowSettings.Register("backpack",  "Backpack");
+        WindowSettings.Register("backpack",  "Inventory");
         WindowSettings.Register("logons",    "Logons");
         WindowSettings.Register("talk",      "Talk");
         WindowSettings.Register("whispers",  "Whispers");
@@ -2209,6 +2209,24 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         var dir = Path.Combine(baseConfigDir, "Profiles", profile.Id.ToString("N"));
         Directory.CreateDirectory(dir);
         return dir;
+    }
+
+    /// <summary>
+    /// Persist the per-window settings (font / colour / timestamp / name-list /
+    /// title) to <c>windows.json</c> in the connected profile's config dir — the
+    /// same target the Configuration → Layout tab writes. Called when a window
+    /// right-click menu toggles Time Stamp or Name List Only so the choice
+    /// survives a restart. Best-effort: a write failure must not disrupt play.
+    /// </summary>
+    public void SaveWindowSettings()
+    {
+        try
+        {
+            var dir = GetProfileConfigDir(ConnectedProfile);
+            new PersistenceService()
+                .SaveWindowSettings(Path.Combine(dir, "windows.json"), WindowSettings);
+        }
+        catch { /* best-effort — never block gameplay on a settings write */ }
     }
 
     /// <summary>

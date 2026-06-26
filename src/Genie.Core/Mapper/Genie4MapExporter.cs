@@ -61,6 +61,12 @@ public static class Genie4MapExporter
             foreach (var nodeKv in zone.Nodes.OrderBy(kv => kv.Key))
                 WriteNode(writer, nodeKv.Value);
 
+            // Free-floating <label> elements after the nodes (matches Genie 4's
+            // file layout). Written verbatim so a round-trip preserves a map's
+            // landmark labels instead of destroying them.
+            foreach (var label in zone.Labels)
+                WriteLabel(writer, label);
+
             writer.WriteEndElement();   // zone
             writer.WriteEndDocument();
         }
@@ -135,5 +141,18 @@ public static class Genie4MapExporter
         }
 
         writer.WriteEndElement();   // node
+    }
+
+    private static void WriteLabel(XmlWriter writer, MapLabel label)
+    {
+        writer.WriteStartElement("label");
+        writer.WriteAttributeString("text", label.Text);
+        // Position — scale grid units back to pixels (importer divides by 20).
+        writer.WriteStartElement("position");
+        writer.WriteAttributeString("x", (label.X * 20).ToString());
+        writer.WriteAttributeString("y", (label.Y * 20).ToString());
+        writer.WriteAttributeString("z", label.Z.ToString());
+        writer.WriteEndElement();   // position
+        writer.WriteEndElement();   // label
     }
 }

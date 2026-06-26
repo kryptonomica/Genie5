@@ -8,9 +8,12 @@ namespace Genie.App.Docking;
 /// AutoMapper dock tool. Shows current zone, current room, exits, and a toggle
 /// for auto-creating new rooms during exploration.
 /// </summary>
-public class MapperTool : Tool
+public class MapperTool : Tool, IWindowMenuHost
 {
     public MapperViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public MapperTool(MapperViewModel vm, WindowSettings? settings = null)
     {

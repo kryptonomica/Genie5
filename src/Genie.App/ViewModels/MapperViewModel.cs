@@ -67,14 +67,27 @@ public class MapperViewModel : ReactiveObject
     /// derived <see cref="MapBackgroundBrush"/> and is persisted to
     /// <c>display.json</c> via the injected <see cref="DisplaySettings"/>.
     /// </summary>
-    [Reactive] public Color  MapBackground      { get; set; } = Color.Parse("#1A1A1A");
+    [Reactive] public Color  MapBackground      { get; set; } = Color.Parse("#EEE8AA");
 
     /// <summary>
     /// Derived brush bound to <see cref="Controls.MapCanvas.MapBackgroundBrush"/>.
     /// Recomputed whenever <see cref="MapBackground"/> changes so the canvas
     /// repaints live as the user drags through the colour picker.
     /// </summary>
-    [Reactive] public IBrush MapBackgroundBrush { get; private set; } = new SolidColorBrush(Color.Parse("#1A1A1A"));
+    [Reactive] public IBrush MapBackgroundBrush { get; private set; } = new SolidColorBrush(Color.Parse("#EEE8AA"));
+
+    /// <summary>
+    /// User-chosen colour for the map's on-canvas label text. Bound to a
+    /// ColorPickerButton in the Details expander; persisted to <c>display.json</c>.
+    /// </summary>
+    [Reactive] public Color  MapTextColor       { get; set; } = Color.Parse("#000000");
+
+    /// <summary>
+    /// Derived brush bound to <see cref="Controls.MapCanvas.LabelTextBrush"/>.
+    /// Recomputed whenever <see cref="MapTextColor"/> changes so labels repaint
+    /// live as the user drags the colour picker.
+    /// </summary>
+    [Reactive] public IBrush MapTextBrush       { get; private set; } = new SolidColorBrush(Color.Parse("#000000"));
 
     /// <summary>
     /// Non-compass arcs from the current room — "go small alleyway",
@@ -185,9 +198,11 @@ public class MapperViewModel : ReactiveObject
     /// <see cref="AutoMapperEngine.AllowDuplicateRooms"/>.</summary>
     [Reactive] public bool   AllowDuplicate { get; set; }
 
-    /// <summary>Show full <c>|</c>-separated room labels vs. only the primary
-    /// name (default). Bound to <see cref="Controls.MapCanvas.FullLabels"/>.</summary>
-    [Reactive] public bool   FullLabels    { get; set; }
+    /// <summary>Show the map's <c>&lt;label&gt;</c> text (landmark names like
+    /// "East Gate", "Guard House"). On by default; the toolbar "Labels" toggle
+    /// hides them for a cleaner view. Bound to
+    /// <see cref="Controls.MapCanvas.FullLabels"/>.</summary>
+    [Reactive] public bool   FullLabels    { get; set; } = true;
 
     /// <summary>The node selected in the canvas (edit mode). Two-way bound.</summary>
     [Reactive] public MapNode? SelectedNode { get; set; }
@@ -353,19 +368,19 @@ public class MapperViewModel : ReactiveObject
     /// <c>&lt;component id='exp X'&gt;</c> hook then fills the
     /// SkillStore. Surface this on the Mapper banner.
     /// </summary>
-    public ReactiveCommand<Unit, Unit>? FetchSkillsCommand { get; private set; }
+    public ReactiveCommand<Unit, Unit> FetchSkillsCommand { get; }
 
     /// <summary>
     /// Dismiss the prompt for this session only. Banner hides; will
     /// prompt again on next launch (unless DontAskAgain is also set).
     /// </summary>
-    public ReactiveCommand<Unit, Unit>? DismissSkillsPromptCommand { get; private set; }
+    public ReactiveCommand<Unit, Unit> DismissSkillsPromptCommand { get; }
 
     /// <summary>
     /// Dismiss + persist "don't ask again" to DisplaySettings. Banner
     /// stays hidden permanently for this character.
     /// </summary>
-    public ReactiveCommand<Unit, Unit>? DontAskAboutSkillsCommand { get; private set; }
+    public ReactiveCommand<Unit, Unit> DontAskAboutSkillsCommand { get; }
 
     /// <summary>
     /// Raised when the user wants to open the Edit Exit dialog for a
@@ -565,6 +580,45 @@ public class MapperViewModel : ReactiveObject
         WalkCompassCommand.ThrownExceptions.Subscribe(ex =>
             LoadStatus = $"Walk failed: {ex.Message}");
 
+        // ── Skills-prompt commands ────────────────────────────────────────
+        // Created HERE (constructor), not in Attach(core). These properties are
+        // not [Reactive], so assigning them in Attach — which runs AFTER the
+        // Mapper banner's Command bindings have already evaluated — left the
+        // bindings stuck on null and the three buttons permanently greyed out
+        // (a null Command disables an Avalonia Button). The lambdas read
+        // _commands / _display / _displayPath at click time (null-safe), exactly
+        // like WalkCompassCommand above, so nothing here needs Attach to have run.
+        // The skill-weighted pathfinder — and the Edit Exit dialog's Guild /
+        // skill gating — work best with the character's guild, circle, and full
+        // skill ranks. DR surfaces guild + circle via `info` and the complete
+        // skill-rank set via `exp all`; rather than auto-firing on connect
+        // (verb-spam), the banner asks the user once. (Wiring that decides WHEN
+        // to show the banner stays in Attach, where `core` is available.)
+        FetchSkillsCommand = ReactiveCommand.Create(() =>
+        {
+            _commands?.ProcessInput("info");      // guild + circle → class / level gating
+            _commands?.ProcessInput("exp all");   // all skill ranks → skill gating
+            ShowSkillsPrompt = false;   // hide immediately; data will arrive shortly
+        });
+        FetchSkillsCommand.ThrownExceptions.Subscribe(ex =>
+            LoadStatus = $"Fetch skills failed: {ex.Message}");
+
+        DismissSkillsPromptCommand = ReactiveCommand.Create(() =>
+        {
+            ShowSkillsPrompt = false;
+        });
+
+        DontAskAboutSkillsCommand = ReactiveCommand.Create(() =>
+        {
+            ShowSkillsPrompt = false;
+            if (_display is not null)
+            {
+                _display.SkillsPromptDismissed = true;
+                if (!string.IsNullOrEmpty(_displayPath))
+                    _display.Save(_displayPath);
+            }
+        });
+
         // Auto-load the zone when the user picks one from the dropdown. Skip(1)
         // ignores the initial null emission; the _suppressAutoLoad guard lets
         // RefreshAvailableZones re-select a value (after a directory rescan)
@@ -604,6 +658,26 @@ public class MapperViewModel : ReactiveObject
                     }
                 }
             });
+
+        // Same pattern for the label text colour.
+        this.WhenAnyValue(x => x.MapTextColor)
+            .Subscribe(c =>
+            {
+                MapTextBrush = new SolidColorBrush(c);
+                if (_display is not null)
+                {
+                    var hex = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                    if (!string.Equals(_display.MapTextHex, hex, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _display.MapTextHex = hex;
+                        if (!string.IsNullOrEmpty(_displayPath))
+                        {
+                            try   { _display.Save(_displayPath); }
+                            catch { /* persistence failure isn't fatal */ }
+                        }
+                    }
+                }
+            });
     }
 
     /// <summary>
@@ -616,8 +690,20 @@ public class MapperViewModel : ReactiveObject
     {
         _display     = display;
         _displayPath = displayPath;
+
+        // One-time migration: the old default canvas was dark (#1A1A1A). Genie 4's
+        // AutoMapper uses a PaleGoldenrod (tan) canvas, which the map palette
+        // (black cardinal lines, blue cross-zone borders) is designed for. Treat
+        // the exact old default as "unset" and move it to the tan default so
+        // existing users get the Genie 4 look without losing a genuinely custom
+        // colour they picked. Idempotent — re-running it changes nothing.
+        if (string.Equals(display.MapBackgroundHex, "#1A1A1A", StringComparison.OrdinalIgnoreCase))
+            display.MapBackgroundHex = "#EEE8AA";
+
         if (Color.TryParse(display.MapBackgroundHex, out var c))
             MapBackground = c;
+        if (Color.TryParse(display.MapTextHex, out var tc))
+            MapTextColor = tc;
 
         // Status-bar location line (#66). Zone field follows the user's
         // Zone-name-vs-number setting; Room is always $roomid (the mapper node
@@ -674,32 +760,10 @@ public class MapperViewModel : ReactiveObject
             .Subscribe(_ => AutoWalk.Cancel("connection lost"));
 
         // ── Skills prompt wiring ──────────────────────────────────────
-        // The skill-weighted pathfinder — and the Edit Exit dialog's Guild /
-        // skill gating — work best with the character's guild, circle, and
-        // full skill ranks. DR surfaces guild + circle via `info` and the
-        // complete skill-rank set via `exp all` (the `<component id='exp X'>`
-        // events for all 53 skills). Rather than silently auto-firing on
-        // connect (verb-spam), we surface a one-time banner asking the user.
-        FetchSkillsCommand = ReactiveCommand.Create(() =>
-        {
-            _commands?.ProcessInput("info");      // guild + circle → class / level gating
-            _commands?.ProcessInput("exp all");   // all skill ranks → skill gating
-            ShowSkillsPrompt = false;   // hide immediately; data will arrive shortly
-        });
-        DismissSkillsPromptCommand = ReactiveCommand.Create(() =>
-        {
-            ShowSkillsPrompt = false;
-        });
-        DontAskAboutSkillsCommand = ReactiveCommand.Create(() =>
-        {
-            ShowSkillsPrompt = false;
-            if (_display is not null)
-            {
-                _display.SkillsPromptDismissed = true;
-                if (!string.IsNullOrEmpty(_displayPath))
-                    _display.Save(_displayPath);
-            }
-        });
+        // The Fetch / Skip / Don't-ask commands themselves are created in the
+        // constructor (so the banner's bindings resolve non-null at view-load
+        // time — see the comment there). Here we only wire WHEN the banner
+        // shows/hides, which needs `core`.
 
         // Show the prompt when a zone is first loaded AND we have no
         // skill data yet AND the user hasn't permanently dismissed it.

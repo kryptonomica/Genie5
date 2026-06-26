@@ -43,10 +43,33 @@ public sealed class WindowSettingsStore
         return s;
     }
 
+    /// <summary>
+    /// Window ids whose default title changed across versions, mapped to the
+    /// <b>old</b> shipped title. A persisted <see cref="WindowSettings.DisplayTitle"/>
+    /// still equal to the old default is treated as "unset" on load so the
+    /// window picks up its new <see cref="WindowSettings.DefaultTitle"/>. A user
+    /// who set a genuinely custom title (anything else) is left untouched.
+    /// </summary>
+    private static readonly Dictionary<string, string> RenamedDefaults =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["backpack"] = "Backpack",   // → "Inventory" (2026-06)
+        };
+
     public void Apply(WindowSettingsPersistenceModel m)
     {
         if (!_settings.TryGetValue(m.Id, out var s)) return;
-        s.DisplayTitle = string.IsNullOrEmpty(m.DisplayTitle) ? s.DefaultTitle : m.DisplayTitle;
+
+        // Rename migration: if the saved title is still the old shipped
+        // default for a since-renamed window, drop it so the new DefaultTitle
+        // wins below. Idempotent — runs harmlessly every load, and a custom
+        // title won't match; the next SaveWindowSettings persists the new name.
+        var displayTitle = m.DisplayTitle;
+        if (RenamedDefaults.TryGetValue(m.Id, out var oldDefault) &&
+            string.Equals(displayTitle, oldDefault, StringComparison.Ordinal))
+            displayTitle = string.Empty;
+
+        s.DisplayTitle = string.IsNullOrEmpty(displayTitle) ? s.DefaultTitle : displayTitle;
 
         // Accept sentinel values verbatim — empty string for FontFamily and
         // non-positive for FontSize both mean "use the global default" per
@@ -60,6 +83,7 @@ public sealed class WindowSettingsStore
         s.Foreground = string.IsNullOrEmpty(m.Foreground) ? s.Foreground : m.Foreground;
         s.Background = m.Background;
         s.Timestamp  = m.Timestamp;
+        s.NameListOnly = m.NameListOnly;
         if (m.HasIfClosed) s.IfClosed = m.IfClosed;
     }
 }

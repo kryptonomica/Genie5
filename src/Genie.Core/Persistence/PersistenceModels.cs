@@ -153,6 +153,7 @@ public sealed class WindowSettingsPersistenceModel
     public string  Foreground   { get; set; } = "Default";
     public string  Background   { get; set; } = string.Empty;
     public bool    Timestamp    { get; set; }
+    public bool    NameListOnly { get; set; }
     public string? IfClosed     { get; set; }
     public bool    HasIfClosed  { get; set; }
 }

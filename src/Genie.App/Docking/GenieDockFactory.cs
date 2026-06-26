@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Dock.Avalonia.Controls;
@@ -6,6 +7,7 @@ using Dock.Model.Core;
 using Dock.Model.Mvvm;
 using Dock.Model.Mvvm.Controls;
 using Genie.App.ViewModels;
+using ReactiveUI;
 
 namespace Genie.App.Docking;
 
@@ -367,6 +369,7 @@ public class GenieDockFactory : Factory
         foreach (var (id, tool) in _pluginWindowTools)
             _tools[id] = (tool, backpackDock.Id);
 
+        AttachWindowMenus();
         return root;
     }
 
@@ -488,6 +491,7 @@ public class GenieDockFactory : Factory
         foreach (var (id, tool) in _pluginWindowTools)
             _tools[id] = (tool, mdiDock.Id);
 
+        AttachWindowMenus();
         return root;
     }
 
@@ -768,6 +772,94 @@ public class GenieDockFactory : Factory
 
     private static Alignment ParseAlignment(string? s)
         => Enum.TryParse<Alignment>(s, ignoreCase: true, out var a) ? a : Alignment.Unset;
+
+    // ── Per-window right-click menu ────────────────────────────────────────
+
+    /// <summary>
+    /// Build the right-click window menu (Genie 4's Clear / Time Stamp / Name
+    /// List Only / Close Window) for every registered dockable that doesn't yet
+    /// have one. Idempotent — the dockables persist across layout rebuilds, so a
+    /// menu (and its WindowSettings.Changed subscription) is built once.
+    /// </summary>
+    private void AttachWindowMenus()
+    {
+        foreach (var (id, entry) in _tools)
+            if (entry.Dockable is IWindowMenuHost { WindowMenu: null } host)
+                host.WindowMenu = BuildWindowMenu(id, entry.Dockable);
+    }
+
+    /// <summary>
+    /// Construct the menu model for one window, enabling only the items that
+    /// apply to its type: Close for every tool (not the primary game document);
+    /// Clear for windows with a line buffer; Time Stamp + Name List Only for the
+    /// per-line text feeds (streams + game window).
+    /// </summary>
+    private WindowMenuModel BuildWindowMenu(string id, IDockable dockable)
+    {
+        // Close — every dockable except the primary game document.
+        ICommand? close = dockable is GameTextDocument
+            ? null
+            : ReactiveCommand.Create(() => SetToolVisibility(id, false));
+
+        // Clear — windows backed by a clearable line buffer.
+        ICommand? clear = dockable switch
+        {
+            StreamTool st       => ReactiveCommand.Create(() => st.Buffer.Lines.Clear()),
+            GameTextDocument gd => ReactiveCommand.Create(() => gd.ViewModel.Lines.Clear()),
+            BackpackTool bp     => ReactiveCommand.Create(() => bp.ViewModel.Items.Clear()),
+            _                   => null
+        };
+
+        // Time Stamp + Name List Only only make sense for the per-line text
+        // feeds; everything else gets just Clear (where it has a buffer) + Close.
+        if (dockable is not (StreamTool or GameTextDocument))
+            return new WindowMenuModel(clear: clear, close: close);
+
+        var settings = _vm.WindowSettings.Get(id);
+
+        // Sync the buffer to a persisted "Name List Only=true" so it filters from
+        // the first line, not only after the menu is first opened.
+        ApplyNameListOnly(dockable, settings.NameListOnly);
+
+        var menu = new WindowMenuModel(
+            clear:                 clear,
+            close:                 close,
+            timestampOn:           settings.Timestamp,
+            onTimestampToggled:    on =>
+            {
+                settings.Timestamp = on;
+                settings.NotifyChanged();   // repaint future lines with/without stamp
+                _vm.SaveWindowSettings();
+            },
+            nameListOnlyOn:        settings.NameListOnly,
+            onNameListOnlyToggled: on =>
+            {
+                settings.NameListOnly = on;
+                ApplyNameListOnly(dockable, on);
+                _vm.SaveWindowSettings();
+            });
+
+        // Keep the checkmarks in sync if the same settings are edited elsewhere
+        // (e.g. the Configuration → Layout tab's Time Stamp checkbox).
+        settings.Changed += () =>
+        {
+            menu.SyncTimestamp(settings.Timestamp);
+            menu.SyncNameListOnly(settings.NameListOnly);
+        };
+
+        return menu;
+    }
+
+    /// <summary>Push the Name List Only flag onto the window's line buffer so its
+    /// Add path starts (or stops) filtering.</summary>
+    private static void ApplyNameListOnly(IDockable dockable, bool on)
+    {
+        switch (dockable)
+        {
+            case StreamTool st:       st.Buffer.NameListOnly      = on; break;
+            case GameTextDocument gd: gd.ViewModel.NameListOnly   = on; break;
+        }
+    }
 
     // ── Window-management API ──────────────────────────────────────────────
 
@@ -1417,6 +1509,7 @@ public class GenieDockFactory : Factory
         _pluginWindowVms[id]   = vm;
         _pluginWindowTools[id] = tool;
         _tools[id]             = (tool, PluginWindowParentId);
+        tool.WindowMenu        = BuildWindowMenu(id, tool);
         return tool;
     }
 

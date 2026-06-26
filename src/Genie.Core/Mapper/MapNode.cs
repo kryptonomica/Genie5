@@ -14,6 +14,15 @@ public sealed class MapNode
     public List<MapExit> Exits { get; set; } = new();
 
     /// <summary>
+    /// True when this room links to another zone file — its <see cref="Notes"/>
+    /// reference a ".xml" map (e.g. <c>"Map31_Riverhaven_East_Gate.xml|E Gate|egate"</c>).
+    /// Mirrors Genie 4's <c>Node.IsLabelFile</c> (<c>Note.Contains(".xml")</c>); the
+    /// map canvas paints these "cross-zone connector" rooms with a blue border —
+    /// the blue boxes that show how one map connects to the next.
+    /// </summary>
+    public bool IsCrossZone => Notes.Contains(".xml", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Free-form room tags (Lich-style: "bank", "moongate", "gravecottage").
     /// Drive <c>#goto @tag</c> nearest-routing and
     /// <see cref="AutoMapperEngine.FindNearestByTag"/>. Round-tripped as a

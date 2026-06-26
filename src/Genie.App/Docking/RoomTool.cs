@@ -10,9 +10,12 @@ namespace Genie.App.Docking;
 /// foreground override would require restructuring the room view to lose the
 /// per-field colour coding.
 /// </summary>
-public class RoomTool : Tool
+public class RoomTool : Tool, IWindowMenuHost
 {
     public RoomViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Close), built by <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     public RoomTool(RoomViewModel vm, WindowSettings? settings = null)
     {

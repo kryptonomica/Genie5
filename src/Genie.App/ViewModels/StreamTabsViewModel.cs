@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Reactive.Linq;
 using Genie.Core;
 using Genie.Core.Events;
+using Genie.Core.Highlights;
+using Genie.Core.Layout;
 using ReactiveUI;
 
 namespace Genie.App.ViewModels;
@@ -47,6 +49,13 @@ public class StreamTabsViewModel : ReactiveObject
 
     public void Attach(GenieCore core)
     {
+        // Hand each buffer the live Names engine so the per-window "Name List
+        // Only" right-click toggle can filter to lines mentioning a tracked
+        // name. NameHighlights survives reconnect (persistent core), so this is
+        // a one-time wire-up.
+        foreach (var buf in All)
+            buf.Names = core.NameHighlights;
+
         core.GameEvents.OfType<TextEvent>()
             .Where(e => e.Stream != "main")
             .ObserveOn(RxApp.MainThreadScheduler)
@@ -91,10 +100,49 @@ public class StreamBuffer(string name) : ReactiveObject
     /// </summary>
     public ObservableCollection<TextLine> Lines { get; } = [];
 
+    /// <summary>Live per-window settings (font / colour / timestamp / title),
+    /// assigned by <see cref="Genie.App.Docking.StreamTool"/> from the
+    /// WindowSettingsStore. The instance is mutated in place by the Layout tab,
+    /// so reading <see cref="WindowSettings.Timestamp"/> at <see cref="Add"/>
+    /// time always reflects the latest toggle — no re-subscription needed.</summary>
+    public WindowSettings? Settings { get; set; }
+
+    /// <summary>Live Names engine (assigned in <see cref="StreamTabsViewModel.Attach"/>),
+    /// used by the <see cref="NameListOnly"/> filter.</summary>
+    public NameHighlightEngine? Names { get; set; }
+
+    /// <summary>Genie 4 "Name List Only" — when true, <see cref="Add"/> drops any
+    /// line that doesn't mention a name in the player's Names list. Toggled from
+    /// the window right-click menu; mirrors <see cref="WindowSettings.NameListOnly"/>.</summary>
+    public bool NameListOnly { get; set; }
+
     public void Add(string line)
     {
+        // #90 Name List Only: skip lines that don't reference a tracked name.
+        // No names configured (Names null / empty regex) → Match returns null
+        // for everything, which would blank the window; treat "no name list" as
+        // "show all" so the toggle never hides everything by surprise.
+        if (NameListOnly && Names is { Rules.Count: > 0 } && Names.Match(line) is null)
+            return;
+
+        // #90: per-window timestamp. When the Layout-tab "prepend timestamp to
+        // each line" toggle is on for this window, stamp each line as it arrives
+        // (going forward — existing scrollback is not retro-stamped, matching
+        // Genie 4). Side-stream lines carry no span metadata (user highlights
+        // tokenize at render time, not stored as offsets), so prepending to the
+        // raw text is safe here.
+        if (Settings?.Timestamp == true)
+            line = WindowTimestamp.Prefix() + line;
         Lines.Add(new TextLine(line, StreamColor.Main));
         while (Lines.Count > Max)
             Lines.RemoveAt(0);
     }
+}
+
+/// <summary>Shared per-window timestamp prefix (#90). Fixed 24-hour
+/// <c>[HH:mm:ss]</c> format for now; a per-window format string is a future
+/// enhancement (WindowSettings carries only the on/off bool today).</summary>
+internal static class WindowTimestamp
+{
+    public static string Prefix() => $"[{System.DateTime.Now:HH:mm:ss}] ";
 }

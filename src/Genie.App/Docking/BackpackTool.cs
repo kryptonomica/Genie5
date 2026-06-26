@@ -7,9 +7,13 @@ using Genie.Core.Layout;
 
 namespace Genie.App.Docking;
 
-public class BackpackTool : Tool
+public class BackpackTool : Tool, IWindowMenuHost
 {
     public InventoryViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Clear / Close), built by
+    /// <see cref="GenieDockFactory"/>.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     // Per-window appearance overrides. Backed by SetProperty (the Dock.Model.Mvvm
     // base derives from CommunityToolkit's ObservableObject) rather than Fody
@@ -29,8 +33,8 @@ public class BackpackTool : Tool
     public BackpackTool(InventoryViewModel vm, WindowSettings? settings = null)
     {
         ViewModel = vm;
-        Id        = "backpack";
-        Title     = "Backpack";
+        Id        = "backpack";   // persistence key — saved layouts, ws.Get, dock registry depend on it
+        Title     = "Inventory";
 
         if (settings is not null)
         {

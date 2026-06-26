@@ -7,9 +7,14 @@ using Genie.Core.Layout;
 
 namespace Genie.App.Docking;
 
-public class GameTextDocument : Document
+public class GameTextDocument : Document, IWindowMenuHost
 {
     public GameTextViewModel ViewModel { get; }
+
+    /// <summary>Right-click window menu (Clear / Time Stamp / Name List Only),
+    /// built by <see cref="GenieDockFactory"/>. The main game window has no
+    /// "Close Window" item — it is the primary document.</summary>
+    public WindowMenuModel? WindowMenu { get; set; }
 
     // Per-window appearance overrides. SetProperty-backed (Dock.Model.Mvvm base
     // is a CommunityToolkit ObservableObject) instead of Fody [Reactive].
@@ -38,6 +43,9 @@ public class GameTextDocument : Document
 
         if (settings is not null)
         {
+            // #90: hand the VM its live settings so AddLine/AddEcho can prepend
+            // a timestamp when the Layout-tab toggle is on.
+            vm.Settings = settings;
             ApplySettings(settings);
             settings.Changed += () => ApplySettings(settings);
         }

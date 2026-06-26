@@ -233,6 +233,7 @@ public sealed class PersistenceService
             Foreground   = s.Foreground,
             Background   = s.Background,
             Timestamp    = s.Timestamp,
+            NameListOnly = s.NameListOnly,
             IfClosed     = s.IfClosed,
             HasIfClosed  = true,    // value above is authoritative
         });

@@ -106,7 +106,46 @@
                     <ContentControl x:Name="PART_CachedContentPresenter"
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Stretch"
-                                    Content="{Binding}" />
+                                    Content="{Binding}">
+                      <!-- Right-click anywhere in the window (incl. on text) should
+                           surface the per-window menu below. Avalonia's
+                           SelectableTextBlock ships a built-in "Copy" flyout that
+                           would otherwise win on text; null it so ContextRequested
+                           bubbles to this ContentControl's ContextMenu. Scoped to
+                           dock content only — dialogs keep their copy flyout.
+                           Ctrl+C still copies. -->
+                      <ContentControl.Styles>
+                        <Style Selector="SelectableTextBlock">
+                          <Setter Property="ContextFlyout" Value="{x:Null}" />
+                        </Style>
+                      </ContentControl.Styles>
+                      <!-- Genie 4-style per-window right-click menu. Bound to the
+                           dockable's WindowMenu (IWindowMenuHost); reflection
+                           bindings (x:CompileBindings=False) since the item
+                           DataType here is core:IDockable, which has no WindowMenu.
+                           Each item hides itself when the window doesn't support
+                           it, so a Vitals tab shows only "Close Window" while a
+                           stream tab shows all four. -->
+                      <ContentControl.ContextMenu>
+                        <ContextMenu x:CompileBindings="False">
+                          <MenuItem Header="Clear"
+                                    Command="{Binding WindowMenu.ClearCommand}"
+                                    IsVisible="{Binding WindowMenu.ShowClear}" />
+                          <MenuItem Header="Time Stamp"
+                                    ToggleType="CheckBox"
+                                    IsChecked="{Binding WindowMenu.IsTimestampOn, Mode=TwoWay}"
+                                    IsVisible="{Binding WindowMenu.ShowTimestamp}" />
+                          <MenuItem Header="Name List Only"
+                                    ToggleType="CheckBox"
+                                    IsChecked="{Binding WindowMenu.IsNameListOnlyOn, Mode=TwoWay}"
+                                    IsVisible="{Binding WindowMenu.ShowNameListOnly}" />
+                          <Separator IsVisible="{Binding WindowMenu.ShowCloseSeparator}" />
+                          <MenuItem Header="Close Window"
+                                    Command="{Binding WindowMenu.CloseCommand}"
+                                    IsVisible="{Binding WindowMenu.ShowClose}" />
+                        </ContextMenu>
+                      </ContentControl.ContextMenu>
+                    </ContentControl>
                   </DockableControl>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

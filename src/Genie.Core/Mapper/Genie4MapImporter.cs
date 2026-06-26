@@ -161,6 +161,30 @@ public static class Genie4MapImporter
             }
         }
 
+        // ── Pass 3: free-floating <label> elements ───────────────────────────
+        // Genie 4 stores landmark text ("East Gate", "Guard House") as top-level
+        // <label text="..."><position x y z/></label> siblings of <node>, separate
+        // from node notes. The map canvas renders these as the on-map text. We
+        // must import AND export them (the exporter writes them back) so a
+        // round-trip through Genie 5 doesn't silently destroy a map's labels.
+        foreach (XmlElement labelEl in zoneEl.SelectNodes("label")!)
+        {
+            var text = labelEl.GetAttribute("text");
+            if (string.IsNullOrEmpty(text)) continue;
+
+            var label = new MapLabel { Text = text.Trim() };
+            if (labelEl.SelectSingleNode("position") is XmlElement lpos)
+            {
+                int.TryParse(lpos.GetAttribute("x"), out int lx);
+                int.TryParse(lpos.GetAttribute("y"), out int ly);
+                int.TryParse(lpos.GetAttribute("z"), out int lz);
+                label.X = lx / 20;   // same pixel→grid scale as nodes
+                label.Y = ly / 20;
+                label.Z = lz;
+            }
+            zone.Labels.Add(label);
+        }
+
         return zone;
     }
 
