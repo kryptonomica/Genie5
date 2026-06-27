@@ -9,10 +9,10 @@
     <AssemblyName>Genie</AssemblyName>
 
     <!-- ── Versioning (shown in File Properties → Details + About box) ── -->
-    <Version>5.0.0-alpha.7.4</Version>
+    <Version>5.0.0-alpha.7.5</Version>
     <AssemblyVersion>5.0.0.0</AssemblyVersion>
     <FileVersion>5.0.0.0</FileVersion>
-    <InformationalVersion>5.0.0-alpha.7.4</InformationalVersion>
+    <InformationalVersion>5.0.0-alpha.7.5</InformationalVersion>
     <Product>Genie 5</Product>
     <Company>Genie 5 Project</Company>
     <Copyright>Copyright © 2026 — GPL-3.0</Copyright>
@@ -81,6 +81,20 @@
          AppImage replace on Linux. The publish-side step is `vpk pack`,
          documented in docs/internal/UPDATE_SYSTEM.md. -->
     <PackageReference Include="Velopack" Version="1.1.1" />
+    <!-- Offline neural TTS (Piper VITS models via ONNX). Apache-2.0, bundles
+         native libs for all desktop RIDs incl. osx-x64. Lives in the App (not
+         Core) so Genie.Core stays native-lib-free for the Mudlet-embed path.
+         Backs TtsService / #speak. Native libs self-extract in single-file
+         publish (IncludeNativeLibrariesForSelfExtract already set above). -->
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.3" />
+    <!-- Pure-managed archive lib (MIT) for the TTS voice installer: sherpa-onnx
+         Piper voices ship as .tar.bz2 and .NET has no built-in bzip2.
+         VoiceInstaller streams the download → extracts via ReaderFactory. -->
+    <PackageReference Include="SharpCompress" Version="0.48.1" />
+    <!-- Streaming PCM output for TTS (TtsPlayer). Callback-based; lets a busy
+         read-aloud stream interrupt mid-utterance (barge-in) — which the v1
+         temp-WAV/winmm path could not. Same author/runtime family as sherpa. -->
+    <PackageReference Include="PortAudioSharp2" Version="1.0.4" />
   </ItemGroup>
 
   <ItemGroup>

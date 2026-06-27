@@ -214,6 +214,23 @@ public interface ICommandHost
     void PlaySound(string soundName);
 
     /// <summary>
+    /// Speak <paramref name="text"/> aloud via text-to-speech (the <c>#speak</c>
+    /// command, and later per-stream read-aloud). The host owns the TTS engine
+    /// and platform audio; the Console build with no engine is a no-op. Blank
+    /// text is ignored. Synthesis runs off the caller's thread so a slow voice
+    /// never blocks the game loop.
+    /// </summary>
+    void Speak(string text);
+
+    /// <summary>
+    /// Handle a <c>#tts</c> management subcommand (<c>install</c>, <c>voices</c>,
+    /// <c>status</c>). The voice catalog, downloader, and engine all live in the
+    /// App layer, so <see cref="Genie.Core"/> just forwards the argument string;
+    /// the Console build with no handler is a no-op.
+    /// </summary>
+    void TtsCommand(string args);
+
+    /// <summary>
     /// Handle a <c>#connect</c> / <c>#reconnect</c> / <c>#lichconnect</c> command
     /// (Genie 4 parity). The connection lifecycle, saved profiles, and the
     /// Connect dialog all live in the App layer, so <see cref="Genie.Core"/>

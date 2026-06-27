@@ -1093,6 +1093,33 @@ public sealed class GenieCore : IAsyncDisposable, ICommandHost, Genie.Plugins.IP
     /// backend.</summary>
     public event Action<string>? SoundRequested;
 
+    void ICommandHost.Speak(string text) => Speak(text);
+
+    /// <summary>
+    /// Speak <paramref name="text"/> aloud via TTS (<c>#speak</c>, and later
+    /// per-stream read-aloud). Trims and ignores blank input, then raises
+    /// <see cref="SpeakRequested"/>. The App owns the TTS engine + audio and
+    /// synthesizes off-thread; Console builds with no handler are a silent
+    /// no-op. The voice/engine lives in the App layer (native libs) so
+    /// <see cref="Genie.Core"/> stays UI- and platform-free.
+    /// </summary>
+    public void Speak(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+        SpeakRequested?.Invoke(text.Trim());
+    }
+
+    /// <summary>Raised with the (trimmed, non-empty) text to speak whenever TTS
+    /// is requested. The App subscribes and dispatches to its TTS backend.</summary>
+    public event Action<string>? SpeakRequested;
+
+    void ICommandHost.TtsCommand(string args) => TtsCommandRequested?.Invoke(args ?? "");
+
+    /// <summary>Raised with a <c>#tts</c> subcommand argument string (may be
+    /// empty for the bare verb). The App handles install / list / status; a
+    /// Console build with no handler is a silent no-op.</summary>
+    public event Action<string>? TtsCommandRequested;
+
     void ICommandHost.Connect(ConnectRequest request)
     {
         // The connection lifecycle, saved profiles, and the Connect dialog all

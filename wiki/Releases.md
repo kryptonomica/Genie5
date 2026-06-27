@@ -4,7 +4,20 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.7.4 — Circle Calculator & Raw XML
+## Latest: v5.0.0-alpha.7.5 — Text-to-Speech
+
+Genie can now **read the game aloud** with natural neural voices that run entirely on your machine — offline, free, and private (no game text leaves your computer). A first step toward making DragonRealms playable for blind and low-vision players.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.7.5** as a delta.
+
+- **`#speak <text>`** (alias `#say`) reads a line aloud — typed, from scripts, or as a trigger action.
+- **Voices on demand** — `#tts install` grabs a natural neural voice (one-time ~60 MB); `#tts voices` / `#tts use <name>` to browse and switch. Identical on Windows, macOS, and Linux.
+- **Read-aloud by stream** — `#tts read on` auto-reads whispers, talk, thoughts, and deaths; `#tts read <stream>` / `#tts mute <stream>` tune the list. Urgent lines jump the queue; `#tts stop` silences everything.
+- Everything is **opt-in** — nothing speaks until you turn it on. See [Text-to-Speech](Text-to-Speech).
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.7.5)
+
+## v5.0.0-alpha.7.4 — Circle Calculator & Raw XML
 
 A built-in guild **Circle Calculator**, a live **Raw XML** stream inspector, more right-click window actions, and Genie 4 `#parse` parity.
 

@@ -4,6 +4,12 @@ public enum PauseMode { None, Pause, Wait, Delay, Move }
 
 public sealed record ScriptLine(int LineNumber, string Origin, string Raw, string Trimmed, int Indent);
 
+/// <summary>One queued command from a multi-part put/send statement.
+/// <paramref name="Delay"/> is the leading number of seconds a `send` segment
+/// asked to wait before being dispatched (0 for `put`; negative is allowed and
+/// treated as "send eagerly" — no extra wait).</summary>
+public readonly record struct PendingSend(string Command, double Delay);
+
 public sealed class ScriptInstance
 {
     public string Name = string.Empty;
@@ -96,7 +102,18 @@ public sealed class ScriptInstance
 
     // Pending sends from a single put/send statement that contained multiple
     // semicolon-separated commands; drained one-per-tick respecting type-ahead.
-    public Queue<string> PendingSends = new();
+    // A `send` segment may carry a leading delay (seconds to wait before it is
+    // dispatched — Genie4 CommandQueue parity); `put` always enqueues Delay=0.
+    public Queue<PendingSend> PendingSends = new();
+
+    /// <summary>
+    /// Earliest <see cref="DateTime.UtcNow"/> at which the current head of
+    /// <see cref="PendingSends"/> may be dispatched. Armed from a `send`
+    /// segment's leading delay; <see cref="DateTime.MinValue"/> means no wait.
+    /// This stacks on top of the engine-level roundtime gate, so a delayed
+    /// send fires at max(roundtime-end, delay-end).
+    /// </summary>
+    public DateTime NextSendAt = DateTime.MinValue;
 
     // 'timer start' baseline for the %timer pseudo-variable.
     public DateTime? TimerStart;

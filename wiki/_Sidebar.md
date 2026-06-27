@@ -11,6 +11,7 @@
 **🚶 Everyday use**
 - [Connecting & Profiles](Connecting)
 - [The Interface](The-Interface)
+- [Text-to-Speech](Text-to-Speech)
 - [Configuration & Rules](Configuration)
 - [Scripting](Scripting)
 - [The Mapper](Mapper)

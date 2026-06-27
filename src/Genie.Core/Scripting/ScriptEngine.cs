@@ -819,14 +819,34 @@ public sealed class ScriptEngine
         // Drain any pending semicolon-split sends before advancing the PC.
         if (inst.PendingSends.Count > 0)
         {
-            // Game-bound continuation of a `put a;b;c` series. Match the
-            // tighter script-side cap used by the put case so the
-            // semicolon-split tail can't bypass the per-prompt throttle.
-            var peek = inst.PendingSends.Peek();
+            // Honor a `send` segment's leading delay before it may be sent.
+            // This is independent of (and stacks with) the engine-level
+            // roundtime gate, which already skips StepOne entirely during RT
+            // — so a delayed send fires at max(RT-end, delay-end). Schedule a
+            // self-wakeup so we drain even if no server traffic arrives.
+            if (DateTime.UtcNow < inst.NextSendAt)
+            {
+                ScheduleTick?.Invoke(inst.NextSendAt - DateTime.UtcNow + TimeSpan.FromSeconds(0.05));
+                return false;
+            }
+
+            // Game-bound continuation of a `put a;b;c` / `send a;b;c` series.
+            // Match the tighter script-side cap used by the put/send case so
+            // the semicolon-split tail can't bypass the per-prompt throttle.
+            var peek = inst.PendingSends.Peek().Command;
             bool nextSendsToGame = peek.Length > 0 && peek[0] != '#' && peek[0] != '.';
             int effectiveLimit = nextSendsToGame ? 1 : _typeAhead.Limit;
             if (_inFlight >= effectiveLimit) return false;
-            var next = inst.PendingSends.Dequeue();
+            var next = inst.PendingSends.Dequeue().Command;
+
+            // Arm the gate for the new head from ITS leading delay, measured
+            // from now (i.e. from when this segment was dispatched — Genie4
+            // CommandQueue.SetNextTime parity). Non-positive delays clear the
+            // gate so `put` tails and eager (negative) sends fire immediately.
+            inst.NextSendAt = inst.PendingSends.Count > 0 && inst.PendingSends.Peek().Delay > 0
+                ? DateTime.UtcNow.AddSeconds(inst.PendingSends.Peek().Delay)
+                : DateTime.MinValue;
+
             if (next.Length > 0)
             {
                 if (next[0] == '#')
@@ -1017,14 +1037,38 @@ public sealed class ScriptEngine
                     return true;
                 }
 
-                // Genie's ';' separates multiple commands in a single put. Each
-                // is queued and drained one-per-tick so the type-ahead budget
-                // is respected per command, not per put statement.
+                // Genie's ';' separates multiple commands in a single put/send.
+                // Each is queued and drained one-per-tick so the type-ahead
+                // budget is respected per command, not per statement.
+                //
+                // For `send` ONLY, each segment may carry a leading delay in
+                // seconds (Genie4 CommandQueue parity) — e.g. `send fire;0.5
+                // unload my $weapon` fires `fire`, waits 0.5s (plus roundtime),
+                // then `unload …`. A leading '-' is accepted and treated as
+                // "send eagerly" (no wait). `put` never parses a delay, so its
+                // behavior is unchanged.
+                bool isSend = lower == "send";
                 var parts = SplitSemicolons(rest);
                 if (parts.Count == 0) return true;
 
-                var first = parts[0];
+                var segs = new List<(double Delay, string Cmd)>(parts.Count);
+                foreach (var p in parts)
+                    segs.Add(isSend ? ParseSendDelay(p) : (0.0, p));
+
+                var first = segs[0].Cmd;
                 bool sendsToGame = first.Length > 0 && first[0] != '#' && first[0] != '.';
+
+                // A game-bound first segment that must wait can't be fired
+                // inline — push the whole series through PendingSends and let
+                // the drain gate honor each delay (including this one). The
+                // common (no-delay) case keeps the inline fast path below.
+                if (isSend && sendsToGame && segs[0].Delay > 0)
+                {
+                    foreach (var s in segs)
+                        inst.PendingSends.Enqueue(new PendingSend(s.Cmd, s.Delay));
+                    inst.NextSendAt = DateTime.UtcNow.AddSeconds(segs[0].Delay);
+                    return true;
+                }
 
                 // Game-bound puts pipeline at most 1 deep regardless of the
                 // session-wide TypeAheadLimit (which is calibrated higher
@@ -1045,8 +1089,15 @@ public sealed class ScriptEngine
                     return false;
                 }
 
-                for (int p = 1; p < parts.Count; p++)
-                    inst.PendingSends.Enqueue(parts[p]);
+                for (int p = 1; p < segs.Count; p++)
+                    inst.PendingSends.Enqueue(new PendingSend(segs[p].Cmd, segs[p].Delay));
+
+                // Arm the gate for the first tail segment so its delay is
+                // honored on the next drain; clear it otherwise (this also
+                // resets any stale value left by a prior delayed send).
+                inst.NextSendAt = segs.Count > 1 && segs[1].Delay > 0
+                    ? DateTime.UtcNow.AddSeconds(segs[1].Delay)
+                    : DateTime.MinValue;
 
                 if (first.Length > 0 && first[0] == '#')
                 {
@@ -1904,6 +1955,34 @@ public sealed class ScriptEngine
         var tail = s[start..].Trim();
         if (tail.Length > 0) result.Add(tail);
         return result;
+    }
+
+    /// <summary>
+    /// Parse an optional leading delay (seconds) off a <c>send</c> segment.
+    /// Genie4's CommandQueue reads a leading run of digits/<c>.</c> as a
+    /// wait-before-send; we additionally accept a leading <c>-</c> so scripts
+    /// can request "send eagerly" (negative ⇒ no wait). The number must be
+    /// followed by whitespace (or be the whole segment) to count as a delay —
+    /// otherwise a command that merely starts with a digit (e.g. <c>2nd</c>)
+    /// is left intact. Returns <c>(0, trimmedSegment)</c> when no delay is
+    /// present. <paramref name="seg"/> arrives already trimmed.
+    /// </summary>
+    internal static (double delay, string cmd) ParseSendDelay(string seg)
+    {
+        int i = 0;
+        if (i < seg.Length && seg[i] == '-') i++;
+        bool dot = false, sawDigit = false;
+        while (i < seg.Length && (char.IsDigit(seg[i]) || (seg[i] == '.' && !dot)))
+        {
+            if (seg[i] == '.') dot = true; else sawDigit = true;
+            i++;
+        }
+        bool boundary = i >= seg.Length || seg[i] == ' ' || seg[i] == '\t';
+        if (!sawDigit || !boundary) return (0.0, seg.Trim());
+        if (!double.TryParse(seg[..i], System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture, out var d))
+            return (0.0, seg.Trim());
+        return (d, seg[i..].Trim());
     }
 
     private static (string cmd, string rest) SplitCmd(string s)

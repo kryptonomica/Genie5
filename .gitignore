@@ -1,5 +1,5 @@
-# --- Per-machine dev-tool scratch files -----------------------------------
-# Editor + assistant scratch state. Per-developer; never tracked.
+# ─── Per-machine dev-tool scratch files ──────────────────────────────────
+# Editor + AI-assistant scratch state. Per-developer; never tracked.
 CLAUDE.md
 .claude/
 .cursor/
@@ -72,6 +72,11 @@ paths.json
 # we don't ship maps in this repo.
 Maps/
 *.xml.backup
+
+# TTS voice models: large per-machine sherpa-onnx Piper voices (.onnx +
+# espeak-ng-data), installed/downloaded at runtime under the data root's
+# Voices/ folder. Tens of MB each — never in the repo.
+Voices/
 
 # ─── Reference repos (third-party source for design study) ────────────────
 # We clone Genie 4 + Lich 5 + Mudlet etc. into _refs/ for cross-reference

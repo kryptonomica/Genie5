@@ -553,6 +553,14 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// <c>#play</c>. Fed gate-passed absolute paths via GenieCore.SoundRequested.</summary>
     private readonly Services.AudioService _audio = new();
 
+    /// <summary>Offline neural TTS backend for <c>#speak</c> (and later
+    /// per-stream read-aloud). Fed text via GenieCore.SpeakRequested. Created at
+    /// connect time once the voice dir is known.</summary>
+    private Services.TtsService? _tts;
+
+    /// <summary>Downloads + installs TTS voice models for <c>#tts install</c>.</summary>
+    private readonly Services.VoiceInstaller _voiceInstaller = new();
+
     /// <summary>True once the one-time "what Analyst Capture does" explainer has
     /// been shown this session, so enabling it again doesn't re-nag.</summary>
     private bool _captureExplained;
@@ -2624,6 +2632,153 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
                 $"restart Genie to switch data directories. In use: {(have.Length == 0 ? "(default)" : have)}.");
     }
 
+    /// <summary>Handle a <c>#tts</c> subcommand (install / voices / status).
+    /// Runs on the engine (UI) thread; the actual download runs off-thread and
+    /// reports back via UI-marshaled system lines.</summary>
+    private void HandleTtsCommand(string args)
+    {
+        if (_core is null) return;
+        void Echo(string m) => GameText.AddSystemLine(m);
+
+        var parts = (args ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string sub = parts.Length > 0 ? parts[0].ToLowerInvariant() : "";
+        string voiceDir = _core.Config.TtsVoiceDir;
+
+        switch (sub)
+        {
+            case "install":
+            {
+                var voice = parts.Length > 1
+                    ? Services.VoiceCatalog.Find(parts[1])
+                    : Services.VoiceCatalog.Default;
+                if (voice is null)
+                {
+                    Echo($"[tts] unknown voice '{parts[1]}'. See #tts voices.");
+                    return;
+                }
+                _ = Task.Run(async () =>
+                {
+                    var ok = await _voiceInstaller.InstallAsync(
+                        voice, voiceDir,
+                        msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg)));
+                    if (ok)
+                        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                        {
+                            // Installing a voice signals intent to use it — make it active.
+                            _core.Config.TtsVoice = voice.Id;
+                            _tts?.Reset();
+                            GameText.AddSystemLine($"[tts] active voice: {voice.DisplayName}.");
+                        });
+                });
+                break;
+            }
+
+            case "use":
+            case "select":
+            {
+                if (parts.Length < 2) { Echo("Usage: #tts use <voice>"); break; }
+                var v = Services.VoiceCatalog.Find(parts[1]);
+                string id = v?.Id ?? parts[1];   // allow a raw folder name too
+                if (!Services.VoiceInstaller.IsInstalled(System.IO.Path.Combine(voiceDir, id)))
+                {
+                    Echo($"[tts] '{parts[1]}' isn't installed — try #tts install {parts[1]}, or #tts voices.");
+                    break;
+                }
+                _core.Config.TtsVoice = id;
+                _tts?.Reset();
+                Echo($"[tts] now using {v?.DisplayName ?? id}. Persists when settings are saved.");
+                break;
+            }
+
+            case "voices":
+            case "list":
+                Echo("[tts] voices (install with #tts install <name>):");
+                foreach (var v in Services.VoiceCatalog.All)
+                {
+                    string path = System.IO.Path.Combine(voiceDir, v.Id);
+                    bool inst = Services.VoiceInstaller.IsInstalled(path);
+                    bool active = string.Equals(_core.Config.TtsVoice, v.Id, StringComparison.OrdinalIgnoreCase);
+                    Echo($"  {v.Alias,-8} {v.DisplayName} (~{v.ApproxMb} MB)" +
+                         $"{(inst ? "  [installed]" : "")}{(active ? "  [active]" : "")}");
+                }
+                break;
+
+            case "read":
+            {
+                if (parts.Length < 2)
+                {
+                    Echo($"[tts] read-aloud is {(_core.Config.TtsRead ? "on" : "off")}; " +
+                         $"streams: {_core.Config.TtsReadStreamsRaw}");
+                    Echo("  #tts read on|off  |  #tts read <stream>  |  #tts mute <stream>");
+                    break;
+                }
+                string arg = parts[1].ToLowerInvariant();
+                if (arg is "on" or "off")
+                {
+                    _core.Config.TtsRead = arg == "on";
+                    Echo($"[tts] read-aloud {arg}.");
+                }
+                else
+                {
+                    var set = SplitStreams(_core.Config.TtsReadStreamsRaw);
+                    set.Add(arg);
+                    _core.Config.TtsReadStreamsRaw = string.Join(",", set);
+                    _core.Config.TtsRead = true;   // enabling a stream implies on
+                    Echo($"[tts] reading: {_core.Config.TtsReadStreamsRaw}");
+                }
+                break;
+            }
+
+            case "mute":
+            {
+                if (parts.Length < 2) { Echo("Usage: #tts mute <stream>"); break; }
+                var set = SplitStreams(_core.Config.TtsReadStreamsRaw);
+                set.Remove(parts[1].ToLowerInvariant());
+                _core.Config.TtsReadStreamsRaw = string.Join(",", set);
+                Echo($"[tts] reading: {_core.Config.TtsReadStreamsRaw}");
+                break;
+            }
+
+            case "stop":
+            case "silence":
+            case "shutup":
+                _tts?.Stop();
+                Echo("[tts] stopped.");
+                break;
+
+            case "status":
+            {
+                Echo($"[tts] voice dir: {voiceDir}");
+                int n = 0;
+                foreach (var v in Services.VoiceCatalog.All)
+                    if (Services.VoiceInstaller.IsInstalled(System.IO.Path.Combine(voiceDir, v.Id)))
+                    { Echo($"  installed: {v.DisplayName}"); n++; }
+                if (n == 0) Echo("  no voices installed — run #tts install");
+                Echo($"  read-aloud: {(_core.Config.TtsRead ? "on" : "off")}; " +
+                     $"streams: {_core.Config.TtsReadStreamsRaw}");
+                break;
+            }
+
+            default:
+                Echo("Usage: #tts install [voice] | use <voice> | voices | read [on|off|<stream>] | mute <stream> | stop | status");
+                break;
+        }
+    }
+
+    /// <summary>Map a stream to its read-aloud urgency. Whispers/death barge in;
+    /// the chatty/background streams stay Low so they yield to anything else.</summary>
+    private static Services.TtsPriority TtsPriorityFor(string stream) =>
+        (stream ?? "").ToLowerInvariant() switch
+        {
+            "whispers" or "death" => Services.TtsPriority.High,
+            "logons" or "atmospherics" or "familiar" => Services.TtsPriority.Low,
+            _ => Services.TtsPriority.Normal,
+        };
+
+    private static SortedSet<string> SplitStreams(string csv) =>
+        new(csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+               .Select(s => s.ToLowerInvariant()));
+
     /// <summary>One-time wiring of the persistent core to the App: VM attaches,
     /// observable subscriptions, #-command handlers, link/sound handlers, plugin
     /// discovery, and the script tick pump. Runs exactly once per app session — the
@@ -2786,6 +2941,31 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         // SFX backend: play gate-passed absolute paths from trigger/highlight
         // sounds and #play.
         _core.SoundRequested += path => _audio.Play(path);
+
+        // TTS backend: synthesize + speak text from #speak (off-thread, lazy
+        // engine init). Voice dir is read live (via the provider) so a runtime
+        // #config ttsvoicedir applies without reconnecting; status messages are
+        // marshaled to the UI thread and shown as system lines.
+        _tts = new Services.TtsService(
+            () => _core.Config.TtsVoiceDir,
+            () => _core.Config.TtsVoice,
+            msg => Avalonia.Threading.Dispatcher.UIThread.Post(() => GameText.AddSystemLine(msg)));
+        _core.SpeakRequested += text => _tts.Speak(text);
+
+        // #tts install / voices / status — manage downloadable voices.
+        _core.TtsCommandRequested += HandleTtsCommand;
+
+        // Per-stream read-aloud (off by default): auto-speak text on enabled
+        // streams. Config is read live so #tts read/mute applies immediately.
+        // Enqueue is thread-safe, so no UI marshaling — keep it off the UI thread.
+        _core.GameEvents
+            .OfType<Genie.Core.Events.TextEvent>()
+            .Subscribe(e =>
+            {
+                if (_tts is null || string.IsNullOrWhiteSpace(e.Text)) return;
+                if (_core.Config.TtsReadsStream(e.Stream))
+                    _tts.Speak(e.Text, TtsPriorityFor(e.Stream));
+            });
 
         // GameText filters lines based on the user's per-tag visibility
         // toggles (Window → Game Window) — supply Display so it can read

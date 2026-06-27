@@ -322,6 +322,22 @@ public sealed class CommandEngine
                 else
                     _host.Echo("Usage: #play <sound file>");
                 break;
+            case "speak":
+            case "say":
+                // #speak <text> — read text aloud via TTS. The host owns the
+                // engine + audio and synthesizes off-thread. Useful from
+                // scripts and as a trigger action. (#say is an alias; the game
+                // 'say' verb is unaffected — this only fires on the # prefix.)
+                if (parts.Count > 1)
+                    _host.Speak(string.Join(" ", parts.Skip(1)));
+                else
+                    _host.Echo("Usage: #speak <text>");
+                break;
+            case "tts":
+                // #tts <install|voices|status> — manage TTS voices. Forwarded
+                // whole (minus the verb) so the App can download/list voices.
+                _host.TtsCommand(string.Join(" ", parts.Skip(1)));
+                break;
             case "goto":
             case "go2":
                 // #goto <room> — start a mapper walk to a room identified by

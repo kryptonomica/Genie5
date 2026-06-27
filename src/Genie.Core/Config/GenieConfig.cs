@@ -97,6 +97,7 @@ public sealed class GenieConfig
 
     public string ScriptDirRaw { get; set; } = "Scripts";
     public string SoundDirRaw { get; set; } = "Sounds";
+    public string TtsVoiceDirRaw { get; set; } = "Voices";
     public string ArtDirRaw { get; set; } = "Art";
     public string PluginDirRaw { get; set; } = "Plugins";
     public string MapDirRaw { get; set; } = "Maps";
@@ -106,6 +107,33 @@ public sealed class GenieConfig
 
     public string ScriptDir => _localDirectory.Current.ResolvePath(ScriptDirRaw);
     public string SoundDir => _localDirectory.Current.ResolvePath(SoundDirRaw);
+    /// <summary>Local dir holding sherpa-onnx Piper voice models for TTS
+    /// (one subfolder per voice: <c>.onnx</c> + <c>tokens.txt</c> +
+    /// <c>espeak-ng-data/</c>). Backs <c>#speak</c> and per-stream read-aloud.</summary>
+    public string TtsVoiceDir => _localDirectory.Current.ResolvePath(TtsVoiceDirRaw);
+
+    /// <summary>Selected TTS voice — the folder name under
+    /// <see cref="TtsVoiceDir"/> (e.g. <c>vits-piper-en_US-lessac-medium</c>).
+    /// Empty = use the first installed voice found. Set by <c>#tts use</c>.</summary>
+    public string TtsVoice { get; set; } = "";
+
+    /// <summary>Master switch for per-stream read-aloud (auto-speak game text).
+    /// Off by default — opt-in. <c>#speak</c> works regardless. <c>#tts read</c>.</summary>
+    public bool TtsRead { get; set; }
+
+    /// <summary>Comma-separated streams read aloud when <see cref="TtsRead"/> is
+    /// on (e.g. <c>whispers,talk,thoughts,death</c>). Default excludes floods
+    /// (combat/atmospherics/logons) and <c>main</c> (speech is duplicated there,
+    /// so reading both double-speaks). Edited by <c>#tts read/mute &lt;stream&gt;</c>.</summary>
+    public string TtsReadStreamsRaw { get; set; } = "whispers,talk,thoughts,death";
+
+    /// <summary>True when <paramref name="stream"/> should be read aloud now
+    /// (master on AND stream in the allowlist).</summary>
+    public bool TtsReadsStream(string stream) =>
+        TtsRead && !string.IsNullOrEmpty(stream) &&
+        TtsReadStreamsRaw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Any(s => s.Equals(stream, StringComparison.OrdinalIgnoreCase));
     /// <summary>Local cache dir for DR room/scene art (downloaded JPGs). Backs
     /// <c>showimages</c> / the Scene panel.</summary>
     public string ArtDir => _localDirectory.Current.ResolvePath(ArtDirRaw);
@@ -249,6 +277,10 @@ public sealed class GenieConfig
         ("roundtimeoffset", RoundTimeOffset.ToString()),
         ("scriptdir", ScriptDirRaw),
         ("sounddir", SoundDirRaw),
+        ("ttsvoicedir", TtsVoiceDirRaw),
+        ("ttsvoice", TtsVoice),
+        ("ttsread", TtsRead.ToString()),
+        ("ttsreadstreams", TtsReadStreamsRaw),
         ("artdir", ArtDirRaw),
         ("mapdir", MapDirRaw),
         ("plugindir", PluginDirRaw),
@@ -342,6 +374,10 @@ public sealed class GenieConfig
                 case "roundtimeoffset": RoundTimeOffset = UtilityCore.StringToDouble(value); break;
                 case "scriptdir": ScriptDirRaw = SetDir(value); break;
                 case "sounddir": SoundDirRaw = SetDir(value); break;
+                case "ttsvoicedir": TtsVoiceDirRaw = SetDir(value); break;
+                case "ttsvoice": TtsVoice = value.Trim(); break;
+                case "ttsread": TtsRead = ToBool(value); break;
+                case "ttsreadstreams": TtsReadStreamsRaw = value.Trim(); break;
                 case "artdir": ArtDirRaw = SetDir(value); break;
                 case "mapdir": MapDirRaw = SetDir(value); break;
                 case "plugindir": PluginDirRaw = SetDir(value); break;
