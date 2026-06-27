@@ -1,3 +1,58 @@
+# Genie 5 — v5.0.0-alpha.7.4
+
+The **Circle Calculator & Raw XML** release — a built-in guild circle calculator,
+a live raw-XML stream inspector, more right-click window actions, and Genie 4
+`#parse` parity.
+
+> **Alpha software.** Builds are **unsigned** for most platforms — Windows
+> SmartScreen will warn on first launch (More info → Run anyway). Signing is
+> tracked in #33.
+
+## ✨ New since alpha.7.3
+
+- **Circle Calculator (#117)** — the Genie 4 circle calculator, built in.
+  `/calc [guild] [circle]` works out how many ranks each skill still needs for
+  your next circle (or a circle you name), auto-detecting your guild from `info`;
+  `/sort [skillset|group] [rank]` lists your skills highest-rank first. Guild
+  requirement tables ship built-in, and `$CircleCalc.Guild` sets a default guild.
+- **Raw XML window (#14)** — a dockable, read-only live view of the raw server XML
+  stream exactly as it arrives, before any tag stripping. Capped rolling buffer,
+  auto-scroll, default hidden; reopen via **Window → Raw XML**. Handy for parser
+  work and "where did that line come from?" debugging.
+- **More window right-click actions (#13)** — the per-window menu gains **Copy
+  All**, **Float / Re-dock**, and **Pause / Resume scrolling**, alongside the
+  existing Clear / Time Stamp / Name List Only / Close.
+- **`#parse` parity (#113)** — `#parse <text>` now feeds the line through your
+  triggers and plugins (not just the script engine) and works typed from the
+  command bar, matching Genie 4.
+- **`#statusbar` / `#status` (#111)** — these now route to a dedicated Script Bar
+  strip.
+
+## 🐛 Fixes
+
+- **Map labels no longer stack on rooms** — landmark labels are free-floating, so
+  they keep their exact placement instead of snapping onto the nearest room cell
+  on import/export.
+- **Skill ranks populate from `exp all`** — running `exp all` now fills the skill
+  store from the printed table (the per-skill push is empty for skills you aren't
+  actively learning), so the pathfinder gets your ranks and the mapper's "fetch
+  your skills" banner clears.
+
+## ⬇️ Downloads
+
+Grab the installer or portable build for your platform from the assets below:
+
+| Platform | Installer | Portable |
+|---|---|---|
+| Windows | `01-Windows-Genie5-Setup.exe` | `01-Windows-Genie5-Portable.zip` |
+| macOS (Apple Silicon) | `02-macOS-Apple-Silicon-Genie5.dmg` | `02-…-Portable.zip` |
+| macOS (Intel) | `03-macOS-Intel-Genie5.dmg` | `03-…-Portable.zip` |
+| Linux (x64) | `04-Linux-Genie5.AppImage` | — |
+
+**Full changelog:** https://github.com/GenieClient/Genie5/compare/v5.0.0-alpha.7.3...v5.0.0-alpha.7.4
+
+---
+
 # Genie 5 — v5.0.0-alpha.7.3
 
 The **Windows & Maps** release — Genie 4-style per-window controls (a right-click

@@ -4,7 +4,27 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.7.2 — JavaScript libraries
+## Latest: v5.0.0-alpha.7.4 — Circle Calculator & Raw XML
+
+A built-in guild **Circle Calculator**, a live **Raw XML** stream inspector, more right-click window actions, and Genie 4 `#parse` parity.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.7.4** as a delta.
+
+- **Circle Calculator** — `/calc [guild] [circle]` shows how many ranks each skill still needs for your next circle (auto-detecting your guild via `info`); `/sort [skillset|group] [rank]` lists your skills highest-rank first. Requirement tables ship built-in ([#117](https://github.com/GenieClient/Genie5/issues/117)).
+- **Raw XML window** — a dockable, read-only live view of the raw server XML stream, before any tag stripping; capped buffer, auto-scroll, default hidden, reopen via **Window → Raw XML** ([#14](https://github.com/GenieClient/Genie5/issues/14)).
+- **More window right-click actions** — the per-window menu gains **Copy All**, **Float / Re-dock**, and **Pause / Resume scrolling** ([#13](https://github.com/GenieClient/Genie5/issues/13)).
+- **`#parse` parity** — `#parse` feeds your triggers and plugins and works typed from the command bar ([#113](https://github.com/GenieClient/Genie5/issues/113)).
+- **Fixes** — map labels stay put instead of snapping onto the nearest room; `exp all` now populates your skill ranks, so the pathfinder and the mapper's "fetch your skills" banner work.
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.7.4)
+
+## v5.0.0-alpha.7.3 — Windows & Maps
+
+Genie 4-style per-window controls (a right-click menu with timestamps and a Name List Only filter), the window-chrome settings reorganised under the Layout menu, map landmark labels, and a skill/class/circle-gated routing fix ([#90](https://github.com/GenieClient/Genie5/issues/90), [#95](https://github.com/GenieClient/Genie5/issues/95)).
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.7.3)
+
+## v5.0.0-alpha.7.2 — JavaScript libraries
 
 Call JavaScript functions from your `.cmd` scripts — the Genie 4 "array script" pattern. Keep a library of functions in a `.js`, `include` it, and call it.
 
