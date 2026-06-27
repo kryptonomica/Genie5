@@ -9,11 +9,17 @@ namespace Genie.Core.Mapper;
 /// Positions are stored in grid units (Genie 4 pixels ÷ 20), matching
 /// <see cref="MapNode.X"/>/<see cref="MapNode.Y"/>, so labels share the node
 /// coordinate space and render against the same origin.
+///
+/// Unlike nodes — which Genie 4 always snaps to 20px grid multiples — labels
+/// are <i>free-floating</i> and placed at arbitrary pixel positions. So X/Y are
+/// <see langword="double"/> (fractional grid units), not <see langword="int"/>:
+/// truncating a label to the nearest node cell stacks it on top of rooms and
+/// neighbouring labels. Z stays integer (it is a discrete floor).
 /// </summary>
 public sealed class MapLabel
 {
     public string Text { get; set; } = string.Empty;
-    public int    X    { get; set; }
-    public int    Y    { get; set; }
+    public double X    { get; set; }
+    public double Y    { get; set; }
     public int    Z    { get; set; }
 }

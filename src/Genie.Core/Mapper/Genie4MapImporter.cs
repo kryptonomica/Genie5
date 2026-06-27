@@ -178,8 +178,11 @@ public static class Genie4MapImporter
                 int.TryParse(lpos.GetAttribute("x"), out int lx);
                 int.TryParse(lpos.GetAttribute("y"), out int ly);
                 int.TryParse(lpos.GetAttribute("z"), out int lz);
-                label.X = lx / 20;   // same pixel→grid scale as nodes
-                label.Y = ly / 20;
+                // Same pixel→grid scale as nodes, but NOT truncated: labels are
+                // free-floating (not snapped to the 20px node grid), so integer
+                // division would stack them onto the nearest room cell.
+                label.X = lx / 20.0;
+                label.Y = ly / 20.0;
                 label.Z = lz;
             }
             zone.Labels.Add(label);

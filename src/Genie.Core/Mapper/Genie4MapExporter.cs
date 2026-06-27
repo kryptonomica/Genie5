@@ -147,10 +147,11 @@ public static class Genie4MapExporter
     {
         writer.WriteStartElement("label");
         writer.WriteAttributeString("text", label.Text);
-        // Position — scale grid units back to pixels (importer divides by 20).
+        // Position — scale fractional grid units back to integer pixels
+        // (importer divides by 20.0; round so a clean round-trip is exact).
         writer.WriteStartElement("position");
-        writer.WriteAttributeString("x", (label.X * 20).ToString());
-        writer.WriteAttributeString("y", (label.Y * 20).ToString());
+        writer.WriteAttributeString("x", ((int)Math.Round(label.X * 20)).ToString());
+        writer.WriteAttributeString("y", ((int)Math.Round(label.Y * 20)).ToString());
         writer.WriteAttributeString("z", label.Z.ToString());
         writer.WriteEndElement();   // position
         writer.WriteEndElement();   // label
