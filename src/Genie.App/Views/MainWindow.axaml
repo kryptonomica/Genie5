@@ -297,6 +297,11 @@
                   IsChecked="{Binding SceneVisible, Mode=OneWay}"
                   Command="{Binding ToggleSceneCommand}"
                   ToolTip.Tip="DR room/scene artwork for locations that have it. Requires #config showimages true (default). Empty for rooms without art."/>
+        <MenuItem Header="Raw _XML"
+                  ToggleType="CheckBox"
+                  IsChecked="{Binding RawXmlVisible, Mode=OneWay}"
+                  Command="{Binding ToggleRawXmlCommand}"
+                  ToolTip.Tip="Live verbatim server XML stream — the raw bytes the parser sees, before tag stripping. For parser development and 'where did that come from?' debugging. Local view only; default hidden."/>
 
         <!-- ── Plugin-created windows (dynamic) ─────────────────────────── -->
         <!-- Populated at runtime from the dock factory whenever a plugin     -->

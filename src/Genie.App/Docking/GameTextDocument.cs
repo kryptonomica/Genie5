@@ -35,6 +35,12 @@ public class GameTextDocument : Document, IWindowMenuHost
     private double     _toolFontSize = 13;
     public  double     ToolFontSize { get => _toolFontSize; private set => SetProperty(ref _toolFontSize, value); }
 
+    /// <summary>"Pause Scrolling" window-menu state. Bound to the game-text
+    /// ScrollViewer's <c>AutoScrollBehavior.Paused</c>; the window menu toggles
+    /// it. Transient (not persisted).</summary>
+    private bool       _isScrollPaused;
+    public  bool       IsScrollPaused { get => _isScrollPaused; set => SetProperty(ref _isScrollPaused, value); }
+
     public GameTextDocument(GameTextViewModel vm, WindowSettings? settings = null)
     {
         ViewModel = vm;

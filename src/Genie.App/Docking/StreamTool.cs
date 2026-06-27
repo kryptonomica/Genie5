@@ -29,6 +29,12 @@ public class StreamTool : Tool, IWindowMenuHost
     private double     _toolFontSize = 11;
     public  double     ToolFontSize { get => _toolFontSize; private set => SetProperty(ref _toolFontSize, value); }
 
+    /// <summary>"Pause Scrolling" window-menu state. Bound to the stream
+    /// ScrollViewer's <c>AutoScrollBehavior.Paused</c>; the window menu toggles
+    /// it. Transient (not persisted).</summary>
+    private bool       _isScrollPaused;
+    public  bool       IsScrollPaused { get => _isScrollPaused; set => SetProperty(ref _isScrollPaused, value); }
+
     public StreamTool(StreamBuffer buffer, WindowSettings? settings = null)
     {
         Buffer = buffer;

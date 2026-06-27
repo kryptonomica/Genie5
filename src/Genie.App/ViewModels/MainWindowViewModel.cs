@@ -54,6 +54,10 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     /// <summary>Backs the dockable Players panel — other players in the room (#86).</summary>
     public PlayersViewModel    Players    { get; } = new();
 
+    /// <summary>Backs the dockable Raw XML panel — verbatim live server stream
+    /// for parser dev / protocol debugging (#14). Hidden by default.</summary>
+    public RawXmlViewModel     RawXml     { get; } = new();
+
     /// <summary>
     /// Global layout presets, shared across every character —
     /// <c>{AppData}/Genie5/Layouts/</c>. Always present.
@@ -346,6 +350,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     [Reactive] public bool SceneVisible    { get; private set; }   // hidden by default (opt-in)
     [Reactive] public bool MobsVisible     { get; private set; }   // hidden by default (opt-in)
     [Reactive] public bool PlayersVisible  { get; private set; }   // hidden by default (opt-in)
+    [Reactive] public bool RawXmlVisible   { get; private set; }   // hidden by default (opt-in, #14)
 
     // ── Toggle commands (one per dockable) ───────────────────────────────────
     public ReactiveCommand<Unit, Unit> ToggleGameCommand     { get; }
@@ -369,6 +374,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
     public ReactiveCommand<Unit, Unit> ToggleSceneCommand    { get; }
     public ReactiveCommand<Unit, Unit> ToggleMobsCommand     { get; }
     public ReactiveCommand<Unit, Unit> TogglePlayersCommand  { get; }
+    public ReactiveCommand<Unit, Unit> ToggleRawXmlCommand   { get; }
 
     // ── Core ──────────────────────────────────────────────────────────────────
 
@@ -720,6 +726,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         WindowSettings.Register("scene",     "Scene");
         WindowSettings.Register("mobs",      "Mobs");
         WindowSettings.Register("players",   "Players");
+        WindowSettings.Register("raw-xml",   "Raw XML");
 
         // ── Global → per-window propagation ─────────────────────────────
         // When the user changes DisplaySettings (color, font, etc.), the
@@ -1260,6 +1267,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         ToggleSceneCommand    = MakeToggleCommand("scene",     v => SceneVisible    = v);
         ToggleMobsCommand     = MakeToggleCommand("mobs",      v => MobsVisible     = v);
         TogglePlayersCommand  = MakeToggleCommand("players",   v => PlayersVisible  = v);
+        ToggleRawXmlCommand   = MakeToggleCommand("raw-xml",   v => RawXmlVisible   = v);
 
         // (ResetLayoutCommand is assigned earlier — using ApplyLayout() with a
         // SavedLayout that goes through factory.BuildDefaultLayout(). A second
@@ -2102,6 +2110,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         SetVisibilityBool("scene",     factory.IsToolVisible("scene"));
         SetVisibilityBool("mobs",      factory.IsToolVisible("mobs"));
         SetVisibilityBool("players",   factory.IsToolVisible("players"));
+        SetVisibilityBool("raw-xml",   factory.IsToolVisible("raw-xml"));
     }
 
     // ── Plugin-created windows ───────────────────────────────────────────────
@@ -2446,6 +2455,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
             case "scene":     ForceSet(visible, v => SceneVisible    = v, () => SceneVisible);    break;
             case "mobs":      ForceSet(visible, v => MobsVisible     = v, () => MobsVisible);     break;
             case "players":   ForceSet(visible, v => PlayersVisible  = v, () => PlayersVisible);  break;
+            case "raw-xml":   ForceSet(visible, v => RawXmlVisible   = v, () => RawXmlVisible);   break;
         }
 
         static void ForceSet(bool target, Action<bool> set, Func<bool> get)
@@ -2794,6 +2804,7 @@ public class MainWindowViewModel : ReactiveObject, IActivatableViewModel
         Scene.Attach(_core);
         Mobs.Attach(_core);
         Players.Attach(_core);
+        RawXml.Attach(_core);
         AttachPluginWindows(_core);
 
         // Load external plugin DLLs from {AppData}/Genie5/Plugins (the builtin

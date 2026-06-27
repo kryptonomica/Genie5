@@ -97,7 +97,14 @@
              so it gets its own copy). No "Close Window" — it's the primary
              document. -->
         <Grid.ContextMenu>
-          <ContextMenu>
+          <ContextMenu docking:WindowMenuBehavior.RefreshOnOpen="True">
+            <MenuItem Header="Copy"
+                      InputGesture="Ctrl+C"
+                      Command="{x:Static docking:WindowMenuBehavior.CopySelectionCommand}"
+                      IsVisible="{Binding WindowMenu.ShowCopyAll}" />
+            <MenuItem Header="Copy All"
+                      Command="{Binding WindowMenu.CopyAllCommand}"
+                      IsVisible="{Binding WindowMenu.ShowCopyAll}" />
             <MenuItem Header="Clear"
                       Command="{Binding WindowMenu.ClearCommand}"
                       IsVisible="{Binding WindowMenu.ShowClear}" />
@@ -109,6 +116,10 @@
                       ToggleType="CheckBox"
                       IsChecked="{Binding WindowMenu.IsNameListOnlyOn, Mode=TwoWay}"
                       IsVisible="{Binding WindowMenu.ShowNameListOnly}" />
+            <MenuItem Header="Pause Scrolling"
+                      ToggleType="CheckBox"
+                      IsChecked="{Binding WindowMenu.IsScrollPaused, Mode=TwoWay}"
+                      IsVisible="{Binding WindowMenu.ShowPauseScroll}" />
           </ContextMenu>
         </Grid.ContextMenu>
         <ScrollViewer x:Name="gameScroll"
@@ -116,7 +127,8 @@
                       VerticalScrollBarVisibility="Auto"
                       Width="{Binding $parent[Grid].Bounds.Width}"
                       Height="{Binding $parent[Grid].Bounds.Height}"
-                      controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}">
+                      controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}"
+                      controls:AutoScrollBehavior.Paused="{Binding IsScrollPaused}">
           <!-- Plain ItemsControl (keeps its default control-theme so it renders),
                with controls:LineSelection.Enabled adding browser-style selection
                ACROSS line items — Avalonia's per-control text selection can't
@@ -134,7 +146,14 @@
                      foreground still override; the .echo class style still wins
                      for typed-input echoes. SelectionBrush gives the cross-line
                      drag a visible highlight. -->
+                <!-- ContextFlyout nulled as a LOCAL value (not a Style) — the
+                     Fluent theme's built-in "Copy" flyout is set via a control-
+                     theme setter that a Style-level null doesn't reliably beat,
+                     so right-clicking text opened a second menu. A local null
+                     wins unconditionally; with no flyout the right-click bubbles
+                     up to the single window menu above. Ctrl+C still copies. -->
                 <SelectableTextBlock TextWrapping="Wrap"
+                                     ContextFlyout="{x:Null}"
                                      Classes.echo="{Binding IsEcho}"
                                      SelectionBrush="#553A6EA5"
                                      controls:InlinesBehavior.Source="{Binding Inlines}"/>
@@ -780,15 +799,19 @@
                       VerticalScrollBarVisibility="Auto"
                       Width="{Binding $parent[Grid].Bounds.Width}"
                       Height="{Binding $parent[Grid].Bounds.Height}"
-                      controls:AutoScrollBehavior.ItemsSource="{Binding Buffer.Lines}">
+                      controls:AutoScrollBehavior.ItemsSource="{Binding Buffer.Lines}"
+                      controls:AutoScrollBehavior.Paused="{Binding IsScrollPaused}">
           <ItemsControl ItemsSource="{Binding Buffer.Lines}"
                         FontFamily="{Binding ToolFontFamily}"
                         FontSize="{Binding ToolFontSize}"
                         Foreground="{Binding ToolForeground}">
             <ItemsControl.ItemTemplate>
               <DataTemplate DataType="vm:TextLine">
-                <!-- Foreground inherits from the tool-scoped ItemsControl. -->
+                <!-- Foreground inherits from the tool-scoped ItemsControl.
+                     ContextFlyout nulled locally so the built-in Copy flyout
+                     doesn't pre-empt the tool's window menu (see game template). -->
                 <SelectableTextBlock TextWrapping="Wrap"
+                                     ContextFlyout="{x:Null}"
                                      controls:InlinesBehavior.Source="{Binding Inlines}"/>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
@@ -890,6 +913,41 @@
                 <DataTemplate DataType="vm:TextLine">
                   <SelectableTextBlock TextWrapping="Wrap"
                                        controls:InlinesBehavior.Source="{Binding Inlines}"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </DataTemplate>
+
+    <!-- ── Raw XML window (#14) — verbatim live server stream ─────────────── -->
+    <!-- Read-only protocol dump for parser development / "where did that come   -->
+    <!-- from?" debugging. Capped rolling buffer, auto-scroll, default hidden.    -->
+    <!-- Monospaced + horizontal scroll so long tags stay on one line.           -->
+    <DataTemplate DataType="docking:RawXmlTool">
+      <Grid RowDefinitions="Auto,*" Margin="4">
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6"
+                    Margin="0,0,0,4">
+          <Button Content="Clear" Command="{Binding ViewModel.ClearCommand}"
+                  FontSize="11" Padding="8,2"
+                  ToolTip.Tip="Clear the buffer"/>
+          <TextBlock Text="Live raw server XML — local view only."
+                     Foreground="#8aa3b5" FontSize="11" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="#15191d" BorderBrush="#3a4148"
+                BorderThickness="1" CornerRadius="3">
+          <ScrollViewer VerticalScrollBarVisibility="Auto"
+                        HorizontalScrollBarVisibility="Auto"
+                        controls:AutoScrollBehavior.ItemsSource="{Binding ViewModel.Lines}">
+            <ItemsControl ItemsSource="{Binding ViewModel.Lines}"
+                          FontFamily="Cascadia Mono,Consolas,Courier New,monospace"
+                          FontSize="11" Foreground="#7fc4a0" Margin="4">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate DataType="x:String">
+                  <SelectableTextBlock Text="{Binding}"/>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

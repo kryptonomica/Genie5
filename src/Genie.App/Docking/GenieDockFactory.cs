@@ -192,6 +192,7 @@ public class GenieDockFactory : Factory
         var scene      = new SceneTool     (_vm.Scene,              ws.Get("scene"));
         var mobs       = new MobsTool      (_vm.Mobs,               ws.Get("mobs"));
         var players    = new PlayersTool   (_vm.Players,            ws.Get("players"));
+        var rawXml     = new RawXmlTool    (_vm.RawXml,             ws.Get("raw-xml"));
 
         // ── Default ship layout — three vertical columns ─────────────────
         //   ┌──────────┬─────────────────────┬──────────┐
@@ -350,6 +351,9 @@ public class GenieDockFactory : Factory
         // Window → Mobs / Players). Home beside the Room panel they complement.
         _tools[mobs.Id]       = (mobs,       roomDock.Id);
         _tools[players.Id]    = (players,    roomDock.Id);
+        // Raw XML (#14): dev/debug protocol dump — hidden by default, re-opens
+        // beside the Backpack via Window → Raw XML (grouped with Scripts/Scene).
+        _tools[rawXml.Id]     = (rawXml,     backpackDock.Id);
 
         // ── Home-dock recreation map ─────────────────────────────────────
         // Mirrors the proportions/alignments set on the ToolDocks above so a
@@ -419,6 +423,7 @@ public class GenieDockFactory : Factory
         var scene      = new SceneTool        (_vm.Scene,              ws.Get("scene"));
         var mobs       = new MobsTool         (_vm.Mobs,               ws.Get("mobs"));
         var players    = new PlayersTool      (_vm.Players,            ws.Get("players"));
+        var rawXml     = new RawXmlTool       (_vm.RawXml,             ws.Get("raw-xml"));
 
         // Every MDI panel in canonical order, paired with its id.
         var panels = new (string Id, IDockable Dockable)[]
@@ -428,7 +433,7 @@ public class GenieDockFactory : Factory
             ("combat", combat), ("familiar", familiar), ("death", death), ("assess", assess),
             ("atmospherics", atmospherics), ("log", log), ("itemlog", itemlog),
             ("vitals", vitals), ("experience", experience), ("scene", scene),
-            ("mobs", mobs), ("players", players),
+            ("mobs", mobs), ("players", players), ("raw-xml", rawXml),
         };
 
         // Which panels open as windows. Default mirrors the tabbed layout
@@ -807,13 +812,40 @@ public class GenieDockFactory : Factory
             StreamTool st       => ReactiveCommand.Create(() => st.Buffer.Lines.Clear()),
             GameTextDocument gd => ReactiveCommand.Create(() => gd.ViewModel.Lines.Clear()),
             BackpackTool bp     => ReactiveCommand.Create(() => bp.ViewModel.Items.Clear()),
+            RawXmlTool rx       => ReactiveCommand.Create(() => rx.ViewModel.Lines.Clear()),
             _                   => null
         };
 
-        // Time Stamp + Name List Only only make sense for the per-line text
-        // feeds; everything else gets just Clear (where it has a buffer) + Close.
+        // Float / Re-dock — every tool except the primary game document (which,
+        // like Close, can't be detached). One toggle; the verb reflects live
+        // float state, re-read on menu-open via WindowMenuBehavior.
+        (Action? toggleFloat, Func<bool>? floatProbe) = dockable is GameTextDocument
+            ? (null, null)
+            : ((Action?)(() => ToggleFloat(id)), (Func<bool>?)(() => IsToolFloating(id)));
+
+        // Copy All — windows with a copyable line buffer. Game window reuses its
+        // existing clipboard command (also on Ctrl+Shift+C); streams + raw-XML
+        // copy their buffer text.
+        ICommand? copyAll = dockable switch
+        {
+            GameTextDocument gd => gd.ViewModel.CopyAllCommand,
+            StreamTool st       => ReactiveCommand.CreateFromTask(
+                () => WindowClipboard.CopyLinesAsync(st.Buffer.Lines.Select(l => l.Text))),
+            RawXmlTool rx       => ReactiveCommand.CreateFromTask(
+                () => WindowClipboard.CopyLinesAsync(rx.ViewModel.Lines)),
+            _                   => null
+        };
+
+        // Time Stamp + Name List Only + Pause Scrolling only make sense for the
+        // per-line text feeds; everything else gets Copy All (where it has a
+        // buffer) + Clear + Float + Close.
         if (dockable is not (StreamTool or GameTextDocument))
-            return new WindowMenuModel(clear: clear, close: close);
+            return new WindowMenuModel(
+                clear:           clear,
+                close:           close,
+                copyAll:         copyAll,
+                onToggleFloat:   toggleFloat,
+                floatStateProbe: floatProbe);
 
         var settings = _vm.WindowSettings.Get(id);
 
@@ -821,9 +853,19 @@ public class GenieDockFactory : Factory
         // the first line, not only after the menu is first opened.
         ApplyNameListOnly(dockable, settings.NameListOnly);
 
+        // Pause Scrolling — toggles the dockable's reactive IsScrollPaused, which
+        // the ScrollViewer binds via AutoScrollBehavior.Paused. Transient.
+        (bool pausedInit, Action<bool>? pauseToggle) = dockable switch
+        {
+            GameTextDocument gd => (gd.IsScrollPaused, (Action<bool>?)(on => gd.IsScrollPaused = on)),
+            StreamTool st       => (st.IsScrollPaused, (Action<bool>?)(on => st.IsScrollPaused = on)),
+            _                   => (false, null)
+        };
+
         var menu = new WindowMenuModel(
             clear:                 clear,
             close:                 close,
+            copyAll:               copyAll,
             timestampOn:           settings.Timestamp,
             onTimestampToggled:    on =>
             {
@@ -837,7 +879,11 @@ public class GenieDockFactory : Factory
                 settings.NameListOnly = on;
                 ApplyNameListOnly(dockable, on);
                 _vm.SaveWindowSettings();
-            });
+            },
+            scrollPausedOn:        pausedInit,
+            onScrollPauseToggled:  pauseToggle,
+            onToggleFloat:         toggleFloat,
+            floatStateProbe:       floatProbe);
 
         // Keep the checkmarks in sync if the same settings are edited elsewhere
         // (e.g. the Configuration → Layout tab's Time Stamp checkbox).
@@ -1204,6 +1250,51 @@ public class GenieDockFactory : Factory
         // title bar back over the main app shows dock indicators so the user
         // can re-dock it wherever they want.
         FloatDockable(current);
+    }
+
+    /// <summary>
+    /// True if the tool is currently in one of the root's floating
+    /// <see cref="IRootDock.Windows"/> (as opposed to docked in the main
+    /// layout). Drives the Window menu's "Float" ⇄ "Re-dock" verb and routes
+    /// <see cref="ToggleFloat"/>.
+    /// </summary>
+    public bool IsToolFloating(string id)
+    {
+        if (_root?.Windows is not { } windows) return false;
+        foreach (var w in windows)
+            if (w.Layout is { } layout && FindByIdInTree(layout, id) is not null)
+                return true;
+        return false;
+    }
+
+    /// <summary>Window-menu "Float / Re-dock": float a docked tool, or bring a
+    /// floating one back to its docked home.</summary>
+    public void ToggleFloat(string id)
+    {
+        if (IsToolFloating(id)) RedockTool(id);
+        else                    FloatTool(id);
+    }
+
+    /// <summary>
+    /// Bring a floating tool back into the docked layout at its last docked
+    /// location. Closes the floating instance (the now-empty HostWindow is
+    /// torn down by Dock.Avalonia) and reuses <see cref="SetToolVisibility"/>'s
+    /// home-restore path — the same Stage-0 last-known-location logic that
+    /// reopening a closed panel uses. <see cref="CapturePosition"/> deliberately
+    /// ignores floating positions, so <c>_lastKnownPositions[id]</c> still
+    /// points at the spot the tool was docked before it floated.
+    /// </summary>
+    public void RedockTool(string id)
+    {
+        if (_root is null) return;
+        var current = FindByIdInTree(_root, id);
+        if (current is null || !IsToolFloating(id)) return;
+
+        // Drop the floating instance, then restore to home. After the close the
+        // id is gone from the tree, so SetToolVisibility sees it as hidden and
+        // runs its restore branch instead of early-returning.
+        CloseDockable(current);
+        SetToolVisibility(id, true);
     }
 
     /// <summary>

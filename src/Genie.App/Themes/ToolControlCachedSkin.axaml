@@ -3,6 +3,7 @@
                     xmlns:dmc="using:Dock.Model.Controls"
                     xmlns:core="using:Dock.Model.Core"
                     xmlns:converters="using:Dock.Avalonia.Converters"
+                    xmlns:docking="using:Genie.App.Docking"
                     x:DataType="dmc:IToolDock"
                     x:CompileBindings="True">
 
@@ -127,7 +128,15 @@
                            it, so a Vitals tab shows only "Close Window" while a
                            stream tab shows all four. -->
                       <ContentControl.ContextMenu>
-                        <ContextMenu x:CompileBindings="False">
+                        <ContextMenu x:CompileBindings="False"
+                                     docking:WindowMenuBehavior.RefreshOnOpen="True">
+                          <MenuItem Header="Copy"
+                                    InputGesture="Ctrl+C"
+                                    Command="{x:Static docking:WindowMenuBehavior.CopySelectionCommand}"
+                                    IsVisible="{Binding WindowMenu.ShowCopyAll}" />
+                          <MenuItem Header="Copy All"
+                                    Command="{Binding WindowMenu.CopyAllCommand}"
+                                    IsVisible="{Binding WindowMenu.ShowCopyAll}" />
                           <MenuItem Header="Clear"
                                     Command="{Binding WindowMenu.ClearCommand}"
                                     IsVisible="{Binding WindowMenu.ShowClear}" />
@@ -139,6 +148,13 @@
                                     ToggleType="CheckBox"
                                     IsChecked="{Binding WindowMenu.IsNameListOnlyOn, Mode=TwoWay}"
                                     IsVisible="{Binding WindowMenu.ShowNameListOnly}" />
+                          <MenuItem Header="Pause Scrolling"
+                                    ToggleType="CheckBox"
+                                    IsChecked="{Binding WindowMenu.IsScrollPaused, Mode=TwoWay}"
+                                    IsVisible="{Binding WindowMenu.ShowPauseScroll}" />
+                          <MenuItem Header="{Binding WindowMenu.FloatHeader}"
+                                    Command="{Binding WindowMenu.ToggleFloatCommand}"
+                                    IsVisible="{Binding WindowMenu.ShowFloat}" />
                           <Separator IsVisible="{Binding WindowMenu.ShowCloseSeparator}" />
                           <MenuItem Header="Close Window"
                                     Command="{Binding WindowMenu.CloseCommand}"

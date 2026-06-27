@@ -38,13 +38,26 @@ public sealed class LineSelection
     public static void SetEnabled(ItemsControl c, bool value) => c.SetValue(EnabledProperty, value);
     public static bool GetEnabled(ItemsControl c) => c.GetValue(EnabledProperty);
 
+    /// <summary>The live behavior backing a list, stashed so the window menu's
+    /// "Copy" item can read the current cross-line selection (the behavior holds
+    /// the selection state; the rendered per-line SelectionStart/End is just a
+    /// view of it).</summary>
+    internal static readonly AttachedProperty<LineSelectionBehavior?> BehaviorProperty =
+        AvaloniaProperty.RegisterAttached<LineSelection, ItemsControl, LineSelectionBehavior?>("Behavior");
+
     static LineSelection()
     {
         EnabledProperty.Changed.AddClassHandler<ItemsControl>((ic, e) =>
         {
-            if (e.GetNewValue<bool>()) _ = new LineSelectionBehavior(ic);
+            if (e.GetNewValue<bool>()) ic.SetValue(BehaviorProperty, new LineSelectionBehavior(ic));
         });
     }
+
+    /// <summary>Current cross-line selection of a LineSelection-enabled list as
+    /// plain text, or null/empty when nothing is selected. Used by the window
+    /// menu's Copy item.</summary>
+    public static string? GetSelectedText(ItemsControl ic) =>
+        ic.GetValue(BehaviorProperty)?.GetSelectedText();
 }
 
 /// <summary>The per-control state + handlers backing <see cref="LineSelection"/>.
@@ -266,7 +279,17 @@ internal sealed class LineSelectionBehavior
 
     private async void CopySelection()
     {
-        if (_anchor == _focus) return;
+        var text = GetSelectedText();
+        if (string.IsNullOrEmpty(text)) return;
+        if (TopLevel.GetTopLevel(_ic)?.Clipboard is { } cb) await cb.SetTextAsync(text);
+    }
+
+    /// <summary>The current cross-line selection as plain text (links rendered as
+    /// their display text), or "" when nothing is selected. Shared by Ctrl+C and
+    /// the window menu's "Copy" item.</summary>
+    public string GetSelectedText()
+    {
+        if (_anchor == _focus) return "";
         var (s, e) = Normalized();
         var sb = new StringBuilder();
         for (int L = s.Line; L <= e.Line; L++)
@@ -277,9 +300,7 @@ internal sealed class LineSelectionBehavior
             sb.Append(SelectedPlain(line, lo, hi));
             if (L < e.Line) sb.Append('\n');
         }
-        var text = sb.ToString();
-        if (text.Length == 0) return;
-        if (TopLevel.GetTopLevel(_ic)?.Clipboard is { } cb) await cb.SetTextAsync(text);
+        return sb.ToString();
     }
 
     // ── Layout ↔ plain-text mapping (links are one object-char in layout) ─────
