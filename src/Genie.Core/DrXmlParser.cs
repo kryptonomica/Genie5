@@ -122,6 +122,16 @@ public sealed class DrXmlParser : IDisposable
     private readonly List<BoldSpan> _componentBoldSpans = new();
     private readonly Stack<int>     _componentBoldStack = new();
 
+    // ── News-listing auto-link state (public issue #30) ──────────────────────
+    // DR sends the `news` listing as PLAIN TEXT — the numbered item lines carry
+    // no <d>/<a> tags, so they're not clickable on their own. We track the
+    // listing context (between the "ITEM # - HEADLINE" header and the trailing
+    // "Type NEWS HELP" / "END NEWS ITEM" footer) plus the current category from
+    // each "** Category N - … **" header, then synthesize a click link
+    // (command "news <cat> <item>") over each numbered line in EmitLine.
+    private bool _inNewsList;
+    private int  _newsCategory;
+
     // ── Raw buffer ───────────────────────────────────────────────────────────
     private readonly System.Text.StringBuilder _rawBuffer = new(2048);
 
@@ -191,6 +201,28 @@ public sealed class DrXmlParser : IDisposable
     // multi-word (e.g. "S'Kra Mur"), hence the lazy ".+?" between fields.
     private static readonly System.Text.RegularExpressions.Regex _guildRe =
         new(@"^\s*Name:\s.+?\bGuild:\s+([A-Za-z][A-Za-z' ]*?)\s*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // ── News-listing markers (public issue #30) ──────────────────────────────
+    // Enter the listing context on either the "Listing all news items." preamble
+    // or the "ITEM # - HEADLINE" column header; leave it on the "Type NEWS HELP"
+    // footer or "END NEWS ITEM" (which precedes the body of a read article — we
+    // must NOT synthesize links inside article text).
+    private static readonly System.Text.RegularExpressions.Regex _newsEnterRe =
+        new(@"^(Listing all news items\.|ITEM # - HEADLINE)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex _newsExitRe =
+        new(@"^(Type NEWS HELP|END NEWS ITEM)",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+    // "** Category 1 - GENERAL ANNOUNCEMENTS **" → captures the category number.
+    private static readonly System.Text.RegularExpressions.Regex _newsCategoryRe =
+        new(@"^\*\* Category (\d+) - .* \*\*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+    // "     2 - COMMUNICATION WITH STAFF" → captures the item number (group 1).
+    // Matched against the un-trimmed line so the capture index gives the real
+    // offset of the digit within the display text.
+    private static readonly System.Text.RegularExpressions.Regex _newsItemRe =
+        new(@"^\s*(\d+) - .+$",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // Buffers raw text fragments across inline tag splits (e.g. <pushBold/>, <d>).
@@ -298,7 +330,55 @@ public sealed class DrXmlParser : IDisposable
         if (guildMatch.Success)
             _events.OnNext(new GuildEvent(guildMatch.Groups[1].Value.Trim()));
 
+        // News-listing auto-link (public issue #30). Updates the listing-context
+        // state machine and, on a numbered item line, hands back a synthesized
+        // click LinkSpan to merge with any tag-derived links (there are none on
+        // these plain-text lines in practice, but we merge defensively).
+        var newsLink = TrackNewsAndLink(stripped);
+        if (newsLink is not null)
+            links = links is null ? new[] { newsLink } : links.Append(newsLink).ToArray();
+
         _events.OnNext(new TextEvent(_activeStream, stripped, links, boldSpans, presetSpans));
+    }
+
+    // Drive the news-listing state machine for one display line and, when the
+    // line is a numbered item inside a known category, return a click LinkSpan
+    // whose command re-issues "news <category> <item>". Returns null otherwise.
+    // See issue #30 — DR's news listing is plain text with no link tags.
+    private LinkSpan? TrackNewsAndLink(string stripped)
+    {
+        var t = stripped.TrimStart();
+
+        // Footer ends the listing context (and guards against linking inside the
+        // body of a read article, which follows "END NEWS ITEM").
+        if (_newsExitRe.IsMatch(t)) { _inNewsList = false; _newsCategory = 0; return null; }
+
+        // Preamble / column header opens a listing.
+        if (_newsEnterRe.IsMatch(t)) { _inNewsList = true; _newsCategory = 0; return null; }
+
+        // Category header sets the active category (and implies listing mode).
+        var cat = _newsCategoryRe.Match(t);
+        if (cat.Success)
+        {
+            _inNewsList   = true;
+            _newsCategory = int.Parse(cat.Groups[1].Value);
+            return null;
+        }
+
+        // Numbered item line within a category → synthesize the click link.
+        if (_inNewsList && _newsCategory > 0)
+        {
+            var m = _newsItemRe.Match(stripped);
+            if (m.Success)
+            {
+                var num   = m.Groups[1];
+                var start = num.Index;                 // offset of the digit in the display text
+                var len   = stripped.Length - start;   // number through end of headline
+                return new LinkSpan(start, len, $"news {_newsCategory} {num.Value}");
+            }
+        }
+
+        return null;
     }
 
     private void ParseTag(string tag)
