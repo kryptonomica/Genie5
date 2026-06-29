@@ -1,3 +1,36 @@
+# Genie 5 — v5.0.0-alpha.7.7
+
+A community bug-fix and polish release — clickable news listings, clearer
+disconnect feedback, an accurate mob count, and a Room window that wraps again in
+windowed mode. Most of these came straight from issue reports; thanks to everyone
+who filed them.
+
+> **Alpha software.** Builds are **unsigned** for most platforms — Windows
+> SmartScreen will warn on first launch (More info → Run anyway). Signing is
+> tracked in #33.
+
+## ✨ New
+
+- **Clickable news listings (#30)** — DR's `news` listing arrives as plain text
+  with no links, so the numbered items weren't clickable. Genie 5 now synthesizes
+  a click target over each numbered line (e.g. `news 1 2`), so you can open an
+  article straight from the list.
+- **Disconnect feedback (#114)** — leaving the game is now unmissable: a
+  timestamped `disconnected` line in the Game window (Genie 4 parity) plus an
+  optional "Disconnected" popup. It's suppressed while auto-reconnecting, and the
+  popup can be turned off under **Window → Disconnect Popup** (the line always
+  shows regardless).
+
+## 🐛 Fixes
+
+- **Mob count for same-type creatures (#118)** — two creatures joined by "and"
+  with no comma ("a giant viper and a giant viper") were collapsed into a single
+  entry, throwing the count off. Each creature is now split and counted
+  individually, so the Mobs panel and `$monstercount` are correct.
+- **Room window wrapping in MDI (#124)** — in windowed/MDI mode the Room window
+  stopped wrapping and ran off the edge. It wraps again. (Docked/tabbed mode was
+  never affected.)
+
 # Genie 5 — v5.0.0-alpha.7.6
 
 The **Genie 4 script-language parity** release — a pass over the script

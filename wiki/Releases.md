@@ -4,7 +4,20 @@ Where to get Genie 5 and what changed in each build. Downloads live on the [Rele
 
 > Genie 5 is **alpha**. Versions are tagged `v5.0.0-alpha.N`. Builds are unsigned for now (Windows/macOS show a first-launch warning — see [Installation](Installation#platform-first-launch-notes)); signed Windows builds are expected from an upcoming release.
 
-## Latest: v5.0.0-alpha.7.6 — Genie 4 Script-Language Parity
+## Latest: v5.0.0-alpha.7.7 — Community Fixes & Polish
+
+A bug-fix and polish release built mostly from issue reports — clickable news listings, clearer disconnect feedback, an accurate mob count, and a Room window that wraps again in windowed mode.
+
+> **📡 Still on the beta channel — that's intentional.** Every alpha ships as a GitHub **pre-release**, so the Core updater defaults to **beta**; that's what lets **Help → Check for Updates** see new alpha builds. Already on an earlier alpha? Open the Updates dialog and you'll be offered **alpha.7.7** as a delta.
+
+- **Clickable news listings** — the numbered items in DR's plain-text `news` listing are now click-to-open ([#30](https://github.com/GenieClient/Genie5/issues/30)).
+- **Disconnect feedback** — a timestamped `disconnected` line plus an optional "Disconnected" popup when you leave the game; toggle the popup under **Window → Disconnect Popup** ([#114](https://github.com/GenieClient/Genie5/issues/114)).
+- **Accurate mob count** — same-type creatures joined by "and" ("a giant viper and a giant viper") are split and counted individually ([#118](https://github.com/GenieClient/Genie5/issues/118)).
+- **Room window wraps in MDI** — fixed text running off the edge of the Room window in windowed mode ([#124](https://github.com/GenieClient/Genie5/issues/124)).
+
+[Full release notes →](https://github.com/GenieClient/Genie5/releases/tag/v5.0.0-alpha.7.7)
+
+## v5.0.0-alpha.7.6 — Genie 4 Script-Language Parity
 
 A faithful-port pass over the scripting language so it behaves like Genie 4 — verified against ~130 community scripts.
 
